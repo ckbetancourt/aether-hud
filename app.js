@@ -109,6 +109,8 @@ document.addEventListener('DOMContentLoaded', () => {
         deckSendMessageBtn: document.getElementById('deckSendMessageBtn'),
 
         // Settings inputs
+        ttsProvider: document.getElementById('ttsProvider'),
+        ttsProviderHint: document.getElementById('ttsProviderHint'),
         synthVoice: document.getElementById('synthVoice'),
         voicePreviewBtn: document.getElementById('voicePreviewBtn'),
         voiceInputBehavior: document.getElementById('voiceInputBehavior'),
@@ -247,6 +249,14 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         window.addEventListener('aetherVoicesLoaded', populateVoicesList);
+        window.addEventListener('aetherElevenLabsVoicesLoaded', populateVoicesList);
+
+        if (elements.ttsProvider) {
+            elements.ttsProvider.addEventListener('change', () => {
+                updateTtsProviderHint();
+                populateVoicesList();
+            });
+        }
 
         if (elements.voicePreviewBtn) {
             elements.voicePreviewBtn.addEventListener('click', previewSelectedVoice);
@@ -1012,7 +1022,28 @@ document.addEventListener('DOMContentLoaded', () => {
         await submitDirectTextCommand(text);
     }
 
+    function getTtsProvider() {
+        return localStorage.getItem('aether_tts_provider') || 'browser';
+    }
+
+    function updateTtsProviderHint() {
+        if (!elements.ttsProviderHint) return;
+        const provider = elements.ttsProvider?.value || getTtsProvider();
+        if (provider === 'elevenlabs') {
+            elements.ttsProviderHint.textContent =
+                'Cloud voices via ElevenLabs. Set ELEVENLABS_API_KEY in .env.local on the Aether server, then restart npm start. Speed adjusts voice stability.';
+        } else {
+            elements.ttsProviderHint.textContent =
+                "Uses your browser's built-in speech synthesis (no model download). Speed adjusts playback rate.";
+        }
+    }
+
     function openSettingsModal() {
+        if (elements.ttsProvider) {
+            elements.ttsProvider.value = getTtsProvider();
+        }
+        updateTtsProviderHint();
+
         elements.synthSpeed.value = localStorage.getItem('aether_voice_speed') || '1.0';
         elements.synthSpeedVal.textContent = elements.synthSpeed.value + 'x';
         
@@ -1047,8 +1078,17 @@ document.addEventListener('DOMContentLoaded', () => {
         localStorage.setItem('aether_voice_speed', elements.synthSpeed.value);
         localStorage.setItem('aether_stream_delay', elements.simulationSpeed.value);
 
-        if (elements.synthVoice.value) {
-            localStorage.setItem('aether_voice_name', elements.synthVoice.value);
+        if (elements.ttsProvider) {
+            localStorage.setItem('aether_tts_provider', elements.ttsProvider.value);
+        }
+
+        const providerToSave = elements.ttsProvider?.value || getTtsProvider();
+        if (elements.synthVoice?.value) {
+            if (providerToSave === 'elevenlabs') {
+                localStorage.setItem('aether_elevenlabs_voice_id', elements.synthVoice.value);
+            } else {
+                localStorage.setItem('aether_voice_name', elements.synthVoice.value);
+            }
         }
 
         if (elements.voiceInputBehavior) {
@@ -1078,10 +1118,7 @@ document.addEventListener('DOMContentLoaded', () => {
         appendSystemConsoleLine("[SYSTEM] Settings updated.");
     }
 
-    function populateVoicesList() {
-        if (!elements.synthVoice) return;
-        elements.synthVoice.innerHTML = '';
-
+    function populateBrowserVoicesList() {
         const systemVoices = speech.voices;
         if (systemVoices.length === 0) {
             elements.synthVoice.innerHTML = '<option value="">No voices available</option>';
@@ -1108,11 +1145,65 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    async function populateElevenLabsVoicesList() {
+        elements.synthVoice.innerHTML = '<option value="">Loading ElevenLabs voices…</option>';
+        if (elements.voicePreviewBtn) {
+            elements.voicePreviewBtn.disabled = true;
+        }
+
+        try {
+            const res = await fetch('/api/tts/elevenlabs/voices');
+            const data = await res.json().catch(() => ({}));
+            const voices = Array.isArray(data.voices) ? data.voices : [];
+
+            elements.synthVoice.innerHTML = '';
+
+            if (!res.ok || voices.length === 0) {
+                const message = data.error || 'ElevenLabs not configured';
+                elements.synthVoice.innerHTML = `<option value="">${message}</option>`;
+                return;
+            }
+
+            const savedVoiceId = localStorage.getItem('aether_elevenlabs_voice_id');
+
+            voices.forEach((v) => {
+                const opt = document.createElement('option');
+                opt.value = v.id;
+                const category = v.category ? ` · ${v.category}` : '';
+                opt.textContent = `${v.name}${category}`;
+                if (savedVoiceId && v.id === savedVoiceId) {
+                    opt.selected = true;
+                }
+                elements.synthVoice.appendChild(opt);
+            });
+
+            if (elements.voicePreviewBtn) {
+                elements.voicePreviewBtn.disabled = !elements.synthVoice.value;
+            }
+        } catch (e) {
+            elements.synthVoice.innerHTML = '<option value="">Failed to load ElevenLabs voices</option>';
+        }
+    }
+
+    function populateVoicesList() {
+        if (!elements.synthVoice) return;
+        elements.synthVoice.innerHTML = '';
+
+        const provider = elements.ttsProvider?.value || getTtsProvider();
+        if (provider === 'elevenlabs') {
+            populateElevenLabsVoicesList();
+            return;
+        }
+
+        populateBrowserVoicesList();
+    }
+
     function previewSelectedVoice() {
         if (!elements.synthVoice || !elements.synthVoice.value) return;
 
         const rate = parseFloat(elements.synthSpeed?.value || '1.0');
-        speech.previewVoice(elements.synthVoice.value, rate);
+        const provider = elements.ttsProvider?.value || getTtsProvider();
+        speech.previewVoice(elements.synthVoice.value, rate, provider);
     }
 
     /* ==========================================================================

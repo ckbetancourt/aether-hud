@@ -120,6 +120,12 @@ const {
   buildAetherTtsPrompt,
 } = require('./aether-config.js');
 
+const {
+  isElevenLabsConfigured,
+  fetchElevenLabsVoices,
+  synthesizeElevenLabsSpeech,
+} = require('./lib/elevenlabs-tts.js');
+
 function buildSystemPrompt(body = {}) {
   if (body.voiceSystemPrompt && typeof body.voiceSystemPrompt === 'string') {
     return body.voiceSystemPrompt;
@@ -577,6 +583,16 @@ function sendJson(res, status, obj, extraHeaders = {}) {
   res.end(body);
 }
 
+function sendBinary(res, status, buffer, contentType, extraHeaders = {}) {
+  res.writeHead(status, {
+    'Content-Type': contentType,
+    'Content-Length': buffer.length,
+    ...corsHeaders(),
+    ...extraHeaders,
+  });
+  res.end(buffer);
+}
+
 function serveStatic(urlPath, res) {
   let rel = decodeURIComponent(urlPath);
   if (rel === '/' || rel === '') {
@@ -637,6 +653,23 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (req.method === 'POST' && pathname === '/api/tts/elevenlabs/speak') {
+    try {
+      const body = await readBody(req);
+      const { buffer, contentType } = await synthesizeElevenLabsSpeech({
+        text: body?.text,
+        voiceId: body?.voiceId,
+        speed: body?.speed,
+      });
+      sendBinary(res, 200, buffer, contentType);
+    } catch (e) {
+      const status = e.statusCode || (e instanceof SyntaxError ? 400 : 500);
+      console.error('[api/tts/elevenlabs/speak]', e.message || e);
+      sendJson(res, status, { error: e.message || 'Server error' });
+    }
+    return;
+  }
+
   if (req.method === 'GET' || req.method === 'HEAD') {
     if (pathname === '/api/hermes/status') {
       const status = await probeHermesStatus();
@@ -668,6 +701,23 @@ const server = http.createServer(async (req, res) => {
         const status = e.statusCode || 502;
         console.error('[api/hermes/sessions]', e.message || e);
         sendJson(res, status, { available: false, items: [], error: e.message || 'Hermes sessions unavailable' });
+      }
+      return;
+    }
+
+    if (pathname === '/api/tts/elevenlabs/status') {
+      sendJson(res, 200, { configured: isElevenLabsConfigured() });
+      return;
+    }
+
+    if (pathname === '/api/tts/elevenlabs/voices') {
+      try {
+        const voices = await fetchElevenLabsVoices();
+        sendJson(res, 200, { voices });
+      } catch (e) {
+        const status = e.statusCode || 502;
+        console.error('[api/tts/elevenlabs/voices]', e.message || e);
+        sendJson(res, status, { voices: [], error: e.message || 'ElevenLabs voices unavailable' });
       }
       return;
     }

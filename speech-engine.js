@@ -1,6 +1,6 @@
 /**
  * Aether Speech Recognition and Synthesis Engine
- * STT: Web Speech API. TTS: browser speechSynthesis.
+ * STT: Web Speech API. TTS: browser speechSynthesis or ElevenLabs (server proxy).
  */
 
 class SpeechEngine {
@@ -9,6 +9,8 @@ class SpeechEngine {
     this.synth = window.speechSynthesis;
     this.voices = [];
     this.speechEnabled = true;
+    this.currentAudio = null;
+    this.currentAudioUrl = null;
 
     this.voiceConfig = {
       pitch: 1.0,
@@ -22,6 +24,18 @@ class SpeechEngine {
     if (this.synth) {
       this.synth.onvoiceschanged = () => this.loadVoices();
     }
+  }
+
+  getTtsProvider() {
+    return localStorage.getItem('aether_tts_provider') || 'browser';
+  }
+
+  getElevenLabsVoiceId() {
+    return localStorage.getItem('aether_elevenlabs_voice_id') || '';
+  }
+
+  getSpeechSpeed() {
+    return parseFloat(localStorage.getItem('aether_voice_speed') || '1.0');
   }
 
   initRecognition() {
@@ -82,6 +96,28 @@ class SpeechEngine {
     );
   }
 
+  async loadElevenLabsVoices() {
+    try {
+      const res = await fetch('/api/tts/elevenlabs/voices');
+      const data = await res.json().catch(() => ({}));
+      const voices = Array.isArray(data.voices) ? data.voices : [];
+      window.dispatchEvent(
+        new CustomEvent('aetherElevenLabsVoicesLoaded', {
+          detail: { voices, configured: res.ok, error: data.error || null },
+        })
+      );
+      return voices;
+    } catch (e) {
+      console.warn('Failed to load ElevenLabs voices:', e);
+      window.dispatchEvent(
+        new CustomEvent('aetherElevenLabsVoicesLoaded', {
+          detail: { voices: [], configured: false, error: e.message },
+        })
+      );
+      return [];
+    }
+  }
+
   findBestVoice(keywords) {
     if (this.voices.length === 0) return null;
 
@@ -103,20 +139,28 @@ class SpeechEngine {
       .trim();
   }
 
-  speak(text, _legacyProfileId, onBoundary, onEnd) {
-    if (!this.speechEnabled) {
-      if (onEnd) onEnd();
-      return;
+  stopAudioPlayback() {
+    if (this.currentAudio) {
+      this.currentAudio.pause();
+      this.currentAudio.currentTime = 0;
+      this.currentAudio.onended = null;
+      this.currentAudio.onerror = null;
+      this.currentAudio = null;
     }
-
-    this.stopSpeaking();
-
-    const cleanText = SpeechEngine.cleanTextForSpeech(text);
-    if (!cleanText) {
-      if (onEnd) onEnd();
-      return;
+    if (this.currentAudioUrl) {
+      URL.revokeObjectURL(this.currentAudioUrl);
+      this.currentAudioUrl = null;
     }
+  }
 
+  stopSpeaking() {
+    if (this.synth) {
+      this.synth.cancel();
+    }
+    this.stopAudioPlayback();
+  }
+
+  speakWithBrowser(cleanText, onBoundary, onEnd) {
     if (!this.synth) {
       if (onEnd) onEnd();
       return;
@@ -138,7 +182,7 @@ class SpeechEngine {
       if (userVoice) utterance.voice = userVoice;
     }
 
-    const customSpeed = parseFloat(localStorage.getItem('aether_voice_speed') || '1.0');
+    const customSpeed = this.getSpeechSpeed();
     utterance.rate = voiceConfig.rate * customSpeed;
     utterance.pitch = voiceConfig.pitch;
 
@@ -158,21 +202,91 @@ class SpeechEngine {
     this.synth.speak(utterance);
   }
 
-  stopSpeaking() {
-    if (this.synth) {
-      this.synth.cancel();
+  async speakWithElevenLabs(cleanText, voiceId, speed, onEnd) {
+    try {
+      const res = await fetch('/api/tts/elevenlabs/speak', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: cleanText,
+          voiceId: voiceId || this.getElevenLabsVoiceId(),
+          speed,
+        }),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `ElevenLabs TTS failed (${res.status})`);
+      }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+
+      this.currentAudio = audio;
+      this.currentAudioUrl = url;
+
+      const finish = () => {
+        if (this.currentAudio === audio) {
+          this.stopAudioPlayback();
+        }
+        if (onEnd) onEnd();
+      };
+
+      audio.onended = finish;
+      audio.onerror = (e) => {
+        console.error('ElevenLabs audio playback error:', e);
+        finish();
+      };
+
+      await audio.play();
+    } catch (e) {
+      console.warn('ElevenLabs TTS failed, falling back to browser:', e.message || e);
+      this.speakWithBrowser(cleanText, null, onEnd);
     }
   }
 
-  previewVoice(voiceName, rate = 1.0) {
-    if (!this.synth || !voiceName) return;
+  speak(text, _legacyProfileId, onBoundary, onEnd) {
+    if (!this.speechEnabled) {
+      if (onEnd) onEnd();
+      return;
+    }
 
     this.stopSpeaking();
 
-    const voice = this.voices.find((v) => v.name === voiceName);
+    const cleanText = SpeechEngine.cleanTextForSpeech(text);
+    if (!cleanText) {
+      if (onEnd) onEnd();
+      return;
+    }
+
+    if (this.getTtsProvider() === 'elevenlabs') {
+      this.speakWithElevenLabs(cleanText, this.getElevenLabsVoiceId(), this.getSpeechSpeed(), onEnd);
+      return;
+    }
+
+    this.speakWithBrowser(cleanText, onBoundary, onEnd);
+  }
+
+  previewVoice(voiceRef, rate = 1.0, providerOverride = null) {
+    if (!voiceRef) return;
+
+    this.stopSpeaking();
+
+    const previewText = 'Hello. I am Aether. This is a voice preview.';
+    const provider = providerOverride || this.getTtsProvider();
+
+    if (provider === 'elevenlabs') {
+      this.speakWithElevenLabs(previewText, voiceRef, rate, null);
+      return;
+    }
+
+    if (!this.synth) return;
+
+    const voice = this.voices.find((v) => v.name === voiceRef);
     if (!voice) return;
 
-    const utterance = new SpeechSynthesisUtterance('Hello. I am Aether. This is a voice preview.');
+    const utterance = new SpeechSynthesisUtterance(previewText);
     utterance.voice = voice;
     utterance.rate = rate;
     utterance.pitch = this.voiceConfig.pitch;

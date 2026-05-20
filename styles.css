@@ -321,8 +321,7 @@ body {
     text-transform: uppercase;
     pointer-events: none;
     text-shadow: 0 0 10px rgba(0, 0, 0, 0.8);
-    transition: all 0.4s ease;
-    animation: floatingText 4s infinite ease-in-out;
+    transition: color 0.4s ease;
 }
 
 /* --- 3. Hidden console log sink (system monitor UI removed) --- */

@@ -46,6 +46,11 @@ AETHER_BACKEND=hermes
 HERMES_API_BASE_URL=http://127.0.0.1:8642/v1
 HERMES_API_KEY=change-me-local-dev
 PORT=8787
+
+# Optional — cloud voices (Settings → Speech engine → ElevenLabs)
+# ELEVENLABS_API_KEY=your-elevenlabs-api-key
+# ELEVENLABS_MODEL_ID=eleven_turbo_v2_5
+# ELEVENLABS_DEFAULT_VOICE_ID=
 ```
 
 Check wiring before starting the HUD:
@@ -91,8 +96,30 @@ Environment variables load from `.env` then `.env.local` (`.env.local` wins).
 | `HERMES_API_BASE_URL` | `http://127.0.0.1:8642/v1` | Hermes API base URL |
 | `HERMES_API_KEY` | *(empty)* | Bearer token — must match `API_SERVER_KEY` in `~/.hermes/.env` when auth is enabled |
 | `PORT` | `8787` | Aether HUD server port |
+| `ELEVENLABS_API_KEY` | *(empty)* | Enables ElevenLabs TTS in Settings |
+| `ELEVENLABS_MODEL_ID` | `eleven_turbo_v2_5` | ElevenLabs model for speech |
+| `ELEVENLABS_DEFAULT_VOICE_ID` | *(empty)* | Default voice when none selected in HUD |
 
 Optional: `HERMES_MODEL`, `HERMES_PROFILE`, `HERMES_PROFILES_URL`, `HERMES_SESSIONS_URL`, `AETHER_TEMPERATURE`. See [`.env.example`](.env.example).
+
+### Optional ElevenLabs voices
+
+For higher-quality speech than browser TTS, uncomment and set `ELEVENLABS_API_KEY` in `.env.local` (see [`.env.example`](.env.example)), then restart the server:
+
+```bash
+ELEVENLABS_API_KEY=your-elevenlabs-api-key
+# ELEVENLABS_MODEL_ID=eleven_turbo_v2_5
+# ELEVENLABS_DEFAULT_VOICE_ID=
+```
+
+Verify the server sees your key:
+
+```bash
+curl http://localhost:8787/api/tts/elevenlabs/status
+# → {"configured":true}
+```
+
+In the HUD, open **Settings** → **Speech engine** → **ElevenLabs**, pick a voice, and save. The API key stays on the server only. If ElevenLabs fails, Aether falls back to browser speech synthesis.
 
 ### Check the connection
 
@@ -110,7 +137,7 @@ If not connected, the status JSON includes `setupSteps` and an `error` with the 
 - **Microphone** — speak a command (send directly or fill the composer, per settings).
 - **Chat panel** — type when you prefer text.
 - **Archives** — browser-stored history.
-- **Settings** — voice speed, Hermes profile (when configured), microphone behavior.
+- **Settings** — speech engine (browser or ElevenLabs), voice, speed, Hermes profile (when configured), microphone behavior.
 
 Replies are tuned for **text-to-speech** via [`TTS-Prompt.md`](TTS-Prompt.md).
 
