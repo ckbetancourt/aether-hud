@@ -65,6 +65,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Settings inputs
         apiKey: document.getElementById('apiKey'),
+        llmBackendUrl: document.getElementById('llmBackendUrl'),
         synthVoice: document.getElementById('synthVoice'),
         synthSpeed: document.getElementById('synthSpeed'),
         synthSpeedVal: document.getElementById('synthSpeedVal'),
@@ -305,17 +306,28 @@ document.addEventListener('DOMContentLoaded', () => {
     /**
      * Typewriter streaming logic to render text directly into terminal element
      */
-    function streamResponseText(logNode, fullText) {
+    function streamResponseText(logNode, bubbleNode, fullText) {
         return new Promise((resolve) => {
             logNode.innerHTML = `<span style="color:#ffffff; font-weight:bold;">[${state.activeModel.toUpperCase()}]</span> `;
-            
+
             const textSpan = document.createElement('span');
             const cursorSpan = document.createElement('span');
             cursorSpan.className = 'typing-cursor';
-            
+
             logNode.appendChild(textSpan);
             logNode.appendChild(cursorSpan);
+
+            bubbleNode.className = 'chat-bubble assistant-bubble';
+            bubbleNode.innerHTML = '';
+            const bubbleText = document.createElement('div');
+            bubbleText.className = 'assistant-stream-body';
+            const bubbleCursor = document.createElement('span');
+            bubbleCursor.className = 'typing-cursor';
+            bubbleNode.appendChild(bubbleText);
+            bubbleNode.appendChild(bubbleCursor);
+
             scrollConsoleBottom();
+            elements.deckChatScroller.scrollTop = elements.deckChatScroller.scrollHeight;
 
             // Synthesis spoken feedback
             visualizer.setState('speaking');
@@ -326,26 +338,32 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             // Delay calculations
-            const multiplier = parseInt(elements.simulationSpeed.value || '5');
+            const multiplier = parseInt(elements.simulationSpeed.value || '5', 10);
             const intervalTime = Math.max(2, 35 - (multiplier * 3));
-            
+
             let index = 0;
             let currentString = '';
 
             const interval = setInterval(() => {
                 if (index < fullText.length) {
                     currentString += fullText[index];
-                    // Parse markdown formatting inside textSpan
                     textSpan.innerHTML = parseConsoleMarkdown(currentString);
+                    bubbleText.innerHTML = parseConsoleMarkdown(currentString);
                     index++;
-                    
-                    if (index % 5 === 0) scrollConsoleBottom();
+
+                    if (index % 5 === 0) {
+                        scrollConsoleBottom();
+                        elements.deckChatScroller.scrollTop = elements.deckChatScroller.scrollHeight;
+                    }
                 } else {
                     clearInterval(interval);
                     cursorSpan.remove();
-                    textSpan.innerHTML = parseConsoleMarkdown(fullText); // Final pass
+                    bubbleCursor.remove();
+                    textSpan.innerHTML = parseConsoleMarkdown(fullText);
+                    bubbleText.innerHTML = parseConsoleMarkdown(fullText);
                     lucide.createIcons();
                     scrollConsoleBottom();
+                    elements.deckChatScroller.scrollTop = elements.deckChatScroller.scrollHeight;
                     resolve();
                 }
             }, intervalTime);
@@ -589,8 +607,49 @@ document.addEventListener('DOMContentLoaded', () => {
     /* ==========================================================================
        G. Settings Dialog Form Controllers
        ========================================================================== */
+    function toggleChatDeck() {
+        elements.bottomChatDeck.classList.toggle('open');
+        elements.chatDeckToggle.classList.toggle('active');
+        lucide.createIcons();
+    }
+
+    function appendUserChatBubble(text) {
+        const div = document.createElement('div');
+        div.className = 'chat-bubble user-bubble';
+        div.textContent = text;
+        elements.deckChatScroller.appendChild(div);
+        elements.deckChatScroller.scrollTop = elements.deckChatScroller.scrollHeight;
+        return div;
+    }
+
+    function appendAssistantChatBubble(initialText) {
+        const div = document.createElement('div');
+        div.className = 'chat-bubble assistant-bubble';
+        if (initialText === '...') {
+            div.innerHTML = '<em style="opacity:0.7">…</em>';
+        } else {
+            div.innerHTML = parseConsoleMarkdown(initialText);
+        }
+        elements.deckChatScroller.appendChild(div);
+        elements.deckChatScroller.scrollTop = elements.deckChatScroller.scrollHeight;
+        return div;
+    }
+
+    async function submitDeckMessage() {
+        const text = elements.deckChatInputField.value.trim();
+        if (!text) return;
+        elements.deckChatInputField.value = '';
+        if (!elements.bottomChatDeck.classList.contains('open')) {
+            toggleChatDeck();
+        }
+        await submitDirectTextCommand(text);
+    }
+
     function openSettingsModal() {
         elements.apiKey.value = localStorage.getItem('aether_api_key') || '';
+        if (elements.llmBackendUrl) {
+            elements.llmBackendUrl.value = localStorage.getItem('aether_llm_backend_url') || '';
+        }
         elements.synthSpeed.value = localStorage.getItem('aether_voice_speed') || '1.0';
         elements.synthSpeedVal.textContent = elements.synthSpeed.value + 'x';
         
@@ -615,6 +674,15 @@ document.addEventListener('DOMContentLoaded', () => {
             localStorage.setItem('aether_api_key', key);
         } else {
             localStorage.removeItem('aether_api_key');
+        }
+
+        if (elements.llmBackendUrl) {
+            const backend = elements.llmBackendUrl.value.trim().replace(/\/$/, '');
+            if (backend) {
+                localStorage.setItem('aether_llm_backend_url', backend);
+            } else {
+                localStorage.removeItem('aether_llm_backend_url');
+            }
         }
 
         localStorage.setItem('aether_voice_speed', elements.synthSpeed.value);

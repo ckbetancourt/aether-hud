@@ -1,0 +1,14 @@
+{
+  "name": "aether-jarvis-hud",
+  "private": true,
+  "description": "Jarvis HUD with optional local LLM proxy",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5"
+  }
+}

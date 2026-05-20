@@ -239,6 +239,14 @@
                 </div>
 
                 <div class="form-group">
+                    <label for="llmBackendUrl">LLM proxy URL (optional)</label>
+                    <input type="url" class="form-input" id="llmBackendUrl" placeholder="Leave blank if you use npm start — auto" autocomplete="off">
+                    <div style="font-size: 0.68rem; color: var(--text-dim); margin-top: 2px;">
+                        If you open this page from <code>npm start</code>, you can leave this empty: chat goes to <code>/api/chat</code> on the same address (e.g. <code>http://localhost:8787</code>). Put LM Studio’s address in <code>.env.local</code> as <code>OPENAI_BASE_URL</code> on the machine running the proxy — not in this box.
+                    </div>
+                </div>
+
+                <div class="form-group">
                     <label for="synthVoice">Speech Voice telemetry</label>
                     <select class="form-select" id="synthVoice"></select>
                 </div>

@@ -45,6 +45,41 @@ class AIEngine {
     }
 
     /**
+     * Session history often includes the latest user turn before the model is called;
+     * avoid sending that message twice to remote APIs.
+     */
+    historyWithoutPendingUserTurn(history, userMessage, maxMsgs) {
+        let h = history.slice(-maxMsgs);
+        const last = h[h.length - 1];
+        if (last && last.role === 'user' && last.content === userMessage) {
+            h = h.slice(0, -1);
+        }
+        return h;
+    }
+
+    /**
+     * Stored URL from Settings, or — when the HUD is opened over http(s) — this tab's origin
+     * so `npm start` + http://localhost:8787 works with no extra configuration.
+     */
+    resolveLlmBackendBaseUrl() {
+        const stored = localStorage.getItem('aether_llm_backend_url');
+        if (stored && stored.trim()) {
+            return stored.trim().replace(/\/$/, '');
+        }
+        if (AIEngine.isBrowserHttpOrigin()) {
+            return window.location.origin.replace(/\/$/, '');
+        }
+        return '';
+    }
+
+    static isBrowserHttpOrigin() {
+        return (
+            typeof window !== 'undefined' &&
+            (window.location.protocol === 'http:' || window.location.protocol === 'https:')
+        );
+    }
+
+    /**
      * Entrypoint for generating replies
      * @param {string} userMessage The raw text input
      * @param {string} modelId Active model ('aether', 'nova', etc.)
@@ -57,7 +92,28 @@ class AIEngine {
         const cleanedInput = userMessage.toLowerCase().trim();
         const model = this.personalities[modelId] || this.personalities.aether;
 
-        // 1. Check if a custom Gemini API Key is available in localStorage
+        // 1. LLM proxy: explicit Settings URL, or same tab origin when using npm start
+        const llmBackend = this.resolveLlmBackendBaseUrl();
+        if (llmBackend) {
+            try {
+                return await this.callLlmBackend(
+                    llmBackend,
+                    userMessage,
+                    model,
+                    history,
+                    onTaskTrigger,
+                    onMemoryTrigger
+                );
+            } catch (err) {
+                console.error('LLM backend error, falling back: ', err);
+                return (
+                    `> [!WARNING]\n> LLM backend unreachable or rejected the request. Routing through local cognitive simulation. Error: ${err.message}\n\n` +
+                    this.generateSimulatedResponse(cleanedInput, model, onTaskTrigger, onMemoryTrigger)
+                );
+            }
+        }
+
+        // 2. Custom Gemini API Key in the browser (optional)
         const customApiKey = localStorage.getItem('aether_api_key');
         if (customApiKey) {
             try {
@@ -69,13 +125,53 @@ class AIEngine {
             }
         }
 
-        // 2. Default Local Simulation Response
+        // 3. Default local simulation
         return new Promise((resolve) => {
             setTimeout(() => {
                 const response = this.generateSimulatedResponse(cleanedInput, model, onTaskTrigger, onMemoryTrigger);
                 resolve(response);
             }, 600); // Small delay to simulate "thinking" latency
         });
+    }
+
+    /**
+     * POST to a server that implements /api/chat (see server.js).
+     */
+    async callLlmBackend(baseUrl, userMessage, model, history, onTaskTrigger, onMemoryTrigger) {
+        this.parseTriggerHooks(userMessage.toLowerCase(), onTaskTrigger, onMemoryTrigger);
+
+        const root = baseUrl.replace(/\/$/, '');
+        const endpoint = `${root}/api/chat`;
+
+        const prior = this.historyWithoutPendingUserTurn(history, userMessage, 12);
+        const messages = prior.map((msg) => ({
+            role: msg.role === 'assistant' ? 'assistant' : 'user',
+            content: msg.content,
+        }));
+        messages.push({ role: 'user', content: userMessage });
+
+        const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                messages,
+                personality: {
+                    id: model.id,
+                    displayName: model.displayName,
+                    personalityTraits: model.personalityTraits,
+                },
+            }),
+        });
+
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(data.error || data.message || `HTTP ${response.status}`);
+        }
+        const replyText = data.reply;
+        if (!replyText || typeof replyText !== 'string') {
+            throw new Error('Empty reply from LLM backend');
+        }
+        return replyText;
     }
 
     /**
@@ -95,19 +191,17 @@ class AIEngine {
 
         // Format conversation history for Gemini API
         const contents = [];
-        // Add last 6 messages of history for context
-        const contextHistory = history.slice(-6);
-        contextHistory.forEach(msg => {
+        const contextHistory = this.historyWithoutPendingUserTurn(history, userMessage, 6);
+        contextHistory.forEach((msg) => {
             contents.push({
                 role: msg.role === 'user' ? 'user' : 'model',
-                parts: [{ text: msg.content }]
+                parts: [{ text: msg.content }],
             });
         });
 
-        // Add the current message
         contents.push({
             role: 'user',
-            parts: [{ text: userMessage }]
+            parts: [{ text: userMessage }],
         });
 
         const requestBody = {
