@@ -653,12 +653,15 @@ body {
 }
 
 .modal-content {
-    width: 440px;
+    width: min(560px, calc(100vw - 32px));
+    max-width: 560px;
+    box-sizing: border-box;
     border-radius: var(--border-radius-md);
     padding: 24px;
     display: flex;
     flex-direction: column;
     gap: 18px;
+    overflow: hidden;
 }
 
 .modal-title-bar {
@@ -692,12 +695,14 @@ body {
     display: flex;
     flex-direction: column;
     gap: 14px;
+    min-width: 0;
 }
 
 .form-group {
     display: flex;
     flex-direction: column;
     gap: 5px;
+    min-width: 0;
 }
 
 .form-group label {
@@ -740,10 +745,17 @@ body {
     display: flex;
     align-items: center;
     gap: 8px;
+    min-width: 0;
+    width: 100%;
 }
 
 .voice-select-row .form-select {
-    flex: 1;
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .voice-preview-btn {

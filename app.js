@@ -3,7 +3,9 @@
  * Coordinates interactive HUD states, Speech Engines, canvas parallax, and local archives.
  */
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+    await window.AetherUserData.init();
+
     let resizeLoopInterval = null;
     let persistSessionsTimer = null;
     let historyRenderScheduled = false;
@@ -14,14 +16,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function loadSavedSessions() {
         try {
-            return JSON.parse(localStorage.getItem('aether_sessions') || '[]').map(normalizeSession);
+            return JSON.parse(AetherUserData.getItem('aether_sessions') || '[]').map(normalizeSession);
         } catch {
             return [];
         }
     }
 
     function normalizeSession(session) {
-        const savedHermesProfile = localStorage.getItem('aether_hermes_profile') || null;
+        const savedHermesProfile = AetherUserData.getItem('aether_hermes_profile') || null;
         return {
             id: session.id || `sess_${Date.now()}`,
             title: session.title || 'Untitled session',
@@ -36,29 +38,29 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function loadProfileAccents() {
         try {
-            return JSON.parse(localStorage.getItem('aether_profile_accents') || '{}');
+            return JSON.parse(AetherUserData.getItem('aether_profile_accents') || '{}');
         } catch {
             return {};
         }
     }
 
     function loadGlobalAccentTheme() {
-        const stored = localStorage.getItem('aether_accent_theme');
+        const stored = AetherUserData.getItem('aether_accent_theme');
         if (stored && AETHER_ACCENT_THEMES[stored]) return stored;
         const fallback = 'jarvis-red';
-        localStorage.setItem('aether_accent_theme', fallback);
+        AetherUserData.setItem('aether_accent_theme', fallback);
         return fallback;
     }
 
     // 1. Core State Definition
     const state = {
         sessions: loadSavedSessions(),
-        activeSessionId: localStorage.getItem('aether_active_session_id') || null,
-        activeHermesProfile: localStorage.getItem('aether_hermes_profile') || '',
+        activeSessionId: AetherUserData.getItem('aether_active_session_id') || null,
+        activeHermesProfile: AetherUserData.getItem('aether_hermes_profile') || '',
         hermesStatus: null,
         isVoiceActive: false,
-        speechEnabled: JSON.parse(localStorage.getItem('aether_speech_enabled') ?? 'true'),
-        memory: JSON.parse(localStorage.getItem('aether_memory') || '{}'),
+        speechEnabled: JSON.parse(AetherUserData.getItem('aether_speech_enabled') ?? 'true'),
+        memory: JSON.parse(AetherUserData.getItem('aether_memory') || '{}'),
         globalAccentTheme: null,
         activeAccentTheme: null,
     };
@@ -111,6 +113,8 @@ document.addEventListener('DOMContentLoaded', () => {
         // Settings inputs
         ttsProvider: document.getElementById('ttsProvider'),
         ttsProviderHint: document.getElementById('ttsProviderHint'),
+        omnivoiceInstructGroup: document.getElementById('omnivoiceInstructGroup'),
+        omnivoiceInstruct: document.getElementById('omnivoiceInstruct'),
         synthVoice: document.getElementById('synthVoice'),
         voicePreviewBtn: document.getElementById('voicePreviewBtn'),
         voiceInputBehavior: document.getElementById('voiceInputBehavior'),
@@ -148,9 +152,9 @@ document.addEventListener('DOMContentLoaded', () => {
     lucide.createIcons();
 
     const chatCollapsed =
-        localStorage.getItem('aether_chat_column_collapsed') === 'true' ||
-        (localStorage.getItem('aether_chat_column_collapsed') === null &&
-            localStorage.getItem('aether_chat_column_open') === 'false');
+        AetherUserData.getItem('aether_chat_column_collapsed') === 'true' ||
+        (AetherUserData.getItem('aether_chat_column_collapsed') === null &&
+            AetherUserData.getItem('aether_chat_column_open') === 'false');
     if (chatCollapsed) {
         collapseChatColumn();
     } else {
@@ -254,12 +258,17 @@ document.addEventListener('DOMContentLoaded', () => {
         if (elements.ttsProvider) {
             elements.ttsProvider.addEventListener('change', () => {
                 updateTtsProviderHint();
+                updateOmniVoiceInstructVisibility();
                 populateVoicesList();
             });
         }
 
         if (elements.voicePreviewBtn) {
             elements.voicePreviewBtn.addEventListener('click', previewSelectedVoice);
+        }
+
+        if (elements.synthVoice) {
+            elements.synthVoice.addEventListener('change', syncVoiceSelectTitle);
         }
 
     }
@@ -290,7 +299,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function expandChatColumn(focusInput = true) {
         elements.hudShell?.classList.remove('chat-collapsed');
         elements.chatDeckToggle.classList.add('active');
-        localStorage.setItem('aether_chat_column_collapsed', 'false');
+        AetherUserData.setItem('aether_chat_column_collapsed', 'false');
         if (focusInput) {
             elements.deckChatInputField.focus();
         }
@@ -301,14 +310,14 @@ document.addEventListener('DOMContentLoaded', () => {
     function collapseChatColumn() {
         elements.hudShell?.classList.add('chat-collapsed');
         elements.chatDeckToggle.classList.remove('active');
-        localStorage.setItem('aether_chat_column_collapsed', 'true');
+        AetherUserData.setItem('aether_chat_column_collapsed', 'true');
         updateMicButtonTitle();
         runTransitionResizeLoop();
     }
 
     function updateMicButtonTitle() {
         if (!elements.voiceRecognitionBtn) return;
-        const behavior = localStorage.getItem('aether_voice_input_behavior') || 'auto';
+        const behavior = AetherUserData.getItem('aether_voice_input_behavior') || 'auto';
         const isChatCollapsed = elements.hudShell?.classList.contains('chat-collapsed');
         
         if (behavior === 'llm' || (behavior === 'auto' && isChatCollapsed)) {
@@ -553,7 +562,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 appendSystemConsoleLine(`[VOICE] Transcribed: "${transcript}"`);
                 stopVoiceMode();
 
-                const behavior = localStorage.getItem('aether_voice_input_behavior') || 'auto';
+                const behavior = AetherUserData.getItem('aether_voice_input_behavior') || 'auto';
                 const isChatCollapsed = elements.hudShell?.classList.contains('chat-collapsed');
 
                 if (behavior === 'llm' || (behavior === 'auto' && isChatCollapsed)) {
@@ -594,7 +603,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function toggleSpeechOutput() {
         state.speechEnabled = !state.speechEnabled;
-        localStorage.setItem('aether_speech_enabled', state.speechEnabled);
+        AetherUserData.setItem('aether_speech_enabled', state.speechEnabled);
         speech.speechEnabled = state.speechEnabled;
 
         if (state.speechEnabled) {
@@ -636,7 +645,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!AETHER_ACCENT_THEMES[themeId]) return;
 
         state.globalAccentTheme = themeId;
-        localStorage.setItem('aether_accent_theme', themeId);
+        AetherUserData.setItem('aether_accent_theme', themeId);
 
         applyAccentTheme(themeId);
     }
@@ -701,7 +710,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const run = () => {
             state.sessions = pruneSessions(state.sessions);
             try {
-                localStorage.setItem('aether_sessions', JSON.stringify(state.sessions));
+                AetherUserData.setItem('aether_sessions', JSON.stringify(state.sessions));
             } catch (err) {
                 console.error('Failed to persist sessions:', err);
             }
@@ -749,7 +758,7 @@ document.addEventListener('DOMContentLoaded', () => {
         state.sessions.unshift(newSession);
         state.activeSessionId = id;
         
-        localStorage.setItem('aether_active_session_id', id);
+        AetherUserData.setItem('aether_active_session_id', id);
         schedulePersistSessions();
 
         // Wipe logs
@@ -771,7 +780,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         state.activeSessionId = sessionId;
-        localStorage.setItem('aether_active_session_id', sessionId);
+        AetherUserData.setItem('aether_active_session_id', sessionId);
         updateHermesProfileBadge();
 
         // Load logs
@@ -1023,7 +1032,19 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function getTtsProvider() {
-        return localStorage.getItem('aether_tts_provider') || 'browser';
+        return AetherUserData.getItem('aether_tts_provider') || 'browser';
+    }
+
+    function truncateVoiceLabel(text, maxLen = 44) {
+        const s = String(text || '').trim();
+        if (s.length <= maxLen) return s;
+        return `${s.slice(0, maxLen - 1)}…`;
+    }
+
+    function syncVoiceSelectTitle() {
+        if (!elements.synthVoice) return;
+        const selected = elements.synthVoice.selectedOptions[0];
+        elements.synthVoice.title = selected?.title || selected?.textContent || '';
     }
 
     function updateTtsProviderHint() {
@@ -1032,10 +1053,19 @@ document.addEventListener('DOMContentLoaded', () => {
         if (provider === 'elevenlabs') {
             elements.ttsProviderHint.textContent =
                 'Cloud voices via ElevenLabs. Set ELEVENLABS_API_KEY in .env.local on the Aether server, then restart npm start. Speed adjusts voice stability.';
+        } else if (provider === 'omnivoice') {
+            elements.ttsProviderHint.textContent =
+                'Local OmniVoice via OMNIVOICE_BASE_URL (default http://127.0.0.1:8000). Run OmniVoice-local, add samples to its samples/ folder, then restart npm start. First generation may take 1–2 minutes.';
         } else {
             elements.ttsProviderHint.textContent =
                 "Uses your browser's built-in speech synthesis (no model download). Speed adjusts playback rate.";
         }
+    }
+
+    function updateOmniVoiceInstructVisibility() {
+        if (!elements.omnivoiceInstructGroup) return;
+        const provider = elements.ttsProvider?.value || getTtsProvider();
+        elements.omnivoiceInstructGroup.hidden = provider !== 'omnivoice';
     }
 
     function openSettingsModal() {
@@ -1043,18 +1073,24 @@ document.addEventListener('DOMContentLoaded', () => {
             elements.ttsProvider.value = getTtsProvider();
         }
         updateTtsProviderHint();
+        updateOmniVoiceInstructVisibility();
 
-        elements.synthSpeed.value = localStorage.getItem('aether_voice_speed') || '1.0';
+        if (elements.omnivoiceInstruct) {
+            elements.omnivoiceInstruct.value =
+                AetherUserData.getItem('aether_omnivoice_instruct') || '';
+        }
+
+        elements.synthSpeed.value = AetherUserData.getItem('aether_voice_speed') || '1.0';
         elements.synthSpeedVal.textContent = elements.synthSpeed.value + 'x';
         
-        const delayVal = localStorage.getItem('aether_stream_delay') || '5';
+        const delayVal = AetherUserData.getItem('aether_stream_delay') || '5';
         elements.simulationSpeed.value = delayVal;
         
         const vals = ['Snail', 'Slow', 'Normal', 'Fast', 'Instant'];
         elements.simulationSpeedVal.textContent = vals[Math.min(4, Math.floor((delayVal - 1) / 2))];
 
         if (elements.voiceInputBehavior) {
-            elements.voiceInputBehavior.value = localStorage.getItem('aether_voice_input_behavior') || 'auto';
+            elements.voiceInputBehavior.value = AetherUserData.getItem('aether_voice_input_behavior') || 'auto';
         }
 
         if (elements.hermesProfileSelect) {
@@ -1075,32 +1111,49 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function saveSettings() {
-        localStorage.setItem('aether_voice_speed', elements.synthSpeed.value);
-        localStorage.setItem('aether_stream_delay', elements.simulationSpeed.value);
+        AetherUserData.setItem('aether_voice_speed', elements.synthSpeed.value);
+        AetherUserData.setItem('aether_stream_delay', elements.simulationSpeed.value);
 
         if (elements.ttsProvider) {
-            localStorage.setItem('aether_tts_provider', elements.ttsProvider.value);
+            AetherUserData.setItem('aether_tts_provider', elements.ttsProvider.value);
         }
 
         const providerToSave = elements.ttsProvider?.value || getTtsProvider();
-        if (elements.synthVoice?.value) {
+        if (elements.synthVoice?.value !== undefined) {
             if (providerToSave === 'elevenlabs') {
-                localStorage.setItem('aether_elevenlabs_voice_id', elements.synthVoice.value);
+                if (elements.synthVoice.value) {
+                    AetherUserData.setItem('aether_elevenlabs_voice_id', elements.synthVoice.value);
+                }
+            } else if (providerToSave === 'omnivoice') {
+                if (elements.synthVoice.value) {
+                    AetherUserData.setItem('aether_omnivoice_sample', elements.synthVoice.value);
+                } else {
+                    AetherUserData.removeItem('aether_omnivoice_sample');
+                }
+            } else if (elements.synthVoice.value) {
+                AetherUserData.setItem('aether_voice_name', elements.synthVoice.value);
+            }
+        }
+
+        if (elements.omnivoiceInstruct) {
+            const instruct = elements.omnivoiceInstruct.value.trim();
+            if (instruct) {
+                AetherUserData.setItem('aether_omnivoice_instruct', instruct);
             } else {
-                localStorage.setItem('aether_voice_name', elements.synthVoice.value);
+                AetherUserData.removeItem('aether_omnivoice_instruct');
             }
         }
 
         if (elements.voiceInputBehavior) {
-            localStorage.setItem('aether_voice_input_behavior', elements.voiceInputBehavior.value);
+            AetherUserData.setItem('aether_voice_input_behavior', elements.voiceInputBehavior.value);
         }
 
         if (elements.hermesProfileSelect) {
             state.activeHermesProfile = elements.hermesProfileSelect.value.trim();
             if (state.activeHermesProfile) {
-                localStorage.setItem('aether_hermes_profile', state.activeHermesProfile);
+                AetherUserData.setItem('aether_hermes_profile', state.activeHermesProfile);
             } else {
-                localStorage.removeItem('aether_hermes_profile');
+                AetherUserData.removeItem('aether_hermes_profile');
             }
             const sessionIndex = state.sessions.findIndex(s => s.id === state.activeSessionId);
             if (sessionIndex !== -1) {
@@ -1128,12 +1181,14 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        const savedVoiceName = localStorage.getItem('aether_voice_name');
+        const savedVoiceName = AetherUserData.getItem('aether_voice_name');
 
         systemVoices.forEach((v) => {
             const opt = document.createElement('option');
+            const fullLabel = `${v.name} (${v.lang})`;
             opt.value = v.name;
-            opt.textContent = `${v.name} (${v.lang})`;
+            opt.textContent = truncateVoiceLabel(fullLabel);
+            opt.title = fullLabel;
             if (savedVoiceName && v.name === savedVoiceName) {
                 opt.selected = true;
             }
@@ -1142,6 +1197,69 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (elements.voicePreviewBtn) {
             elements.voicePreviewBtn.disabled = false;
+        }
+        syncVoiceSelectTitle();
+    }
+
+    async function populateOmniVoiceSamplesList() {
+        elements.synthVoice.innerHTML = '<option value="">Loading OmniVoice samples…</option>';
+        if (elements.voicePreviewBtn) {
+            elements.voicePreviewBtn.disabled = true;
+        }
+
+        try {
+            const res = await fetch('/api/tts/omnivoice/samples');
+            const data = await res.json().catch(() => ({}));
+            const samples = Array.isArray(data.samples) ? data.samples : [];
+
+            elements.synthVoice.innerHTML = '';
+
+            const autoOpt = document.createElement('option');
+            autoOpt.value = '';
+            autoOpt.textContent = 'Auto voice (no sample)';
+            autoOpt.title = 'Let OmniVoice choose a voice automatically';
+            elements.synthVoice.appendChild(autoOpt);
+
+            if (!res.ok) {
+                let message = data.error || 'OmniVoice not configured';
+                if (res.status === 503) {
+                    message = 'OmniVoice model not ready — wait for /health, or set OMNIVOICE_BASE_URL';
+                } else if (res.status === 502) {
+                    message = 'Cannot reach OmniVoice server — is OmniVoice-local running?';
+                }
+                const errOpt = document.createElement('option');
+                errOpt.value = '';
+                errOpt.textContent = message;
+                errOpt.disabled = true;
+                elements.synthVoice.appendChild(errOpt);
+                return;
+            }
+
+            const savedSample = AetherUserData.getItem('aether_omnivoice_sample');
+
+            samples.forEach((s) => {
+                const opt = document.createElement('option');
+                opt.value = s.id || s.name;
+                const transcript = s.hasTranscript ? '' : ' · no transcript';
+                const fullLabel = `${s.name}${transcript}`;
+                opt.textContent = truncateVoiceLabel(fullLabel);
+                opt.title = fullLabel;
+                if (savedSample && (s.id === savedSample || s.name === savedSample)) {
+                    opt.selected = true;
+                }
+                elements.synthVoice.appendChild(opt);
+            });
+
+            if (!savedSample) {
+                autoOpt.selected = true;
+            }
+
+            if (elements.voicePreviewBtn) {
+                elements.voicePreviewBtn.disabled = false;
+            }
+            syncVoiceSelectTitle();
+        } catch (e) {
+            elements.synthVoice.innerHTML = '<option value="">Failed to load OmniVoice samples</option>';
         }
     }
 
@@ -1159,18 +1277,25 @@ document.addEventListener('DOMContentLoaded', () => {
             elements.synthVoice.innerHTML = '';
 
             if (!res.ok || voices.length === 0) {
-                const message = data.error || 'ElevenLabs not configured';
+                let message = data.error || 'ElevenLabs not configured';
+                if (res.status === 405) {
+                    message = 'Restart Aether server (npm start) to load ElevenLabs routes';
+                } else if (res.status === 503) {
+                    message = 'Set ELEVENLABS_API_KEY in .env.local and restart npm start';
+                }
                 elements.synthVoice.innerHTML = `<option value="">${message}</option>`;
                 return;
             }
 
-            const savedVoiceId = localStorage.getItem('aether_elevenlabs_voice_id');
+            const savedVoiceId = AetherUserData.getItem('aether_elevenlabs_voice_id');
 
             voices.forEach((v) => {
                 const opt = document.createElement('option');
                 opt.value = v.id;
                 const category = v.category ? ` · ${v.category}` : '';
-                opt.textContent = `${v.name}${category}`;
+                const fullLabel = `${v.name}${category}`;
+                opt.textContent = truncateVoiceLabel(fullLabel);
+                opt.title = fullLabel;
                 if (savedVoiceId && v.id === savedVoiceId) {
                     opt.selected = true;
                 }
@@ -1180,6 +1305,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (elements.voicePreviewBtn) {
                 elements.voicePreviewBtn.disabled = !elements.synthVoice.value;
             }
+            syncVoiceSelectTitle();
         } catch (e) {
             elements.synthVoice.innerHTML = '<option value="">Failed to load ElevenLabs voices</option>';
         }
@@ -1194,15 +1320,26 @@ document.addEventListener('DOMContentLoaded', () => {
             populateElevenLabsVoicesList();
             return;
         }
+        if (provider === 'omnivoice') {
+            populateOmniVoiceSamplesList();
+            return;
+        }
 
         populateBrowserVoicesList();
     }
 
     function previewSelectedVoice() {
-        if (!elements.synthVoice || !elements.synthVoice.value) return;
+        if (!elements.synthVoice) return;
 
         const rate = parseFloat(elements.synthSpeed?.value || '1.0');
         const provider = elements.ttsProvider?.value || getTtsProvider();
+
+        if (provider === 'omnivoice') {
+            speech.previewVoice(elements.synthVoice.value || '', rate, provider);
+            return;
+        }
+
+        if (!elements.synthVoice.value) return;
         speech.previewVoice(elements.synthVoice.value, rate, provider);
     }
 

@@ -116,6 +116,8 @@ const MIME = {
   '.webp': 'image/webp',
 };
 
+const userStore = require('./lib/user-store');
+
 const {
   buildAetherTtsPrompt,
 } = require('./aether-config.js');
@@ -125,6 +127,14 @@ const {
   fetchElevenLabsVoices,
   synthesizeElevenLabsSpeech,
 } = require('./lib/elevenlabs-tts.js');
+
+const {
+  isOmniVoiceConfigured,
+  probeOmniVoiceHealth,
+  fetchOmniVoiceSamples,
+  synthesizeOmniVoiceSpeech,
+  OMNIVOICE_BASE_URL,
+} = require('./lib/omnivoice-tts.js');
 
 function buildSystemPrompt(body = {}) {
   if (body.voiceSystemPrompt && typeof body.voiceSystemPrompt === 'string') {
@@ -640,6 +650,42 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (pathname === '/api/user/data') {
+    if (req.method === 'GET') {
+      try {
+        sendJson(res, 200, { data: userStore.getAll() });
+      } catch (e) {
+        console.error('[api/user/data GET]', e.message || e);
+        sendJson(res, 500, { error: e.message || 'User store read failed' });
+      }
+      return;
+    }
+    if (req.method === 'PUT') {
+      try {
+        const body = await readBody(req);
+        const count = userStore.setMany(body?.data || {});
+        sendJson(res, 200, { ok: true, updated: count });
+      } catch (e) {
+        console.error('[api/user/data PUT]', e.message || e);
+        sendJson(res, 500, { error: e.message || 'User store write failed' });
+      }
+      return;
+    }
+    if (req.method === 'DELETE') {
+      try {
+        const body = await readBody(req);
+        const count = userStore.deleteKeys(body?.keys || []);
+        sendJson(res, 200, { ok: true, deleted: count });
+      } catch (e) {
+        console.error('[api/user/data DELETE]', e.message || e);
+        sendJson(res, 500, { error: e.message || 'User store delete failed' });
+      }
+      return;
+    }
+    sendJson(res, 405, { error: 'Method not allowed' });
+    return;
+  }
+
   if (req.method === 'POST' && pathname === '/api/chat') {
     try {
       const body = await readBody(req);
@@ -665,6 +711,24 @@ const server = http.createServer(async (req, res) => {
     } catch (e) {
       const status = e.statusCode || (e instanceof SyntaxError ? 400 : 500);
       console.error('[api/tts/elevenlabs/speak]', e.message || e);
+      sendJson(res, status, { error: e.message || 'Server error' });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/api/tts/omnivoice/speak') {
+    try {
+      const body = await readBody(req);
+      const { buffer, contentType } = await synthesizeOmniVoiceSpeech({
+        text: body?.text,
+        sample: body?.sample,
+        instruct: body?.instruct,
+        speed: body?.speed,
+      });
+      sendBinary(res, 200, buffer, contentType);
+    } catch (e) {
+      const status = e.statusCode || (e instanceof SyntaxError ? 400 : 500);
+      console.error('[api/tts/omnivoice/speak]', e.message || e);
       sendJson(res, status, { error: e.message || 'Server error' });
     }
     return;
@@ -722,6 +786,30 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (pathname === '/api/tts/omnivoice/status') {
+      const configured = isOmniVoiceConfigured();
+      const health = configured ? await probeOmniVoiceHealth() : { ready: false };
+      sendJson(res, 200, {
+        configured,
+        ready: Boolean(health.ready),
+        baseUrl: configured ? OMNIVOICE_BASE_URL : null,
+        error: health.error || null,
+      });
+      return;
+    }
+
+    if (pathname === '/api/tts/omnivoice/samples') {
+      try {
+        const samples = await fetchOmniVoiceSamples();
+        sendJson(res, 200, { samples });
+      } catch (e) {
+        const status = e.statusCode || 502;
+        console.error('[api/tts/omnivoice/samples]', e.message || e);
+        sendJson(res, status, { samples: [], error: e.message || 'OmniVoice samples unavailable' });
+      }
+      return;
+    }
+
     if (pathname.startsWith('/api/')) {
       sendJson(res, 405, { error: 'Method not allowed' });
       return;
@@ -761,4 +849,5 @@ server.listen(PORT, () => {
   if (IS_HERMES_BACKEND && !HERMES_API_BASE_URL) {
     console.warn('HERMES_API_BASE_URL is unset — set it to your running Hermes API server.');
   }
+  console.log(`User data SQLite: ${userStore.dbPath}`);
 });

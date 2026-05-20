@@ -51,6 +51,9 @@ PORT=8787
 # ELEVENLABS_API_KEY=your-elevenlabs-api-key
 # ELEVENLABS_MODEL_ID=eleven_turbo_v2_5
 # ELEVENLABS_DEFAULT_VOICE_ID=
+
+# Optional — local OmniVoice (Settings → Speech engine → OmniVoice)
+# OMNIVOICE_BASE_URL=http://127.0.0.1:8000
 ```
 
 Check wiring before starting the HUD:
@@ -81,7 +84,7 @@ Terminal A (keep open)     Terminal B
 |-----------|---------|------|
 | Hermes gateway | `hermes gateway` | OpenAI-compatible API Aether calls |
 | Hermes chat | `hermes` | Terminal agent; optional `/aether` skill |
-| Aether server | `npm start` | Serves HUD + proxies chat to Hermes |
+| Aether server | `npm start` | Serves HUD + proxies chat to Hermes + SQLite user data |
 | Aether HUD | browser | Voice UI |
 
 **Common mistake:** running only `hermes` or `npm start` without `hermes gateway`. The HUD will show **HERMES OFFLINE**.
@@ -99,6 +102,10 @@ Environment variables load from `.env` then `.env.local` (`.env.local` wins).
 | `ELEVENLABS_API_KEY` | *(empty)* | Enables ElevenLabs TTS in Settings |
 | `ELEVENLABS_MODEL_ID` | `eleven_turbo_v2_5` | ElevenLabs model for speech |
 | `ELEVENLABS_DEFAULT_VOICE_ID` | *(empty)* | Default voice when none selected in HUD |
+| `OMNIVOICE_BASE_URL` | `http://127.0.0.1:8000` | OmniVoice-local REST API base URL |
+| `OMNIVOICE_API_KEY` | *(empty)* | Bearer token when OmniVoice-local auth is enabled |
+| `OMNIVOICE_DEFAULT_SAMPLE` | *(empty)* | Default clone sample when none selected in HUD |
+| `OMNIVOICE_DEFAULT_INSTRUCT` | *(empty)* | Default voice-design instruct when no sample |
 
 Optional: `HERMES_MODEL`, `HERMES_PROFILE`, `HERMES_PROFILES_URL`, `HERMES_SESSIONS_URL`, `AETHER_TEMPERATURE`. See [`.env.example`](.env.example).
 
@@ -121,6 +128,58 @@ curl http://localhost:8787/api/tts/elevenlabs/status
 
 In the HUD, open **Settings** → **Speech engine** → **ElevenLabs**, pick a voice, and save. The API key stays on the server only. If ElevenLabs fails, Aether falls back to browser speech synthesis.
 
+### Optional OmniVoice (local)
+
+For high-quality **local** TTS with voice cloning (600+ languages), use [OmniVoice-local](https://github.com/pasadei/OmniVoice-local) as a REST server on port **8000**. It wraps the official [k2-fsa/OmniVoice](https://github.com/k2-fsa/OmniVoice) model. The stock `omnivoice-demo` Gradio UI does **not** expose an HTTP TTS API — Aether talks to OmniVoice-local (or any compatible server) only.
+
+**Setup**
+
+1. Install and start [OmniVoice-local](https://github.com/pasadei/OmniVoice-local) (Docker or native). Wait until the model is loaded:
+
+```bash
+curl http://127.0.0.1:8000/health
+```
+
+2. Add clone samples under its `samples/` folder (paired by filename stem):
+
+```text
+samples/
+  my-voice.wav    # 3–10 s reference audio
+  my-voice.txt    # optional transcript (recommended)
+```
+
+3. In Aether `.env.local`:
+
+```bash
+OMNIVOICE_BASE_URL=http://127.0.0.1:8000
+# OMNIVOICE_API_KEY=...          # if OmniVoice-local auth is enabled
+# OMNIVOICE_DEFAULT_SAMPLE=...   # optional server default
+# OMNIVOICE_DEFAULT_INSTRUCT=... # optional voice-design default
+```
+
+4. Restart Aether and verify the proxy:
+
+```bash
+npm start
+curl http://localhost:8787/api/tts/omnivoice/status
+# → {"configured":true,"ready":true,...}
+
+curl http://localhost:8787/api/tts/omnivoice/samples
+# → {"samples":[{"id":"my-voice","name":"my-voice",...}]}
+```
+
+**HUD**
+
+Open **Settings** → **Speech engine** → **OmniVoice (local)**:
+
+| Setting | Effect |
+|---------|--------|
+| **Speech voice** → sample name | Voice cloning from `samples/` |
+| **Speech voice** → Auto voice | Model picks a voice |
+| **Voice design instruct** | Used when no sample is selected (e.g. `female, low pitch, british accent`) |
+
+First synthesis after a cold start can take 1–2 minutes while the model warms up. If OmniVoice is down or errors, Aether falls back to browser speech synthesis. The API key (if any) stays on the Aether server only.
+
 ### Check the connection
 
 ```bash
@@ -136,8 +195,8 @@ If not connected, the status JSON includes `setupSteps` and an `error` with the 
 
 - **Microphone** — speak a command (send directly or fill the composer, per settings).
 - **Chat panel** — type when you prefer text.
-- **Archives** — browser-stored history.
-- **Settings** — speech engine (browser or ElevenLabs), voice, speed, Hermes profile (when configured), microphone behavior.
+- **Archives** — stored in local SQLite (`data/aether.db` by default); migrates existing `localStorage` on first load.
+- **Settings** — speech engine (browser, ElevenLabs, or OmniVoice local), voice, speed, Hermes profile (when configured), microphone behavior.
 
 Replies are tuned for **text-to-speech** via [`TTS-Prompt.md`](TTS-Prompt.md).
 

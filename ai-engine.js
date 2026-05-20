@@ -30,7 +30,7 @@ class AIEngine {
      * so `npm start` + http://localhost:8787 works with no extra configuration.
      */
     resolveLlmBackendBaseUrl() {
-        const stored = localStorage.getItem('aether_llm_backend_url');
+        const stored = AetherUserData.getItem('aether_llm_backend_url');
         if (stored && stored.trim()) {
             return stored.trim().replace(/\/$/, '');
         }

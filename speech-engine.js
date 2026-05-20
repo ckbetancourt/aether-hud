@@ -1,6 +1,6 @@
 /**
  * Aether Speech Recognition and Synthesis Engine
- * STT: Web Speech API. TTS: browser speechSynthesis or ElevenLabs (server proxy).
+ * STT: Web Speech API. TTS: browser, ElevenLabs, or OmniVoice (server proxy).
  */
 
 class SpeechEngine {
@@ -27,15 +27,23 @@ class SpeechEngine {
   }
 
   getTtsProvider() {
-    return localStorage.getItem('aether_tts_provider') || 'browser';
+    return AetherUserData.getItem('aether_tts_provider') || 'browser';
   }
 
   getElevenLabsVoiceId() {
-    return localStorage.getItem('aether_elevenlabs_voice_id') || '';
+    return AetherUserData.getItem('aether_elevenlabs_voice_id') || '';
+  }
+
+  getOmniVoiceSample() {
+    return AetherUserData.getItem('aether_omnivoice_sample') || '';
+  }
+
+  getOmniVoiceInstruct() {
+    return AetherUserData.getItem('aether_omnivoice_instruct') || '';
   }
 
   getSpeechSpeed() {
-    return parseFloat(localStorage.getItem('aether_voice_speed') || '1.0');
+    return parseFloat(AetherUserData.getItem('aether_voice_speed') || '1.0');
   }
 
   initRecognition() {
@@ -176,7 +184,7 @@ class SpeechEngine {
       utterance.voice = matchedVoice;
     }
 
-    const customVoiceName = localStorage.getItem('aether_voice_name');
+    const customVoiceName = AetherUserData.getItem('aether_voice_name');
     if (customVoiceName) {
       const userVoice = this.voices.find((v) => v.name === customVoiceName);
       if (userVoice) utterance.voice = userVoice;
@@ -200,6 +208,52 @@ class SpeechEngine {
     };
 
     this.synth.speak(utterance);
+  }
+
+  async speakWithOmniVoice(cleanText, sample, instruct, speed, onEnd) {
+    try {
+      const resolvedSample = (sample || this.getOmniVoiceSample() || '').trim();
+      const resolvedInstruct = String(instruct ?? this.getOmniVoiceInstruct() ?? '').trim();
+      const payload = { text: cleanText, speed };
+      if (resolvedSample) payload.sample = resolvedSample;
+      else if (resolvedInstruct) payload.instruct = resolvedInstruct;
+
+      const res = await fetch('/api/tts/omnivoice/speak', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `OmniVoice TTS failed (${res.status})`);
+      }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+
+      this.currentAudio = audio;
+      this.currentAudioUrl = url;
+
+      const finish = () => {
+        if (this.currentAudio === audio) {
+          this.stopAudioPlayback();
+        }
+        if (onEnd) onEnd();
+      };
+
+      audio.onended = finish;
+      audio.onerror = (e) => {
+        console.error('OmniVoice audio playback error:', e);
+        finish();
+      };
+
+      await audio.play();
+    } catch (e) {
+      console.warn('OmniVoice TTS failed, falling back to browser:', e.message || e);
+      this.speakWithBrowser(cleanText, null, onEnd);
+    }
   }
 
   async speakWithElevenLabs(cleanText, voiceId, speed, onEnd) {
@@ -265,6 +319,17 @@ class SpeechEngine {
       return;
     }
 
+    if (this.getTtsProvider() === 'omnivoice') {
+      this.speakWithOmniVoice(
+        cleanText,
+        this.getOmniVoiceSample(),
+        this.getOmniVoiceInstruct(),
+        this.getSpeechSpeed(),
+        onEnd
+      );
+      return;
+    }
+
     this.speakWithBrowser(cleanText, onBoundary, onEnd);
   }
 
@@ -278,6 +343,13 @@ class SpeechEngine {
 
     if (provider === 'elevenlabs') {
       this.speakWithElevenLabs(previewText, voiceRef, rate, null);
+      return;
+    }
+
+    if (provider === 'omnivoice') {
+      const sample = voiceRef || this.getOmniVoiceSample();
+      const instruct = sample ? '' : this.getOmniVoiceInstruct();
+      this.speakWithOmniVoice(previewText, sample, instruct, rate, null);
       return;
     }
 
