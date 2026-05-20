@@ -196,7 +196,11 @@ If not connected, the status JSON includes `setupSteps` and an `error` with the 
 - **Microphone** — speak a command (send directly or fill the composer, per settings).
 - **Chat panel** — type when you prefer text.
 - **Archives** — stored in local SQLite (`data/aether.db` by default); migrates existing `localStorage` on first load.
-- **Settings** — speech engine (browser, ElevenLabs, or OmniVoice local), voice, speed, Hermes profile (when configured), microphone behavior.
+- **Settings** — speech engine (browser, ElevenLabs, or OmniVoice local), voice, speed, TTS replay history size, Hermes profile (when configured), microphone behavior.
+
+### TTS replay history
+
+Aether keeps a rolling cache of the last **N** spoken assistant replies (default **5**, configurable under **Settings → TTS replay history size**). ElevenLabs and OmniVoice clips are stored as audio on the server; browser TTS stores speakable text for re-synthesis. When the cache is full, the oldest entry is removed. Each assistant chat bubble shows a replay button to hear that reply again (falls back to re-speaking the message text if the cache entry was evicted).
 
 Replies are tuned for **text-to-speech** via [`TTS-Prompt.md`](TTS-Prompt.md).
 

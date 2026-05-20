@@ -52,6 +52,73 @@ document.addEventListener('DOMContentLoaded', async () => {
         return fallback;
     }
 
+    function loadColorMode() {
+        const stored = AetherUserData.getItem('aether_color_mode');
+        if (stored && AETHER_COLOR_MODES[stored]) return stored;
+        const fallback = 'dark';
+        AetherUserData.setItem('aether_color_mode', fallback);
+        return fallback;
+    }
+
+    function getColorMode(modeId) {
+        return AETHER_COLOR_MODES[modeId] || AETHER_COLOR_MODES.dark;
+    }
+
+    function applyColorMode(modeId) {
+        const mode = getColorMode(modeId);
+        document.documentElement.dataset.colorMode = mode.id;
+        document.documentElement.style.colorScheme = mode.colorScheme;
+    }
+
+    function applyAccentCssVars(theme) {
+        const root = document.documentElement;
+        root.style.setProperty('--accent-primary', theme.primary);
+        root.style.setProperty('--accent-secondary', theme.secondary);
+        root.style.setProperty('--accent-glow', theme.accentGlow);
+        root.style.setProperty('--accent-glow-subtle', theme.accentGlowSubtle);
+        root.style.setProperty('--border-glow', theme.borderGlow);
+    }
+
+    function updateColorModePickerUi(modeId) {
+        document.querySelectorAll('.color-mode-btn').forEach((btn) => {
+            const active = btn.getAttribute('data-color-mode') === modeId;
+            btn.classList.toggle('active', active);
+            btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+        });
+    }
+
+    function buildColorModePicker() {
+        const row = document.getElementById('colorModeRow');
+        if (!row) return;
+
+        row.innerHTML = '';
+        for (const mode of Object.values(AETHER_COLOR_MODES)) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'color-mode-btn';
+            btn.dataset.colorMode = mode.id;
+            btn.title = mode.label;
+            btn.setAttribute('aria-label', mode.label);
+            btn.setAttribute('aria-pressed', 'false');
+            btn.innerHTML = `
+                <span class="color-mode-preview" style="--mode-bg: ${mode.previewBg};"></span>
+                <span class="color-mode-label">${mode.label}</span>
+            `;
+            btn.addEventListener('click', () => selectColorMode(mode.id));
+            row.appendChild(btn);
+        }
+    }
+
+    function selectColorMode(modeId) {
+        if (!AETHER_COLOR_MODES[modeId]) return;
+
+        state.globalColorMode = modeId;
+        AetherUserData.setItem('aether_color_mode', modeId);
+        applyColorMode(modeId);
+        updateColorModePickerUi(modeId);
+        visualizer.setColorMode(modeId);
+    }
+
     // 1. Core State Definition
     const state = {
         sessions: loadSavedSessions(),
@@ -63,8 +130,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         memory: JSON.parse(AetherUserData.getItem('aether_memory') || '{}'),
         globalAccentTheme: null,
         activeAccentTheme: null,
+        globalColorMode: null,
     };
     state.globalAccentTheme = loadGlobalAccentTheme();
+    state.globalColorMode = loadColorMode();
 
     // 2. Instantiate Systems
     const ai = new AIEngine();
@@ -73,6 +142,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Start Orb Rendering immediately
     visualizer.start();
+    visualizer.setColorMode(state.globalColorMode);
 
     // 3. Select HUD DOM Elements
     const elements = {
@@ -122,6 +192,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         synthSpeedVal: document.getElementById('synthSpeedVal'),
         simulationSpeed: document.getElementById('simulationSpeed'),
         simulationSpeedVal: document.getElementById('simulationSpeedVal'),
+        ttsReplayCacheSize: document.getElementById('ttsReplayCacheSize'),
+        ttsReplayCacheSizeVal: document.getElementById('ttsReplayCacheSizeVal'),
         hermesProfileSelect: document.getElementById('hermesProfileSelect'),
         hermesStatusText: document.getElementById('hermesStatusText'),
     };
@@ -134,6 +206,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     speech.speechEnabled = state.speechEnabled;
 
     // 4. UI Setup and Event Wiring
+    buildColorModePicker();
+    applyColorMode(state.globalColorMode);
+    updateColorModePickerUi(state.globalColorMode);
     setupEventListeners();
     applyAccentTheme(state.globalAccentTheme);
     updateHermesProfileBadge();
@@ -251,6 +326,14 @@ document.addEventListener('DOMContentLoaded', async () => {
             const index = Math.min(4, Math.floor((elements.simulationSpeed.value - 1) / 2));
             elements.simulationSpeedVal.textContent = vals[index];
         });
+
+        if (elements.ttsReplayCacheSize) {
+            elements.ttsReplayCacheSize.addEventListener('input', () => {
+                if (elements.ttsReplayCacheSizeVal) {
+                    elements.ttsReplayCacheSizeVal.textContent = elements.ttsReplayCacheSize.value;
+                }
+            });
+        }
 
         window.addEventListener('aetherVoicesLoaded', populateVoicesList);
         window.addEventListener('aetherElevenLabsVoicesLoaded', populateVoicesList);
@@ -399,9 +482,21 @@ document.addEventListener('DOMContentLoaded', async () => {
                 updateHermesStatusUi(state.hermesStatus);
             }
 
-            // Stream response typewriter style inside terminal log and chat bubble
-            await streamResponseText(consoleLogNode, bubbleNode, responseText);
-            saveMessageToSession('assistant', responseText, responseMeta);
+            const replayState = { id: null };
+            await streamResponseText(consoleLogNode, bubbleNode, responseText, replayState);
+            saveMessageToSession('assistant', responseText, {
+                ...responseMeta,
+                audioReplayId: replayState.id,
+            });
+
+            const activeIdx = state.sessions.findIndex((s) => s.id === state.activeSessionId);
+            if (activeIdx !== -1) {
+                tagAssistantBubbleMessageIndex(
+                    bubbleNode,
+                    state.sessions[activeIdx].messages.length - 1
+                );
+            }
+            syncReplayButtonsForSession();
 
         } catch (err) {
             console.error("Aether telemetry failure: ", err);
@@ -453,10 +548,101 @@ document.addEventListener('DOMContentLoaded', async () => {
         scheduleRenderHistorySessions();
     }
 
+    function getTtsReplayCacheLimit() {
+        const raw = parseInt(AetherUserData.getItem('aether_tts_replay_cache_size') || '5', 10);
+        if (!Number.isFinite(raw)) return 5;
+        return Math.min(20, Math.max(1, raw));
+    }
+
+    function ensureAssistantBubbleRow(bubbleNode) {
+        if (!bubbleNode) return null;
+        const existing = bubbleNode.closest('.assistant-bubble-row');
+        if (existing) return existing;
+        const row = document.createElement('div');
+        row.className = 'chat-bubble-row assistant-bubble-row';
+        const parent = bubbleNode.parentNode;
+        if (!parent) return null;
+        parent.insertBefore(row, bubbleNode);
+        row.appendChild(bubbleNode);
+        return row;
+    }
+
+    function tagAssistantBubbleMessageIndex(bubbleNode, messageIndex) {
+        const row = ensureAssistantBubbleRow(bubbleNode);
+        if (row && Number.isFinite(messageIndex)) {
+            row.dataset.messageIndex = String(messageIndex);
+        }
+    }
+
+    function syncReplayButtonsForSession() {
+        const session = state.sessions.find((s) => s.id === state.activeSessionId);
+        if (!session || !elements.deckChatScroller) return;
+
+        const limit = getTtsReplayCacheLimit();
+        const eligibleIndices = new Set(
+            session.messages
+                .map((m, i) => ({ m, i }))
+                .filter(({ m }) => m.role === 'assistant')
+                .slice(-limit)
+                .map(({ i }) => i)
+        );
+
+        elements.deckChatScroller.querySelectorAll('.assistant-bubble-row').forEach((row) => {
+            const idx = parseInt(row.dataset.messageIndex, 10);
+            const btn = row.querySelector('.replay-tts-btn');
+            if (!Number.isFinite(idx) || !eligibleIndices.has(idx)) {
+                if (btn) btn.remove();
+                return;
+            }
+
+            const msg = session.messages[idx];
+            if (!msg || msg.role !== 'assistant') return;
+
+            const bubble = row.querySelector('.chat-bubble.assistant-bubble');
+            if (!bubble) return;
+
+            if (msg.audioReplayId || msg.content) {
+                attachReplayButton(bubble, msg.audioReplayId || '', msg.content);
+            }
+        });
+    }
+
+    function attachReplayButton(bubbleNode, replayId, fallbackText) {
+        if (!bubbleNode || (!replayId && !fallbackText)) return;
+        const row = ensureAssistantBubbleRow(bubbleNode);
+        if (!row) return;
+
+        let btn = row.querySelector('.replay-tts-btn');
+        if (!btn) {
+            btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'replay-tts-btn';
+            btn.title = 'Replay spoken audio';
+            btn.innerHTML = '<i data-lucide="volume-2" style="width:14px;height:14px;"></i>';
+            row.appendChild(btn);
+        }
+
+        btn.dataset.replayId = replayId;
+        btn.dataset.fallbackText = fallbackText || '';
+        btn.onclick = (e) => {
+            e.stopPropagation();
+            visualizer.setState('speaking');
+            speech.replayById(btn.dataset.replayId, btn.dataset.fallbackText || null, () => {
+                if (visualizer.state === 'speaking') {
+                    visualizer.setState('idle');
+                }
+            });
+        };
+
+        if (typeof lucide !== 'undefined') {
+            lucide.createIcons({ root: row });
+        }
+    }
+
     /**
      * Typewriter streaming logic to render text directly into terminal element
      */
-    function streamResponseText(logNode, bubbleNode, fullText) {
+    function streamResponseText(logNode, bubbleNode, fullText, replayState = null) {
         return new Promise((resolve) => {
             logNode.innerHTML = `<span style="color:#ffffff; font-weight:bold;">[HERMES:${hermesProfileLabel().toUpperCase()}]</span> `;
 
@@ -466,6 +652,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             logNode.appendChild(textSpan);
             logNode.appendChild(cursorSpan);
+
+            ensureAssistantBubbleRow(bubbleNode);
 
             bubbleNode.className = 'chat-bubble assistant-bubble';
             bubbleNode.innerHTML = '';
@@ -479,14 +667,27 @@ document.addEventListener('DOMContentLoaded', async () => {
             scrollConsoleBottom();
             elements.deckChatScroller.scrollTop = elements.deckChatScroller.scrollHeight;
 
-            // Synthesis spoken feedback
-            visualizer.setState('speaking');
             const speakableText = prepareSpeechText(fullText);
-            speech.speak(speakableText, null, null, () => {
-                if (visualizer.state === 'speaking') {
-                    visualizer.setState('idle');
-                }
-            });
+            const onReplayId = replayState
+                ? (id) => {
+                      replayState.id = id;
+                  }
+                : null;
+
+            if (speech.speechEnabled) {
+                visualizer.setState('speaking');
+            }
+            speech.speak(
+                speakableText,
+                null,
+                null,
+                () => {
+                    if (visualizer.state === 'speaking') {
+                        visualizer.setState('idle');
+                    }
+                },
+                { onReplayId }
+            );
 
             // Delay calculations
             const multiplier = parseInt(elements.simulationSpeed.value || '5', 10);
@@ -630,6 +831,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const theme = getAccentTheme(themeId);
         state.activeAccentTheme = theme.id;
 
+        applyAccentCssVars(theme);
         visualizer.setAccentTheme(theme);
 
         document.querySelectorAll('.accent-swatch').forEach((swatch) => {
@@ -651,7 +853,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     function clearGlobalAccentOverrides() {
-        document.body.removeAttribute('data-accent-theme');
+        document.documentElement.removeAttribute('data-accent-theme');
         for (const prop of [
             '--accent-primary',
             '--accent-secondary',
@@ -659,7 +861,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             '--accent-glow-subtle',
             '--border-glow',
         ]) {
-            document.body.style.removeProperty(prop);
+            document.documentElement.style.removeProperty(prop);
         }
     }
 
@@ -805,13 +1007,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (session.messages.length === 0) {
             appendAssistantChatBubble('Session loaded. Awaiting inputs…');
         } else {
-            session.messages.forEach((msg) => {
+            session.messages.forEach((msg, i) => {
                 if (msg.role === 'user') {
                     appendUserChatBubble(msg.content);
                 } else {
-                    appendAssistantChatBubble(msg.content);
+                    appendAssistantChatBubble(msg.content, i);
                 }
             });
+            syncReplayButtonsForSession();
         }
 
         scheduleRenderHistorySessions();
@@ -825,6 +1028,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const message = { role, content };
         if (meta.backend) message.backend = meta.backend;
         if (meta.hermes?.sessionId) message.hermesSessionId = meta.hermes.sessionId;
+        if (meta.audioReplayId) message.audioReplayId = meta.audioReplayId;
         state.sessions[sessionIndex].messages.push(message);
         
         // Title update
@@ -1008,7 +1212,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         return div;
     }
 
-    function appendAssistantChatBubble(initialText) {
+    function appendAssistantChatBubble(initialText, messageIndex = null) {
+        const row = document.createElement('div');
+        row.className = 'chat-bubble-row assistant-bubble-row';
+        if (messageIndex !== null && messageIndex !== undefined) {
+            row.dataset.messageIndex = String(messageIndex);
+        }
         const div = document.createElement('div');
         div.className = 'chat-bubble assistant-bubble';
         if (initialText === '...') {
@@ -1016,7 +1225,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         } else {
             div.innerHTML = parseConsoleMarkdown(initialText);
         }
-        elements.deckChatScroller.appendChild(div);
+        row.appendChild(div);
+        elements.deckChatScroller.appendChild(row);
         elements.deckChatScroller.scrollTop = elements.deckChatScroller.scrollHeight;
         return div;
     }
@@ -1089,6 +1299,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         const vals = ['Snail', 'Slow', 'Normal', 'Fast', 'Instant'];
         elements.simulationSpeedVal.textContent = vals[Math.min(4, Math.floor((delayVal - 1) / 2))];
 
+        if (elements.ttsReplayCacheSize) {
+            const replaySize = AetherUserData.getItem('aether_tts_replay_cache_size') || '5';
+            elements.ttsReplayCacheSize.value = replaySize;
+            if (elements.ttsReplayCacheSizeVal) {
+                elements.ttsReplayCacheSizeVal.textContent = replaySize;
+            }
+        }
+
         if (elements.voiceInputBehavior) {
             elements.voiceInputBehavior.value = AetherUserData.getItem('aether_voice_input_behavior') || 'auto';
         }
@@ -1113,6 +1331,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     function saveSettings() {
         AetherUserData.setItem('aether_voice_speed', elements.synthSpeed.value);
         AetherUserData.setItem('aether_stream_delay', elements.simulationSpeed.value);
+
+        if (elements.ttsReplayCacheSize) {
+            AetherUserData.setItem('aether_tts_replay_cache_size', elements.ttsReplayCacheSize.value);
+            syncReplayButtonsForSession();
+        }
 
         if (elements.ttsProvider) {
             AetherUserData.setItem('aether_tts_provider', elements.ttsProvider.value);

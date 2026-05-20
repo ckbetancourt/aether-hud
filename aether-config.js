@@ -48,6 +48,45 @@ const AETHER_ACCENT_THEMES = {
     gold: buildAccentTheme('gold', 'Gold', '#ffd200', '#f7971e'),
 };
 
+const AETHER_COLOR_MODES = {
+    dark: {
+        id: 'dark',
+        label: 'Dark',
+        colorScheme: 'dark',
+        previewBg: '#050508',
+    },
+    light: {
+        id: 'light',
+        label: 'Light',
+        colorScheme: 'light',
+        previewBg: '#f4f5f8',
+    },
+    midnight: {
+        id: 'midnight',
+        label: 'Midnight',
+        colorScheme: 'dark',
+        previewBg: '#030610',
+    },
+    slate: {
+        id: 'slate',
+        label: 'Slate',
+        colorScheme: 'dark',
+        previewBg: '#0e1117',
+    },
+    terminal: {
+        id: 'terminal',
+        label: 'Terminal',
+        colorScheme: 'dark',
+        previewBg: '#020403',
+    },
+    'high-contrast': {
+        id: 'high-contrast',
+        label: 'High contrast',
+        colorScheme: 'dark',
+        previewBg: '#000000',
+    },
+};
+
 const AETHER_TTS_DELIVERY_PROMPT = `Every reply in this HUD is read aloud by text-to-speech. Write to be heard, not skimmed.
 
 Length (default is brief — this is the most important rule):
@@ -92,6 +131,7 @@ if (typeof module !== 'undefined' && module.exports) {
         AETHER_TTS_BRIDGE_PROMPT,
         AETHER_TTS_DELIVERY_PROMPT,
         AETHER_ACCENT_THEMES,
+        AETHER_COLOR_MODES,
         buildAetherTtsPrompt,
     };
 }

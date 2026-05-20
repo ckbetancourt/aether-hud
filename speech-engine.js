@@ -11,6 +11,7 @@ class SpeechEngine {
     this.speechEnabled = true;
     this.currentAudio = null;
     this.currentAudioUrl = null;
+    this._replayRegisterInFlight = false;
 
     this.voiceConfig = {
       pitch: 1.0,
@@ -168,7 +169,59 @@ class SpeechEngine {
     this.stopAudioPlayback();
   }
 
-  speakWithBrowser(cleanText, onBoundary, onEnd) {
+  async _registerBrowserReplay(cleanText, onReplayId) {
+    if (!onReplayId || this._replayRegisterInFlight) return;
+    this._replayRegisterInFlight = true;
+    try {
+      const res = await fetch('/api/tts/replay-cache/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: cleanText, provider: 'browser' }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.id) onReplayId(data.id);
+    } catch (e) {
+      console.warn('Failed to register browser TTS replay:', e.message || e);
+    } finally {
+      this._replayRegisterInFlight = false;
+    }
+  }
+
+  async _playAudioBlob(blob, onEnd, onReplayId, replayIdFromHeader) {
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+
+    this.currentAudio = audio;
+    this.currentAudioUrl = url;
+
+    const speed = this.getSpeechSpeed();
+    if (Number.isFinite(speed) && speed > 0 && speed !== 1) {
+      audio.playbackRate = speed;
+    }
+
+    if (onReplayId && replayIdFromHeader) {
+      onReplayId(replayIdFromHeader);
+    }
+
+    const finish = () => {
+      if (this.currentAudio === audio) {
+        this.stopAudioPlayback();
+      }
+      if (onEnd) onEnd();
+    };
+
+    audio.onended = finish;
+    audio.onerror = (e) => {
+      console.error('Audio playback error:', e);
+      finish();
+    };
+
+    await audio.play();
+  }
+
+  speakWithBrowser(cleanText, onBoundary, onEnd, options = {}) {
+    const { onReplayId, skipReplayCache } = options;
+
     if (!this.synth) {
       if (onEnd) onEnd();
       return;
@@ -208,9 +261,14 @@ class SpeechEngine {
     };
 
     this.synth.speak(utterance);
+
+    if (!skipReplayCache && onReplayId) {
+      this._registerBrowserReplay(cleanText, onReplayId);
+    }
   }
 
-  async speakWithOmniVoice(cleanText, sample, instruct, speed, onEnd) {
+  async speakWithOmniVoice(cleanText, sample, instruct, speed, onEnd, options = {}) {
+    const { onReplayId } = options;
     try {
       const resolvedSample = (sample || this.getOmniVoiceSample() || '').trim();
       const resolvedInstruct = String(instruct ?? this.getOmniVoiceInstruct() ?? '').trim();
@@ -229,34 +287,17 @@ class SpeechEngine {
         throw new Error(errData.error || `OmniVoice TTS failed (${res.status})`);
       }
 
+      const replayId = res.headers.get('X-Aether-Replay-Id');
       const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const audio = new Audio(url);
-
-      this.currentAudio = audio;
-      this.currentAudioUrl = url;
-
-      const finish = () => {
-        if (this.currentAudio === audio) {
-          this.stopAudioPlayback();
-        }
-        if (onEnd) onEnd();
-      };
-
-      audio.onended = finish;
-      audio.onerror = (e) => {
-        console.error('OmniVoice audio playback error:', e);
-        finish();
-      };
-
-      await audio.play();
+      await this._playAudioBlob(blob, onEnd, onReplayId, replayId);
     } catch (e) {
       console.warn('OmniVoice TTS failed, falling back to browser:', e.message || e);
-      this.speakWithBrowser(cleanText, null, onEnd);
+      this.speakWithBrowser(cleanText, null, onEnd, options);
     }
   }
 
-  async speakWithElevenLabs(cleanText, voiceId, speed, onEnd) {
+  async speakWithElevenLabs(cleanText, voiceId, speed, onEnd, options = {}) {
+    const { onReplayId } = options;
     try {
       const res = await fetch('/api/tts/elevenlabs/speak', {
         method: 'POST',
@@ -273,36 +314,22 @@ class SpeechEngine {
         throw new Error(errData.error || `ElevenLabs TTS failed (${res.status})`);
       }
 
+      const replayId = res.headers.get('X-Aether-Replay-Id');
       const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const audio = new Audio(url);
-
-      this.currentAudio = audio;
-      this.currentAudioUrl = url;
-
-      const finish = () => {
-        if (this.currentAudio === audio) {
-          this.stopAudioPlayback();
-        }
-        if (onEnd) onEnd();
-      };
-
-      audio.onended = finish;
-      audio.onerror = (e) => {
-        console.error('ElevenLabs audio playback error:', e);
-        finish();
-      };
-
-      await audio.play();
+      await this._playAudioBlob(blob, onEnd, onReplayId, replayId);
     } catch (e) {
       console.warn('ElevenLabs TTS failed, falling back to browser:', e.message || e);
-      this.speakWithBrowser(cleanText, null, onEnd);
+      this.speakWithBrowser(cleanText, null, onEnd, options);
     }
   }
 
-  speak(text, _legacyProfileId, onBoundary, onEnd) {
-    if (!this.speechEnabled) {
-      if (onEnd) onEnd();
+  speak(text, _legacyProfileId, onBoundary, onEnd, options = {}) {
+    const opts = typeof options === 'object' && options !== null ? options : {};
+    const finish = onEnd;
+    const skipReplayCache = Boolean(opts.skipReplayCache);
+
+    if (!this.speechEnabled && !opts.forcePlay) {
+      if (finish) finish();
       return;
     }
 
@@ -310,12 +337,23 @@ class SpeechEngine {
 
     const cleanText = SpeechEngine.cleanTextForSpeech(text);
     if (!cleanText) {
-      if (onEnd) onEnd();
+      if (finish) finish();
       return;
     }
 
+    const speakOpts = {
+      onReplayId: opts.onReplayId,
+      skipReplayCache,
+    };
+
     if (this.getTtsProvider() === 'elevenlabs') {
-      this.speakWithElevenLabs(cleanText, this.getElevenLabsVoiceId(), this.getSpeechSpeed(), onEnd);
+      this.speakWithElevenLabs(
+        cleanText,
+        this.getElevenLabsVoiceId(),
+        this.getSpeechSpeed(),
+        finish,
+        speakOpts
+      );
       return;
     }
 
@@ -325,12 +363,49 @@ class SpeechEngine {
         this.getOmniVoiceSample(),
         this.getOmniVoiceInstruct(),
         this.getSpeechSpeed(),
-        onEnd
+        finish,
+        speakOpts
       );
       return;
     }
 
-    this.speakWithBrowser(cleanText, onBoundary, onEnd);
+    this.speakWithBrowser(cleanText, onBoundary, finish, speakOpts);
+  }
+
+  async replayById(replayId, fallbackText, onEnd) {
+    if (!replayId) {
+      if (fallbackText) {
+        this.speak(fallbackText, null, null, onEnd, { forcePlay: true, skipReplayCache: true });
+      } else if (onEnd) onEnd();
+      return;
+    }
+
+    this.stopSpeaking();
+
+    try {
+      const res = await fetch(`/api/tts/replay-cache/${encodeURIComponent(replayId)}`);
+      const contentType = (res.headers.get('content-type') || '').toLowerCase();
+
+      if (res.ok && contentType.includes('audio')) {
+        const blob = await res.blob();
+        await this._playAudioBlob(blob, onEnd, null, null);
+        return;
+      }
+
+      if (res.ok && contentType.includes('json')) {
+        const data = await res.json();
+        if (data.text) {
+          this.speak(data.text, null, null, onEnd, { forcePlay: true, skipReplayCache: true });
+          return;
+        }
+      }
+    } catch (e) {
+      console.warn('Replay fetch failed:', e.message || e);
+    }
+
+    if (fallbackText) {
+      this.speak(fallbackText, null, null, onEnd, { forcePlay: true, skipReplayCache: true });
+    } else if (onEnd) onEnd();
   }
 
   previewVoice(voiceRef, rate = 1.0, providerOverride = null) {
@@ -340,16 +415,17 @@ class SpeechEngine {
 
     const previewText = 'Hello. I am Aether. This is a voice preview.';
     const provider = providerOverride || this.getTtsProvider();
+    const previewOpts = { skipReplayCache: true };
 
     if (provider === 'elevenlabs') {
-      this.speakWithElevenLabs(previewText, voiceRef, rate, null);
+      this.speakWithElevenLabs(previewText, voiceRef, rate, null, previewOpts);
       return;
     }
 
     if (provider === 'omnivoice') {
       const sample = voiceRef || this.getOmniVoiceSample();
       const instruct = sample ? '' : this.getOmniVoiceInstruct();
-      this.speakWithOmniVoice(previewText, sample, instruct, rate, null);
+      this.speakWithOmniVoice(previewText, sample, instruct, rate, null, previewOpts);
       return;
     }
 

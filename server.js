@@ -136,6 +136,8 @@ const {
   OMNIVOICE_BASE_URL,
 } = require('./lib/omnivoice-tts.js');
 
+const ttsReplayCache = require('./lib/tts-replay-cache.js');
+
 function buildSystemPrompt(body = {}) {
   if (body.voiceSystemPrompt && typeof body.voiceSystemPrompt === 'string') {
     return body.voiceSystemPrompt;
@@ -707,7 +709,13 @@ const server = http.createServer(async (req, res) => {
         voiceId: body?.voiceId,
         speed: body?.speed,
       });
-      sendBinary(res, 200, buffer, contentType);
+      const cached = ttsReplayCache.addEntry({
+        provider: 'elevenlabs',
+        buffer,
+        contentType,
+        text: body?.text,
+      });
+      sendBinary(res, 200, buffer, contentType, { 'X-Aether-Replay-Id': cached.id });
     } catch (e) {
       const status = e.statusCode || (e instanceof SyntaxError ? 400 : 500);
       console.error('[api/tts/elevenlabs/speak]', e.message || e);
@@ -725,11 +733,37 @@ const server = http.createServer(async (req, res) => {
         instruct: body?.instruct,
         speed: body?.speed,
       });
-      sendBinary(res, 200, buffer, contentType);
+      const cached = ttsReplayCache.addEntry({
+        provider: 'omnivoice',
+        buffer,
+        contentType,
+        text: body?.text,
+      });
+      sendBinary(res, 200, buffer, contentType, { 'X-Aether-Replay-Id': cached.id });
     } catch (e) {
       const status = e.statusCode || (e instanceof SyntaxError ? 400 : 500);
       console.error('[api/tts/omnivoice/speak]', e.message || e);
       sendJson(res, status, { error: e.message || 'Server error' });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/api/tts/replay-cache/register') {
+    try {
+      const body = await readBody(req);
+      const text = body?.text ? String(body.text).trim() : '';
+      if (!text) {
+        sendJson(res, 400, { error: 'text is required' });
+        return;
+      }
+      const cached = ttsReplayCache.addEntry({
+        provider: body?.provider || 'browser',
+        text,
+      });
+      sendJson(res, 200, { id: cached.id });
+    } catch (e) {
+      console.error('[api/tts/replay-cache/register]', e.message || e);
+      sendJson(res, 500, { error: e.message || 'Server error' });
     }
     return;
   }
@@ -806,6 +840,45 @@ const server = http.createServer(async (req, res) => {
         const status = e.statusCode || 502;
         console.error('[api/tts/omnivoice/samples]', e.message || e);
         sendJson(res, status, { samples: [], error: e.message || 'OmniVoice samples unavailable' });
+      }
+      return;
+    }
+
+    if (pathname === '/api/tts/replay-cache/status') {
+      try {
+        sendJson(res, 200, ttsReplayCache.listStatus());
+      } catch (e) {
+        console.error('[api/tts/replay-cache/status]', e.message || e);
+        sendJson(res, 500, { error: e.message || 'Server error' });
+      }
+      return;
+    }
+
+    const replayCacheMatch = pathname.match(/^\/api\/tts\/replay-cache\/([^/]+)$/);
+    if (replayCacheMatch) {
+      const replayId = decodeURIComponent(replayCacheMatch[1]);
+      try {
+        const entry = ttsReplayCache.getEntry(replayId);
+        if (!entry) {
+          sendJson(res, 404, { error: 'Replay entry not found' });
+          return;
+        }
+        const audio = ttsReplayCache.readEntryBuffer(replayId);
+        if (audio) {
+          sendBinary(res, 200, audio.buffer, audio.contentType, {
+            'X-Aether-Replay-Id': replayId,
+          });
+          return;
+        }
+        sendJson(res, 200, {
+          id: entry.id,
+          provider: entry.provider,
+          hasAudio: false,
+          text: entry.text || '',
+        });
+      } catch (e) {
+        console.error('[api/tts/replay-cache/:id]', e.message || e);
+        sendJson(res, 500, { error: e.message || 'Server error' });
       }
       return;
     }

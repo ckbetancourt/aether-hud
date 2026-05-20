@@ -5,6 +5,19 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="Aether HUD — voice-first interface for Hermes Agent with speech recognition, synthesis, and holographic orb visualization.">
     <title>Aether HUD</title>
+    <script>
+        (function () {
+            try {
+                var mode = localStorage.getItem('aether_color_mode');
+                var valid = ['dark', 'light', 'midnight', 'slate', 'terminal', 'high-contrast'];
+                if (!mode || valid.indexOf(mode) === -1) mode = 'dark';
+                document.documentElement.dataset.colorMode = mode;
+                document.documentElement.style.colorScheme = mode === 'light' ? 'light' : 'dark';
+            } catch (e) {
+                document.documentElement.dataset.colorMode = 'dark';
+            }
+        })();
+    </script>
     <link rel="stylesheet" href="styles.css">
     <!-- Lucide Icons CDN -->
     <script src="https://unpkg.com/lucide@latest"></script>
@@ -132,7 +145,7 @@
 
                 <section class="accent-section" style="margin-bottom:24px;">
                     <h3 class="section-label font-heading">HUD Accent</h3>
-                    <p class="section-hint">Orb &amp; animation only. Hermes profiles own behavior and runtime context.</p>
+                    <p class="section-hint">Orb color and UI accent highlights.</p>
                     <div class="accent-swatch-row" id="accentSwatchRow">
                         <button type="button" class="accent-swatch active" data-accent-theme="jarvis-red" title="Jarvis Red" aria-label="Jarvis Red" aria-pressed="true" style="--swatch-primary: #ff4436; --swatch-secondary: #ff6e40;"></button>
                         <button type="button" class="accent-swatch" data-accent-theme="jarvis-blue" title="Jarvis Blue" aria-label="Jarvis Blue" aria-pressed="false" style="--swatch-primary: #00c8ff; --swatch-secondary: #00e8ff;"></button>
@@ -173,6 +186,14 @@
             </div>
             
             <div class="modal-body">
+                <div class="form-group">
+                    <label>Appearance</label>
+                    <div class="color-mode-row" id="colorModeRow" role="group" aria-label="Appearance mode"></div>
+                    <div style="font-size: 0.68rem; color: var(--text-dim); margin-top: 2px;">
+                        GUI surfaces and readability. HUD accent swatches control orb and highlight colors.
+                    </div>
+                </div>
+
                 <div class="form-group">
                     <label for="ttsProvider">Speech engine</label>
                     <select class="form-select" id="ttsProvider">
@@ -227,6 +248,17 @@
                     </div>
                 </div>
                 
+                <div class="form-group">
+                    <label for="ttsReplayCacheSize">TTS replay history size</label>
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <input type="range" id="ttsReplayCacheSize" min="1" max="20" step="1" value="5" style="flex-grow: 1; accent-color: var(--accent-primary);">
+                        <span id="ttsReplayCacheSizeVal" style="font-family: var(--font-mono); font-size: 0.8rem; width: 24px;">5</span>
+                    </div>
+                    <div style="font-size: 0.68rem; color: var(--text-dim); margin-top: 2px;">
+                        Keeps the last N spoken replies for replay. Oldest is removed when full.
+                    </div>
+                </div>
+
                 <div class="form-group">
                     <label for="synthSpeed">Telemetry Vocal Speed</label>
                     <div style="display: flex; align-items: center; gap: 12px;">

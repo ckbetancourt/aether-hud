@@ -64,6 +64,9 @@ class JarvisHUD {
             glow: 'rgba(255, 68, 54, 0.4)',
         };
 
+        this.colorMode = 'dark';
+        this.colorModeOpacityScale = 1;
+
         // Canvas scaling and bindings
         this.resize();
         window.addEventListener('resize', () => this.resize());
@@ -87,6 +90,20 @@ class JarvisHUD {
             glow: theme.accentGlow,
         };
         this.setState(this.state);
+    }
+
+    /**
+     * Adjust orb halo intensity for light / high-contrast GUI modes.
+     */
+    setColorMode(modeId) {
+        this.colorMode = modeId || 'dark';
+        if (modeId === 'light') {
+            this.colorModeOpacityScale = 0.65;
+        } else if (modeId === 'high-contrast') {
+            this.colorModeOpacityScale = 0.7;
+        } else {
+            this.colorModeOpacityScale = 1;
+        }
     }
 
     /**
@@ -468,7 +485,7 @@ class JarvisHUD {
         // Smooth state transitions (no scale bounce — steady orb size per state)
         this.orbPulseScale += (targetScale - this.orbPulseScale) * 0.06;
         this.webExpansion += (targetWebExp - this.webExpansion) * 0.08;
-        this.webOpacity += (targetWebOp - this.webOpacity) * 0.1;
+        this.webOpacity += (targetWebOp * this.colorModeOpacityScale - this.webOpacity) * 0.1;
 
         // Smoothly interpolate morphing parameters
         this.harmonicLobe1 += (targetLobe1 - this.harmonicLobe1) * 0.06;
