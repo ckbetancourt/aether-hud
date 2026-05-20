@@ -199,6 +199,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         hermesProfileSelect: document.getElementById('hermesProfileSelect'),
         hermesStatusText: document.getElementById('hermesStatusText'),
         refreshChatsBtn: document.getElementById('refreshChatsBtn'),
+        composerRefreshBtn: document.getElementById('composerRefreshBtn'),
     };
 
     // Initialize speech mute UI button state
@@ -356,9 +357,16 @@ document.addEventListener('DOMContentLoaded', async () => {
             });
         }
 
-        // Refresh chats button
+        // Refresh chats button — drawer
         if (elements.refreshChatsBtn) {
             elements.refreshChatsBtn.addEventListener('click', () => {
+                refreshHermesChats();
+            });
+        }
+
+        // Refresh chats button — composer
+        if (elements.composerRefreshBtn) {
+            elements.composerRefreshBtn.addEventListener('click', () => {
                 refreshHermesChats();
             });
         }
@@ -1284,7 +1292,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             return;
         }
         const btn = elements.refreshChatsBtn;
+        const composerBtn = elements.composerRefreshBtn;
         if (btn) btn.classList.add('refreshing');
+        if (composerBtn) composerBtn.classList.add('refreshing');
         try {
             // Re-fetch Hermes sessions from state.db and merge into existing sessions
             const result = await ai.getHermesSessions();
@@ -1336,6 +1346,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             appendSystemConsoleLine(`[AGENT] Chat refresh failed: ${err.message}`);
         } finally {
             if (btn) btn.classList.remove('refreshing');
+            if (composerBtn) composerBtn.classList.remove('refreshing');
         }
     }
 

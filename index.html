@@ -121,9 +121,14 @@
             <textarea class="chat-composer-input" id="deckChatInputField" rows="3" placeholder="Message Aether…"></textarea>
             <div class="chat-composer-footer">
                 <span class="chat-composer-hint">Enter to send · Shift+Enter for newline</span>
-                <button class="deck-send-btn" id="deckSendMessageBtn" type="button" title="Send message">
-                    <i data-lucide="arrow-up" style="width:14px; height:14px;"></i>
-                </button>
+                <div class="chat-composer-actions">
+                    <button class="composer-refresh-btn" id="composerRefreshBtn" type="button" title="Refresh chats from Hermes">
+                        <i data-lucide="refresh-cw" style="width:12px; height:12px;"></i>
+                    </button>
+                    <button class="deck-send-btn" id="deckSendMessageBtn" type="button" title="Send message">
+                        <i data-lucide="arrow-up" style="width:14px; height:14px;"></i>
+                    </button>
+                </div>
             </div>
         </div>
     </aside>

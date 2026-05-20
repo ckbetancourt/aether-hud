@@ -1389,6 +1389,38 @@ body {
     }
 }
 
+.chat-composer-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.composer-refresh-btn {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: transparent;
+    border: 1px solid var(--border-glow);
+    color: var(--text-dim);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.25s ease;
+    opacity: 0.6;
+}
+
+.composer-refresh-btn:hover {
+    opacity: 1;
+    color: var(--accent-secondary);
+    border-color: var(--accent-secondary);
+    transform: scale(1.05);
+}
+
+.composer-refresh-btn.refreshing i {
+    animation: spin 0.8s linear infinite;
+}
+
 .deck-send-btn {
     width: 32px;
     height: 32px;
