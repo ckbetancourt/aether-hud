@@ -81,6 +81,7 @@ class AIEngine {
 
         const root = baseUrl.replace(/\/$/, '');
         const endpoint = `${root}/api/chat`;
+        const onToolProgress = typeof options.onToolProgress === 'function' ? options.onToolProgress : null;
 
         const prior = this.historyWithoutPendingUserTurn(history, userMessage, 12);
         const messages = prior.map((msg) => ({
@@ -89,20 +90,26 @@ class AIEngine {
         }));
         messages.push({ role: 'user', content: userMessage });
 
+        const payload = {
+            messages,
+            sessionId: options.sessionId || null,
+            hermesProfile: options.hermesProfile || null,
+            voiceSystemPrompt: this.buildSystemInstruction(),
+            personality: {
+                id: this.personality.id,
+                displayName: this.personality.displayName,
+            },
+        };
+
+        if (onToolProgress) {
+            payload.progressStream = true;
+            return await this.consumeProgressChatStream(endpoint, payload, onToolProgress);
+        }
+
         const response = await fetch(endpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                messages,
-                sessionId: options.sessionId || null,
-                hermesSessionId: options.hermesSessionId || null,
-                hermesProfile: options.hermesProfile || null,
-                voiceSystemPrompt: this.buildSystemInstruction(),
-                personality: {
-                    id: this.personality.id,
-                    displayName: this.personality.displayName,
-                },
-            }),
+            body: JSON.stringify(payload),
         });
 
         const data = await response.json().catch(() => ({}));
@@ -117,6 +124,84 @@ class AIEngine {
             text: replyText,
             backend: data.backend || 'openai',
             hermes: data.hermes || null,
+        };
+    }
+
+    async consumeProgressChatStream(endpoint, payload, onToolProgress) {
+        const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+
+        if (!response.ok) {
+            const data = await response.json().catch(() => ({}));
+            throw new Error(data.error || data.message || `HTTP ${response.status}`);
+        }
+
+        const reader = response.body?.getReader();
+        if (!reader) {
+            throw new Error('Progress stream unavailable from LLM backend');
+        }
+
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let finalResult = null;
+        let streamError = null;
+
+        const dispatchSseBlock = (block) => {
+            const lines = block.split('\n');
+            let eventName = 'message';
+            let dataLine = '';
+            for (const line of lines) {
+                if (line.startsWith('event:')) {
+                    eventName = line.slice(6).trim();
+                } else if (line.startsWith('data:')) {
+                    dataLine += line.slice(5).trim();
+                }
+            }
+            if (!dataLine) return;
+
+            let parsed;
+            try {
+                parsed = JSON.parse(dataLine);
+            } catch {
+                return;
+            }
+
+            if (eventName === 'tool' && parsed?.name) {
+                onToolProgress(parsed.name);
+            } else if (eventName === 'done') {
+                finalResult = parsed;
+            } else if (eventName === 'error') {
+                streamError = new Error(parsed.error || 'Server error');
+            }
+        };
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+
+            let splitAt;
+            while ((splitAt = buffer.indexOf('\n\n')) !== -1) {
+                const block = buffer.slice(0, splitAt);
+                buffer = buffer.slice(splitAt + 2);
+                if (block.trim()) dispatchSseBlock(block);
+            }
+        }
+
+        if (buffer.trim()) dispatchSseBlock(buffer);
+
+        if (streamError) throw streamError;
+        if (!finalResult?.reply || typeof finalResult.reply !== 'string') {
+            throw new Error('Empty reply from LLM backend');
+        }
+
+        return {
+            text: finalResult.reply,
+            backend: finalResult.backend || 'openai',
+            hermes: finalResult.hermes || null,
         };
     }
 

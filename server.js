@@ -8,6 +8,7 @@ require('dotenv').config({ path: path.join(__dirname, '.env') });
 require('dotenv').config({ path: path.join(__dirname, '.env.local'), override: true });
 
 const http = require('http');
+const Database = require('better-sqlite3');
 
 const ROOT = __dirname;
 const PORT = Number(process.env.PORT) || 8787;
@@ -120,7 +121,103 @@ const MIME = {
   '.webp': 'image/webp',
 };
 
+const HERMES_STATE_DB_PATH = path.join(process.env.HOME || '/Users/friday', '.hermes', 'state.db');
+
+/** Open Hermes state.db for direct session reads (read-only, no WAL lock issues) */
+const hermesStateDb = (() => {
+  try {
+    const db = new Database(HERMES_STATE_DB_PATH, { readonly: true, fileMustExist: true });
+    db.pragma('journal_mode = WAL');
+    db.pragma('query_only = true');
+    console.log(`Hermes state.db opened: ${HERMES_STATE_DB_PATH}`);
+    return db;
+  } catch (e) {
+    console.warn(`Hermes state.db not available at ${HERMES_STATE_DB_PATH}: ${e.message}`);
+    return null;
+  }
+})();
+
+function hermesSessionsList(limit = 80) {
+  if (!hermesStateDb) return [];
+  const rows = hermesStateDb.prepare(
+    `SELECT id, title, started_at, model, message_count, input_tokens, output_tokens
+     FROM sessions
+     ORDER BY started_at DESC
+     LIMIT ?`
+  ).all(limit);
+  return rows.map(r => ({
+    id: r.id,
+    title: r.title || `Session ${r.id.slice(0, 8)}`,
+    model: r.model || '',
+    startedAt: r.started_at,
+    messageCount: r.message_count || 0,
+    inputTokens: r.input_tokens || 0,
+    outputTokens: r.output_tokens || 0,
+  }));
+}
+
+function hermesSessionMessages(sessionId, limit = 200) {
+  if (!hermesStateDb) return [];
+  const rows = hermesStateDb.prepare(
+    `SELECT id, role, content, timestamp, tool_calls, tool_name, finish_reason
+     FROM messages
+     WHERE session_id = ?
+     ORDER BY timestamp ASC
+     LIMIT ?`
+  ).all(sessionId, limit);
+  return rows.map(r => ({
+    id: r.id,
+    role: r.role,
+    content: String(r.content || ''),
+    timestamp: r.timestamp,
+    tool_calls: r.tool_calls,
+    tool_name: r.tool_name,
+    finish_reason: r.finish_reason,
+  }));
+}
+
 const userStore = require('./lib/user-store');
+
+/**
+ * Fetch Hermes profiles by running `hermes profile list` and parsing the output table.
+ * Returns an array of { id, name, model, alias, running } objects.
+ */
+async function fetchHermesProfiles() {
+  const { execSync } = require('child_process');
+  try {
+    const output = execSync('hermes profile list 2>&1', {
+      timeout: 10000,
+      encoding: 'utf-8',
+      maxBuffer: 1024 * 64,
+    });
+    const lines = output.split('\n').filter(l => l.trim());
+    const profiles = [];
+    // Skip header lines (─ separator, ─────────────── header)
+    let started = false;
+    for (const line of lines) {
+      // Detect data row: starts with " ◆" (current profile) or "  " (non-current)
+      if (/^ [◆ ] /.test(line) || /^[◆ ]/.test(line) && !line.includes('───────────────')) {
+        // Parse columns by position: Profile, Model, Gateway, Alias, Distribution
+        const parts = line.trim().split(/\s{2,}/);
+        if (parts.length >= 2) {
+          const id = parts[0].replace('◆', '').trim();
+          profiles.push({
+            id,
+            name: id,
+            model: parts[1] || '',
+            alias: parts[3] || '',
+            running: parts[2] === 'running' || parts[2] === 'running,',
+            isCurrent: line.includes('◆'),
+          });
+        }
+      }
+    }
+    return profiles;
+  } catch (e) {
+    console.warn('Failed to list Hermes profiles:', e.message);
+    return [];
+  }
+}
 
 const {
   buildAetherTtsPrompt,
@@ -173,64 +270,19 @@ function openAiHeaders(apiKey, extra = {}) {
   return headers;
 }
 
-function hermesDashboardHeaders(extra = {}) {
-  return {
-    Accept: 'application/json',
-    ...extra,
-  };
-}
-
-function resolveHermesDashboardBaseUrl() {
-  return HERMES_DASHBOARD_URL;
-}
-
-function resolveHermesSessionsListUrl() {
-  if (HERMES_SESSIONS_URL) return HERMES_SESSIONS_URL;
-  return `${resolveHermesDashboardBaseUrl()}/api/sessions`;
-}
-
-function resolveHermesSessionMessagesUrl(sessionId) {
-  const encoded = encodeURIComponent(String(sessionId));
-  return `${resolveHermesDashboardBaseUrl()}/api/sessions/${encoded}/messages`;
-}
-
 function normalizeHermesListItems(data) {
   return Array.isArray(data) ? data : data?.data || data?.items || data?.sessions || [];
 }
 
-async function fetchHermesDashboardJson(url) {
-  const res = await fetch(url, {
-    method: 'GET',
-    headers: hermesDashboardHeaders(),
-  });
-  if (!res.ok) {
-    throw parseUpstreamError(res.status, await res.text());
+function probeHermesSessionsList() {
+  if (hermesStateDb) {
+    return { ok: true, url: 'state.db (direct)' };
   }
-  return res.json();
-}
-
-async function probeHermesSessionsList() {
-  const url = resolveHermesSessionsListUrl();
-  try {
-    const res = await fetch(url, {
-      method: 'GET',
-      headers: hermesDashboardHeaders(),
-    });
-    if (!res.ok) {
-      return {
-        ok: false,
-        url,
-        error: `HTTP ${res.status} from ${url}`,
-      };
-    }
-    return { ok: true, url };
-  } catch (e) {
-    return {
-      ok: false,
-      url,
-      error: e.message || 'Hermes sessions list unreachable',
-    };
-  }
+  return {
+    ok: false,
+    url: HERMES_STATE_DB_PATH,
+    error: 'Hermes state.db not available',
+  };
 }
 
 function chatCompletionsUrl(baseUrl) {
@@ -263,12 +315,13 @@ function parseUpstreamError(status, text) {
  *   data: {"choices":[{"delta":{"content":"Hello"}}]}
  *   data: [DONE]
  */
-async function parseSseStream(res, signal) {
+async function parseSseStream(res, signal, onStreamProgress) {
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
   let content = '';
   let finalRaw = null;
+  let latestToolIndex = -1;
 
   while (true) {
     const { done, value } = await reader.read();
@@ -301,7 +354,16 @@ async function parseSseStream(res, signal) {
               finalRaw.tool_calls[idx] = { id: tc.id || '', type: 'function', function: { name: '', arguments: '' } };
             }
             if (tc.id) finalRaw.tool_calls[idx].id = tc.id;
-            if (tc.function?.name) finalRaw.tool_calls[idx].function.name += tc.function.name;
+            if (tc.function?.name) {
+              finalRaw.tool_calls[idx].function.name += tc.function.name;
+              latestToolIndex = idx;
+              if (onStreamProgress) {
+                onStreamProgress({
+                  name: finalRaw.tool_calls[idx].function.name,
+                  index: idx,
+                });
+              }
+            }
             if (tc.function?.arguments) finalRaw.tool_calls[idx].function.arguments += tc.function.arguments;
           }
         }
@@ -311,10 +373,28 @@ async function parseSseStream(res, signal) {
     }
   }
 
+  if (onStreamProgress && latestToolIndex >= 0 && finalRaw?.tool_calls?.[latestToolIndex]?.function?.name) {
+    onStreamProgress({
+      name: finalRaw.tool_calls[latestToolIndex].function.name,
+      index: latestToolIndex,
+      final: true,
+    });
+  }
+
   return { content, raw: finalRaw || {} };
 }
 
-async function callChatCompletions({ baseUrl, model, apiKey, messages, temperature, maxTokens, extraHeaders = {}, stream = false }) {
+async function callChatCompletions({
+  baseUrl,
+  model,
+  apiKey,
+  messages,
+  temperature,
+  maxTokens,
+  extraHeaders = {},
+  stream = false,
+  onStreamProgress,
+}) {
   const body = {
     model,
     messages,
@@ -336,7 +416,7 @@ async function callChatCompletions({ baseUrl, model, apiKey, messages, temperatu
   }
 
   if (stream) {
-    const { content, raw } = await parseSseStream(res, abort.signal);
+    const { content, raw } = await parseSseStream(res, abort.signal, onStreamProgress);
     if (!content && !raw?.tool_calls?.length) {
       const err = new Error('Empty or invalid completion from model');
       err.statusCode = 502;
@@ -399,7 +479,7 @@ function hermesSystemPrompt(body) {
 }
 
 function hermesHeaders(body) {
-  const sessionId = body.hermesSessionId || body.sessionId || '';
+  const sessionId = body.sessionId || body.hermesSessionId || '';
   const profile = body.hermesProfile || HERMES_PROFILE || '';
   const headers = {};
   if (sessionId) headers['X-Hermes-Session-Id'] = String(sessionId);
@@ -418,7 +498,12 @@ function hermesHeaders(body) {
  */
 const MAX_TOOL_ROUNDS = 6;
 
-async function handleHermesChat(body) {
+function writeSseEvent(res, event, data) {
+  res.write(`event: ${event}\n`);
+  res.write(`data: ${JSON.stringify(data)}\n\n`);
+}
+
+async function handleHermesChat(body, emitProgress) {
   const { messages, stream: requestStream } = body;
   if (!messages || !Array.isArray(messages)) {
     const err = new Error('Invalid body: expected { messages: [...] }');
@@ -440,8 +525,13 @@ async function handleHermesChat(body) {
   ];
 
   let result;
-  let sessionId = body.hermesSessionId || null;
+  let sessionId = body.sessionId || body.hermesSessionId || null;
   const extraHeaders = hermesHeaders(body);
+
+  const reportTool = (name) => {
+    if (!emitProgress || !name) return;
+    emitProgress('tool', { name: String(name) });
+  };
 
   try {
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
@@ -454,6 +544,7 @@ async function handleHermesChat(body) {
         maxTokens: 2048,
         extraHeaders,
         stream: useStream,
+        onStreamProgress: (info) => reportTool(info?.name),
       });
 
       // Extract tool calls from the response
@@ -482,6 +573,7 @@ async function handleHermesChat(body) {
       for (const tc of toolCalls) {
         const tcId = tc.id || `call_${round}_${toolCalls.indexOf(tc)}`;
         const tcName = tc.function?.name || 'unknown';
+        reportTool(tcName);
 
         // Submit the tool call back to Hermes for execution.
         // Hermes's chat/completions endpoint accepts tool results in the
@@ -523,9 +615,9 @@ async function handleHermesChat(body) {
   };
 }
 
-async function handleChat(body) {
+async function handleChat(body, emitProgress) {
   if (IS_HERMES_BACKEND) {
-    return handleHermesChat(body);
+    return handleHermesChat(body, emitProgress);
   }
   return handleOpenAiChat(body);
 }
@@ -574,14 +666,13 @@ async function probeHermesStatus() {
       backend: 'hermes',
       connected: true,
       baseUrl: HERMES_API_BASE_URL,
-      dashboardUrl: resolveHermesDashboardBaseUrl(),
       sessionsListUrl: sessionsProbe.url,
       model,
       modelSource,
       ...profileFields,
       capabilities: {
         chat: true,
-        profiles: Boolean(HERMES_PROFILES_URL || HERMES_PROFILE),
+        profiles: true,
         sessions: sessionsProbe.ok,
         streaming: true,
         toolCalling: true,
@@ -590,7 +681,7 @@ async function probeHermesStatus() {
         ? null
         : {
             error: sessionsProbe.error,
-            hint: 'Run hermes dashboard for session restore on reload (default http://127.0.0.1:9119).',
+            hint: 'Hermes state.db not found — sessions won\'t sync. Make sure Hermes has been used at least once to create ~/.hermes/state.db.',
           },
       models,
     };
@@ -639,15 +730,6 @@ async function fetchOptionalHermesList(kind, url, fallbackItem, options = {}) {
       })();
   const items = normalizeHermesListItems(data);
   return { available: true, items, sourceUrl: url };
-}
-
-async function fetchHermesSessionMessages(sessionId) {
-  const url = resolveHermesSessionMessagesUrl(sessionId);
-  const data = await fetchHermesDashboardJson(url);
-  const messages = Array.isArray(data)
-    ? data
-    : data?.messages || data?.data || data?.items || [];
-  return { available: true, messages, sourceUrl: url };
 }
 
 function readBody(req) {
@@ -777,6 +859,26 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'POST' && pathname === '/api/chat') {
     try {
       const body = await readBody(req);
+      if (body?.progressStream) {
+        res.writeHead(200, {
+          'Content-Type': 'text/event-stream; charset=utf-8',
+          'Cache-Control': 'no-cache, no-transform',
+          Connection: 'keep-alive',
+          ...corsHeaders(),
+        });
+        const emitProgress = (event, data) => writeSseEvent(res, event, data);
+        try {
+          const result = await handleChat(body, emitProgress);
+          writeSseEvent(res, 'done', result);
+        } catch (e) {
+          const status = e.statusCode || (e instanceof SyntaxError ? 400 : 500);
+          console.error('[api/chat]', e.message || e);
+          writeSseEvent(res, 'error', { error: e.message || 'Server error', status });
+        }
+        res.end();
+        return;
+      }
+
       const result = await handleChat(body || {});
       sendJson(res, 200, result);
     } catch (e) {
@@ -863,12 +965,8 @@ const server = http.createServer(async (req, res) => {
 
     if (pathname === '/api/hermes/profiles') {
       try {
-        const data = await fetchOptionalHermesList(
-          'Hermes profile',
-          HERMES_PROFILES_URL,
-          HERMES_PROFILE ? { id: HERMES_PROFILE, name: HERMES_PROFILE } : null
-        );
-        sendJson(res, 200, data);
+        const items = await fetchHermesProfiles();
+        sendJson(res, 200, { available: true, items });
       } catch (e) {
         const status = e.statusCode || 502;
         console.error('[api/hermes/profiles]', e.message || e);
@@ -881,8 +979,8 @@ const server = http.createServer(async (req, res) => {
     if (hermesSessionMessagesMatch) {
       const sessionId = decodeURIComponent(hermesSessionMessagesMatch[1]);
       try {
-        const data = await fetchHermesSessionMessages(sessionId);
-        sendJson(res, 200, data);
+        const messages = hermesSessionMessages(sessionId);
+        sendJson(res, 200, { available: true, messages, source: 'hermes-state-db' });
       } catch (e) {
         const status = e.statusCode || 502;
         console.error('[api/hermes/sessions/:id/messages]', e.message || e);
@@ -897,15 +995,12 @@ const server = http.createServer(async (req, res) => {
 
     if (pathname === '/api/hermes/sessions') {
       try {
-        const sessionsUrl = resolveHermesSessionsListUrl();
-        const data = await fetchOptionalHermesList('Hermes session', sessionsUrl, null, {
-          useDashboardAuth: !HERMES_SESSIONS_URL,
-        });
-        sendJson(res, 200, data);
+        const items = hermesSessionsList();
+        sendJson(res, 200, { available: true, items, source: 'hermes-state-db' });
       } catch (e) {
         const status = e.statusCode || 502;
         console.error('[api/hermes/sessions]', e.message || e);
-        sendJson(res, status, { available: false, items: [], error: e.message || 'Hermes sessions unavailable' });
+        sendJson(res, status, { available: false, items: [], error: e.message || 'Hermes sessions unavailable', source: 'hermes-state-db' });
       }
       return;
     }

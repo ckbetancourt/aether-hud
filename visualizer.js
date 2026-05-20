@@ -14,7 +14,7 @@ class JarvisHUD {
 
         this.ctx = this.canvas.getContext('2d');
         this.state = 'idle'; // 'idle', 'listening', 'thinking', 'speaking'
-        
+        this.thinkingCaption = '';
         // 3D Parallax Anchors
         this.mouseX = 0;
         this.mouseY = 0;
@@ -67,6 +67,9 @@ class JarvisHUD {
         this.colorMode = 'dark';
         this.colorModeOpacityScale = 1;
 
+        this.speechEngine = null;
+        this._audioReactive = null;
+
         // Canvas scaling and bindings
         this.resize();
         window.addEventListener('resize', () => this.resize());
@@ -95,6 +98,10 @@ class JarvisHUD {
     /**
      * Adjust orb halo intensity for light / high-contrast GUI modes.
      */
+    setSpeechEngine(speechEngine) {
+        this.speechEngine = speechEngine || null;
+    }
+
     setColorMode(modeId) {
         this.colorMode = modeId || 'dark';
         if (modeId === 'light') {
@@ -111,6 +118,9 @@ class JarvisHUD {
      */
     setState(state) {
         if (this.state !== state) {
+            if (state !== 'thinking') {
+                this.thinkingCaption = '';
+            }
             // Trigger transition energy shockwaves
             this.shockwaves.push({
                 radius: 10,
@@ -156,7 +166,7 @@ class JarvisHUD {
                     statusLabel.style.color = primary;
                     break;
                 case 'thinking':
-                    statusLabel.textContent = "Aether is thinking...";
+                    statusLabel.textContent = this.thinkingCaption || "Aether is thinking...";
                     statusLabel.style.color = secondary;
                     break;
                 case 'speaking':
@@ -170,6 +180,20 @@ class JarvisHUD {
                     break;
             }
         }
+    }
+
+    setThinkingCaption(caption) {
+        this.thinkingCaption = caption || '';
+        if (this.state === 'thinking') {
+            const statusLabel = document.getElementById('hudOrbLabel');
+            if (statusLabel) {
+                statusLabel.textContent = this.thinkingCaption || "Aether is thinking...";
+            }
+        }
+    }
+
+    clearThinkingCaption() {
+        this.thinkingCaption = '';
     }
 
 
@@ -382,6 +406,11 @@ class JarvisHUD {
         
         this.time += 0.04;
         this.morphPhase += 0.018;
+
+        this._audioReactive = null;
+        if (this.state === 'speaking' && this.speechEngine?.voiceAudioActive) {
+            this._audioReactive = this.speechEngine.updateVoiceAudioAnalysis();
+        }
         
         const primaryColor = this.accentTheme.primary;
         const secondaryColor = this.accentTheme.secondary;
@@ -443,12 +472,16 @@ class JarvisHUD {
                 targetStretchX = 1.02;
                 targetStretchY = 0.99;
                 break;
-            case 'speaking':
-                targetScale = 1.04;
+            case 'speaking': {
+                const voiceEnvelope = this._audioReactive?.envelope ?? 0;
+                const audioReactive = Boolean(this._audioReactive?.frequency);
+                targetScale = 1.04 + voiceEnvelope * (audioReactive ? 0.14 : 0);
                 targetWebExp = 1.0;
                 targetWebOp = 0;
-                scaleSpeed = 0.16;
-                noiseAmp = 32;
+                scaleSpeed = audioReactive ? 0.22 + voiceEnvelope * 0.35 : 0.16;
+                noiseAmp = audioReactive
+                    ? 22 + voiceEnvelope * 42
+                    : 32;
 
                 targetLobe1 = 7.0 + Math.sin(mp * 0.5) * 1.8;
                 targetLobe2 = 6.0 + Math.cos(mp * 0.42) * 1.5;
@@ -461,6 +494,7 @@ class JarvisHUD {
                 targetStretchX = 1.1;
                 targetStretchY = 0.92;
                 break;
+            }
             case 'idle':
             default:
                 targetScale = 1.0;
@@ -777,8 +811,17 @@ class JarvisHUD {
         for (let i = 0; i <= steps; i++) {
             const angle = i * angleStep;
             
-            // Generate radial wave offsets using harmonic polar equations
-            const offset = this.harmonicNoise(angle, time, speed, frequency) * noiseAmplitude;
+            let offset = this.harmonicNoise(angle, time, speed, frequency) * noiseAmplitude;
+            const audio = this._audioReactive;
+            if (this.state === 'speaking' && audio?.frequency) {
+                const freq = audio.frequency;
+                const voiceBins = Math.min(56, freq.length);
+                const binIdx = Math.floor((i / steps) * voiceBins);
+                const band = freq[binIdx] / 255;
+                const envelope = audio.envelope ?? 0;
+                const audioOffset = band * noiseAmplitude * (0.85 + envelope * 1.6);
+                offset = audioOffset + offset * 0.18;
+            }
             const radius = baseRadius + offset;
 
             // Apply dynamic visual squash and stretch (squash along X and Y axes)
@@ -880,6 +923,9 @@ class JarvisHUD {
         const baseRadius = activeRadius * 1.15;
         const steps = 180;
         const angleStep = (Math.PI * 2) / steps;
+        const audio = this._audioReactive;
+        const useLiveAudio = Boolean(audio?.frequency);
+        const voiceEnvelope = audio?.envelope ?? 0;
 
         // Layer 1: Outer bright reactive wave
         this.ctx.beginPath();
@@ -890,15 +936,22 @@ class JarvisHUD {
 
         for (let i = 0; i <= steps; i++) {
             const angle = i * angleStep;
-            
-            // Multiple harmonic overlays for high-fidelity oscilloscope vibration
-            const noise = Math.sin(angle * 10.0 + this.time * 15.0) * 0.35 + 
-                          Math.cos(angle * 22.0 - this.time * 9.0) * 0.25 + 
-                          Math.sin(angle * 5.0 + this.time * 6.0) * 0.4;
-            
-            // Pulsing voice envelope
-            const envelope = 15.0 + Math.sin(this.time * 4.5) * 5.0;
-            const r = baseRadius + noise * envelope;
+            let r;
+
+            if (useLiveAudio) {
+                const freq = audio.frequency;
+                const voiceBins = Math.min(64, freq.length);
+                const binIdx = Math.floor((i / steps) * voiceBins);
+                const band = freq[binIdx] / 255;
+                const liveEnvelope = 10 + voiceEnvelope * 28;
+                r = baseRadius + band * liveEnvelope;
+            } else {
+                const noise = Math.sin(angle * 10.0 + this.time * 15.0) * 0.35 +
+                              Math.cos(angle * 22.0 - this.time * 9.0) * 0.25 +
+                              Math.sin(angle * 5.0 + this.time * 6.0) * 0.4;
+                const envelope = 15.0 + Math.sin(this.time * 4.5) * 5.0;
+                r = baseRadius + noise * envelope;
+            }
 
             const x = cx + Math.cos(angle) * r;
             const y = cy + Math.sin(angle) * r;
@@ -920,13 +973,23 @@ class JarvisHUD {
 
         for (let i = 0; i <= steps; i++) {
             const angle = i * angleStep;
-            
-            const noise = Math.cos(angle * 12.0 - this.time * 11.0) * 0.3 + 
-                          Math.sin(angle * 18.0 + this.time * 7.0) * 0.3 + 
-                          Math.cos(angle * 6.0 - this.time * 4.0) * 0.4;
-            
-            const envelope = 10.0 + Math.cos(this.time * 3.0) * 3.0;
-            const r = baseRadius * 0.95 + noise * envelope;
+            let r;
+
+            if (useLiveAudio) {
+                const freq = audio.frequency;
+                const voiceBins = Math.min(48, freq.length);
+                const binIdx = Math.floor((i / steps) * voiceBins);
+                const neighbor = freq[Math.min(voiceBins - 1, binIdx + 1)] / 255;
+                const band = (freq[binIdx] / 255) * 0.65 + neighbor * 0.35;
+                const liveEnvelope = 6 + voiceEnvelope * 16;
+                r = baseRadius * 0.95 + band * liveEnvelope;
+            } else {
+                const noise = Math.cos(angle * 12.0 - this.time * 11.0) * 0.3 +
+                              Math.sin(angle * 18.0 + this.time * 7.0) * 0.3 +
+                              Math.cos(angle * 6.0 - this.time * 4.0) * 0.4;
+                const envelope = 10.0 + Math.cos(this.time * 3.0) * 3.0;
+                r = baseRadius * 0.95 + noise * envelope;
+            }
 
             const x = cx + Math.cos(angle) * r;
             const y = cy + Math.sin(angle) * r;

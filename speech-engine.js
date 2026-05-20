@@ -13,6 +13,15 @@ class SpeechEngine {
     this.currentAudioUrl = null;
     this._replayRegisterInFlight = false;
 
+    this.audioContext = null;
+    this.analyser = null;
+    this._audioSource = null;
+    this._audioSourceElement = null;
+    this.frequencyData = null;
+    this.timeDomainData = null;
+    this.voiceAudioActive = false;
+    this._voiceLevelSmooth = 0;
+
     this.voiceConfig = {
       pitch: 1.0,
       rate: 1.0,
@@ -148,6 +157,78 @@ class SpeechEngine {
       .trim();
   }
 
+  _initAudioAnalysis() {
+    if (!this.audioContext) {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return null;
+      this.audioContext = new AudioCtx();
+      this.analyser = this.audioContext.createAnalyser();
+      this.analyser.fftSize = 256;
+      this.analyser.smoothingTimeConstant = 0.72;
+      this.frequencyData = new Uint8Array(this.analyser.frequencyBinCount);
+      this.timeDomainData = new Uint8Array(this.analyser.fftSize);
+    }
+    return this.analyser;
+  }
+
+  _connectAnalyser(audio) {
+    const analyser = this._initAudioAnalysis();
+    if (!analyser) return;
+
+    if (this._audioSourceElement !== audio) {
+      this._teardownAnalyserSource(false);
+      this._audioSource = this.audioContext.createMediaElementSource(audio);
+      this._audioSourceElement = audio;
+      this._audioSource.connect(analyser);
+      analyser.connect(this.audioContext.destination);
+    }
+
+    this.voiceAudioActive = true;
+    if (this.audioContext.state === 'suspended') {
+      this.audioContext.resume();
+    }
+  }
+
+  _teardownAnalyserSource(resetSmoothing = true) {
+    if (this._audioSource) {
+      try {
+        this._audioSource.disconnect();
+      } catch (_) {
+        /* already disconnected */
+      }
+      this._audioSource = null;
+      this._audioSourceElement = null;
+    }
+    this.voiceAudioActive = false;
+    if (resetSmoothing) {
+      this._voiceLevelSmooth = 0;
+    }
+  }
+
+  /**
+   * Sample live voice audio for the HUD visualizer (frequency + envelope).
+   * Returns null when no analyzed audio element is playing.
+   */
+  updateVoiceAudioAnalysis() {
+    if (!this.voiceAudioActive || !this.analyser) return null;
+
+    this.analyser.getByteFrequencyData(this.frequencyData);
+    this.analyser.getByteTimeDomainData(this.timeDomainData);
+
+    let sumSq = 0;
+    for (let i = 0; i < this.timeDomainData.length; i++) {
+      const sample = (this.timeDomainData[i] - 128) / 128;
+      sumSq += sample * sample;
+    }
+    const rms = Math.sqrt(sumSq / this.timeDomainData.length);
+    this._voiceLevelSmooth = this._voiceLevelSmooth * 0.78 + rms * 0.22;
+
+    return {
+      frequency: this.frequencyData,
+      envelope: this._voiceLevelSmooth,
+    };
+  }
+
   stopAudioPlayback() {
     if (this.currentAudio) {
       this.currentAudio.pause();
@@ -160,6 +241,7 @@ class SpeechEngine {
       URL.revokeObjectURL(this.currentAudioUrl);
       this.currentAudioUrl = null;
     }
+    this._teardownAnalyserSource();
   }
 
   stopSpeaking() {
@@ -193,6 +275,7 @@ class SpeechEngine {
 
     this.currentAudio = audio;
     this.currentAudioUrl = url;
+    this._connectAnalyser(audio);
 
     const speed = this.getSpeechSpeed();
     if (Number.isFinite(speed) && speed > 0 && speed !== 1) {
@@ -228,6 +311,7 @@ class SpeechEngine {
     }
 
     this.synth.cancel();
+    this._teardownAnalyserSource();
 
     const utterance = new SpeechSynthesisUtterance(cleanText);
     const voiceConfig = this.voiceConfig;

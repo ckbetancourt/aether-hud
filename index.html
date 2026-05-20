@@ -128,16 +128,21 @@
         </div>
     </aside>
 
-        <!-- ARCHIVES DRAWER (Left Side) -->
+        <!-- CHATS DRAWER (Left Side) -->
         <aside class="sidebar-drawer glass-panel" id="sidebarDrawer">
             <div class="drawer-header">
                 <div class="hud-brand">
                     <span class="brand-dot"></span>
-                    <span class="brand-name" style="font-size:0.95rem;">ARCHIVES</span>
+                    <span class="brand-name" style="font-size:0.95rem;">CHATS</span>
                 </div>
-                <button class="settings-gear-btn" id="historyDrawerCloseBtn" style="border:none; background:transparent;">
-                    <i data-lucide="x" style="width:16px; height:16px;"></i>
-                </button>
+                <div class="drawer-header-actions">
+                    <button class="settings-gear-btn" id="refreshChatsBtn" title="Refresh chats from Hermes" style="border:none; background:transparent;">
+                        <i data-lucide="refresh-cw" style="width:14px; height:14px;"></i>
+                    </button>
+                    <button class="settings-gear-btn" id="historyDrawerCloseBtn" style="border:none; background:transparent;">
+                        <i data-lucide="x" style="width:16px; height:16px;"></i>
+                    </button>
+                </div>
             </div>
             
             <div class="drawer-scroll">
@@ -157,7 +162,7 @@
                 </section>
 
                 <section>
-                    <h3 class="section-label">Archive logs</h3>
+                    <h3 class="section-label">Chats</h3>
                     <div class="chat-history-list" id="chatHistoryList">
                         <!-- Populated by JavaScript -->
                     </div>

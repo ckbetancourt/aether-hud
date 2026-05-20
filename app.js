@@ -11,6 +11,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     let historyRenderScheduled = false;
 
     const MAX_SESSIONS = 40;
+    const SESSIONS_PAGE_SIZE = 10;
     const MAX_MESSAGES_PER_SESSION = 100;
     const MAX_MESSAGE_CHARS = 32000;
 
@@ -28,10 +29,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             id: session.id || `sess_${Date.now()}`,
             title: session.title || 'Untitled session',
             profile: session.profile || session.model || '',
-            source: session.source || (session.hermesSessionId ? 'hermes' : 'local'),
-            hermesSessionId: session.hermesSessionId || null,
+            source: session.source || (session.id && !session.id.startsWith('sess_') ? 'hermes' : 'local'),
             hermesProfile: session.hermesProfile || savedHermesProfile,
             hermesUpdatedAt: session.hermesUpdatedAt || null,
+            startedAt: session.startedAt || session.hermesUpdatedAt || null,
             messages: Array.isArray(session.messages) ? session.messages : [],
         };
     }
@@ -139,6 +140,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const ai = new AIEngine();
     const speech = new SpeechEngine();
     const visualizer = new JarvisHUD('jarvisCanvas');
+    visualizer.setSpeechEngine(speech);
 
     // Start Orb Rendering immediately
     visualizer.start();
@@ -196,6 +198,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         ttsReplayCacheSizeVal: document.getElementById('ttsReplayCacheSizeVal'),
         hermesProfileSelect: document.getElementById('hermesProfileSelect'),
         hermesStatusText: document.getElementById('hermesStatusText'),
+        refreshChatsBtn: document.getElementById('refreshChatsBtn'),
     };
 
     // Initialize speech mute UI button state
@@ -235,6 +238,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     } else {
         expandChatColumn(false);
     }
+
+    // Auto-refresh chats when returning to the tab
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible' && state.hermesStatus?.enabled && state.hermesStatus?.connected) {
+            refreshHermesChats();
+        }
+    });
 
     /* ==========================================================================
        A. HUD Control Event Listeners
@@ -332,6 +342,24 @@ document.addEventListener('DOMContentLoaded', async () => {
                 if (elements.ttsReplayCacheSizeVal) {
                     elements.ttsReplayCacheSizeVal.textContent = elements.ttsReplayCacheSize.value;
                 }
+            });
+        }
+
+        // Hermes profile selector
+        if (elements.hermesProfileSelect) {
+            elements.hermesProfileSelect.addEventListener('change', () => {
+                const profile = elements.hermesProfileSelect.value;
+                state.activeHermesProfile = profile;
+                AetherUserData.setItem('aether_hermes_profile', profile);
+                updateHermesProfileBadge();
+                appendSystemConsoleLine(`[AGENT] Hermes profile changed to: ${profile || 'default'}.`);
+            });
+        }
+
+        // Refresh chats button
+        if (elements.refreshChatsBtn) {
+            elements.refreshChatsBtn.addEventListener('click', () => {
+                refreshHermesChats();
             });
         }
 
@@ -441,7 +469,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (state.hermesStatus?.enabled) {
                 appendSystemConsoleLine(
                     state.hermesStatus.connected
-                        ? `[AGENT] Routing command through Hermes${activeSession?.hermesSessionId ? ` session ${String(activeSession.hermesSessionId).slice(0, 18)}` : ''}.`
+                        ? `[AGENT] Routing command through Hermes${activeSession?.id && !activeSession.id.startsWith('sess_') ? ` session ${String(activeSession.id).slice(0, 18)}` : ''}.`
                         : '[AGENT] Hermes mode is enabled, but the bridge is offline. Attempting request for latest status.'
                 );
             }
@@ -461,8 +489,11 @@ document.addEventListener('DOMContentLoaded', async () => {
                 },
                 {
                     sessionId: activeSession?.id,
-                    hermesSessionId: activeSession?.hermesSessionId,
                     hermesProfile: activeSession?.hermesProfile || state.activeHermesProfile,
+                    onToolProgress: (toolName) => {
+                        setAssistantBubbleToolPreview(bubbleNode, toolName);
+                        visualizer.setThinkingCaption(`Running ${toolName}…`);
+                    },
                 }
             );
             const responseText = typeof aiResponse === 'string' ? aiResponse : aiResponse.text || '';
@@ -483,6 +514,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
 
             const replayState = { id: null };
+            clearAssistantBubbleToolPreview(bubbleNode);
             await streamResponseText(consoleLogNode, bubbleNode, responseText, replayState);
             saveMessageToSession('assistant', responseText, {
                 ...responseMeta,
@@ -503,6 +535,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             const errMsg = `[AETHER ERROR] Telemetry routing failed. Error: ${err.message}`;
             consoleLogNode.innerHTML = `<span style="color:var(--error);">${errMsg}</span>`;
             bubbleNode.innerHTML = `<span style="color:var(--error);">${errMsg}</span>`;
+            clearAssistantBubbleToolPreview(bubbleNode);
             visualizer.setState('idle');
         }
     }
@@ -540,8 +573,21 @@ document.addEventListener('DOMContentLoaded', async () => {
     function persistHermesSessionMetadata(hermes) {
         const sessionIndex = state.sessions.findIndex(s => s.id === state.activeSessionId);
         if (sessionIndex === -1 || !hermes) return;
+        
+        const hermesSessionId = hermes.sessionId || hermes.conversationId || null;
+        
+        // If we got a Hermes session ID and the current session has a sess_ prefix,
+        // replace the session ID with the canonical Hermes ID
+        if (hermesSessionId && state.sessions[sessionIndex].id.startsWith('sess_')) {
+            const oldId = state.sessions[sessionIndex].id;
+            state.sessions[sessionIndex].id = hermesSessionId;
+            if (state.activeSessionId === oldId) {
+                state.activeSessionId = hermesSessionId;
+                AetherUserData.setItem('aether_active_session_id', hermesSessionId);
+            }
+        }
+        
         state.sessions[sessionIndex].source = 'hermes';
-        state.sessions[sessionIndex].hermesSessionId = hermes.sessionId || state.sessions[sessionIndex].hermesSessionId || null;
         state.sessions[sessionIndex].hermesProfile = hermes.profile || state.activeHermesProfile || null;
         state.sessions[sessionIndex].hermesUpdatedAt = new Date().toISOString();
         schedulePersistSessions();
@@ -892,7 +938,11 @@ document.addEventListener('DOMContentLoaded', async () => {
        F. Archives & Session Cache Persistence
        ========================================================================== */
     function pruneSessions(sessions) {
-        return sessions.slice(0, MAX_SESSIONS).map((s) => ({
+        // Always keep the active session (if any) regardless of position
+        const activeId = state?.activeSessionId || AetherUserData?.getItem?.('aether_active_session_id');
+        const activeSession = activeId ? sessions.find(s => s.id === activeId) : null;
+
+        let pruned = sessions.slice(0, MAX_SESSIONS).map((s) => ({
             ...s,
             messages: (s.messages || []).slice(-MAX_MESSAGES_PER_SESSION).map((m) => {
                 if (m.content && m.content.length > MAX_MESSAGE_CHARS) {
@@ -905,6 +955,13 @@ document.addEventListener('DOMContentLoaded', async () => {
                 return m;
             }),
         }));
+
+        // If active session was outside the top-40 slice, append it
+        if (activeSession && !pruned.find(s => s.id === activeSession.id)) {
+            pruned.push(activeSession);
+        }
+
+        return pruned;
     }
 
     function flushPersistSessions() {
@@ -951,7 +1008,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             title: `Session ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
             profile: '',
             source: state.hermesStatus?.connected ? 'hermes' : 'local',
-            hermesSessionId: null,
             hermesProfile: state.activeHermesProfile || state.hermesStatus?.profile || null,
             hermesUpdatedAt: null,
             messages: []
@@ -974,9 +1030,40 @@ document.addEventListener('DOMContentLoaded', async () => {
         speech.stopSpeaking();
     }
 
-    function loadSession(sessionId) {
-        const session = state.sessions.find(s => s.id === sessionId);
+    async function loadSession(sessionId) {
+        const isHermesId = (id) => id && !String(id).startsWith('sess_');
+
+        let session = state.sessions.find(s => s.id === sessionId);
+
+        // If not found locally but it's a Hermes ID, try fetching from API and injecting into state
+        if (!session && isHermesId(sessionId) && ai) {
+            console.warn(`[loadSession] Session "${sessionId}" not in local state, attempting to fetch from Hermes state.db...`);
+            try {
+                const msgs = await ai.getHermesSessionMessages(sessionId);
+                const freshMessages = (msgs.available && Array.isArray(msgs.messages))
+                    ? normalizeHermesMessages(msgs.messages) : [];
+
+                const newSession = normalizeSession({
+                    id: sessionId,
+                    title: `Session ${sessionId.slice(0, 8)}`,
+                    source: 'hermes',
+                    startedAt: null,
+                    hermesProfile: state.activeHermesProfile || state.hermesStatus?.profile || null,
+                    hermesUpdatedAt: null,
+                    messages: freshMessages,
+                });
+                state.sessions.unshift(newSession);
+                session = newSession;
+                console.log(`[loadSession] Injected Hermes session "${sessionId}" with ${freshMessages.length} messages`);
+            } catch (e) {
+                console.warn('[loadSession] Failed to fetch session from state.db:', e);
+                startNewSession();
+                return;
+            }
+        }
+
         if (!session) {
+            console.warn(`[loadSession] Session not found: "${sessionId}" — available IDs:`, state.sessions.map(s => s.id).slice(0, 10), state.sessions.length > 10 ? `... (${state.sessions.length} total)` : '');
             startNewSession();
             return;
         }
@@ -984,6 +1071,24 @@ document.addEventListener('DOMContentLoaded', async () => {
         state.activeSessionId = sessionId;
         AetherUserData.setItem('aether_active_session_id', sessionId);
         updateHermesProfileBadge();
+
+        // For Hermes sessions, always fetch latest messages from state.db
+        if (isHermesId(session.id) && ai) {
+            try {
+                console.log(`[loadSession] Fetching latest messages for Hermes session: ${session.id}`);
+                const msgs = await ai.getHermesSessionMessages(session.id);
+                if (msgs.available && Array.isArray(msgs.messages) && msgs.messages.length > 0) {
+                    const freshMessages = normalizeHermesMessages(msgs.messages);
+                    if (freshMessages.length > 0) {
+                        session.messages = freshMessages;
+                        session.source = 'hermes';
+                        schedulePersistSessions();
+                    }
+                }
+            } catch (e) {
+                console.warn('[loadSession] Failed to fetch Hermes messages, falling back to cached:', e);
+            }
+        }
 
         // Load logs
         elements.consoleScroller.innerHTML = `<div class="console-log-line system-line">[SYSTEM] Historical session re-loaded.</div>`;
@@ -1027,7 +1132,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         const message = { role, content };
         if (meta.backend) message.backend = meta.backend;
-        if (meta.hermes?.sessionId) message.hermesSessionId = meta.hermes.sessionId;
         if (meta.audioReplayId) message.audioReplayId = meta.audioReplayId;
         state.sessions[sessionIndex].messages.push(message);
         
@@ -1049,13 +1153,26 @@ document.addEventListener('DOMContentLoaded', async () => {
         list.innerHTML = '';
 
         if (state.sessions.length === 0) {
-            list.innerHTML = `<div style="font-size:0.65rem; color:var(--text-dim); text-align:center; padding:10px;">Archive empty</div>`;
+            list.innerHTML = `<div style="font-size:0.65rem; color:var(--text-dim); text-align:center; padding:10px;">No chats yet</div>`;
             return;
         }
 
+        // Always sort most-recent-first by startedAt
+        const sorted = [...state.sessions].sort((a, b) => {
+            const aTime = a.startedAt ? new Date(a.startedAt).getTime() : 0;
+            const bTime = b.startedAt ? new Date(b.startedAt).getTime() : 0;
+            if (aTime !== bTime) return bTime - aTime;
+            // Fallback: local sessions (sess_ prefix) go after Hermes sessions
+            const aPriority = String(a.id).startsWith('sess_') ? 1 : 0;
+            const bPriority = String(b.id).startsWith('sess_') ? 1 : 0;
+            return aPriority - bPriority;
+        });
+
+        const showCount = Math.min(state._displayedSessionCount || SESSIONS_PAGE_SIZE, sorted.length);
         const fragment = document.createDocumentFragment();
 
-        state.sessions.forEach((s) => {
+        for (let i = 0; i < showCount; i++) {
+            const s = sorted[i];
             const btn = document.createElement('button');
             btn.className = `history-item ${s.id === state.activeSessionId ? 'active' : ''}`;
             
@@ -1072,7 +1189,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             titleSpan.textContent = s.title;
 
             if (s.source === 'hermes') {
-                btn.title = `Hermes profile: ${s.hermesProfile || 'default'}${s.hermesSessionId ? ` | Session: ${s.hermesSessionId}` : ''}`;
+                btn.title = `Hermes profile: ${s.hermesProfile || 'default'}`;
             }
 
             btn.appendChild(icon);
@@ -1083,7 +1200,20 @@ document.addEventListener('DOMContentLoaded', async () => {
                 toggleSidebarDrawer();
             });
             fragment.appendChild(btn);
-        });
+        }
+
+        // "Load more" button if there are more sessions
+        if (showCount < sorted.length) {
+            const moreBtn = document.createElement('button');
+            moreBtn.className = 'history-item history-load-more';
+            moreBtn.style.cssText = 'font-size:0.65rem; color:var(--accent-secondary); text-align:center; border:1px dashed var(--border-glow); opacity:0.7;';
+            moreBtn.textContent = `Load ${Math.min(SESSIONS_PAGE_SIZE, sorted.length - showCount)} more...`;
+            moreBtn.addEventListener('click', () => {
+                state._displayedSessionCount = (state._displayedSessionCount || SESSIONS_PAGE_SIZE) + SESSIONS_PAGE_SIZE;
+                scheduleRenderHistorySessions();
+            });
+            fragment.appendChild(moreBtn);
+        }
 
         list.appendChild(fragment);
         refreshHistoryIcons();
@@ -1096,6 +1226,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             updateHermesStatusUi(status);
             if (status.enabled && status.connected) {
                 appendSystemConsoleLine(`[AGENT] Hermes bridge connected: ${status.model || 'default model'}`);
+                // Fetch profiles and populate the dropdown
+                populateHermesProfiles();
                 await syncHermesSessions();
             } else if (status.enabled) {
                 appendSystemConsoleLine(`[AGENT] Hermes bridge unavailable: ${status.error || status.reason || 'status probe failed'}`);
@@ -1109,14 +1241,102 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
 
-    function parseHermesTimestamp(value) {
-        if (!value) return 0;
-        const parsed = Date.parse(value);
-        return Number.isFinite(parsed) ? parsed : 0;
+    async function populateHermesProfiles() {
+        const select = elements.hermesProfileSelect;
+        if (!select) return;
+        try {
+            const result = await ai.getHermesProfiles();
+            if (!result.available || !Array.isArray(result.items)) return;
+            // Keep the default option
+            select.innerHTML = '<option value="">Hermes default profile</option>';
+            let hasActive = false;
+            for (const p of result.items) {
+                const opt = document.createElement('option');
+                opt.value = p.id;
+                opt.textContent = p.name + (p.alias ? ` (${p.alias})` : '') + (p.running ? ' ●' : '');
+                if (p.isCurrent) {
+                    opt.selected = true;
+                    // If no stored profile preference, set it
+                    if (!state.activeHermesProfile) {
+                        state.activeHermesProfile = p.id;
+                        AetherUserData.setItem('aether_hermes_profile', p.id);
+                    }
+                    hasActive = true;
+                }
+                select.appendChild(opt);
+            }
+            // Apply the saved profile selection
+            if (state.activeHermesProfile) {
+                const match = Array.from(select.options).find(o => o.value === state.activeHermesProfile);
+                if (match) {
+                    select.value = state.activeHermesProfile;
+                }
+            }
+            updateHermesProfileBadge();
+        } catch (err) {
+            // Silently skip — the dropdown just shows the default option
+        }
     }
 
-    function isHermesSessionNewer(hermesUpdatedAt, existingUpdatedAt) {
-        return parseHermesTimestamp(hermesUpdatedAt) > parseHermesTimestamp(existingUpdatedAt);
+    async function refreshHermesChats() {
+        if (!state.hermesStatus?.enabled || !state.hermesStatus?.connected) {
+            appendSystemConsoleLine(`[AGENT] Cannot refresh chats — Hermes bridge is offline.`);
+            return;
+        }
+        const btn = elements.refreshChatsBtn;
+        if (btn) btn.classList.add('refreshing');
+        try {
+            // Re-fetch Hermes sessions from state.db and merge into existing sessions
+            const result = await ai.getHermesSessions();
+            if (!result.available || !Array.isArray(result.items)) {
+                appendSystemConsoleLine(`[AGENT] Chat refresh: no sessions available from state.db.`);
+                return;
+            }
+
+            let imported = 0;
+            let refreshed = 0;
+
+            for (const item of result.items) {
+                const hermesSessionId = String(item.id || item.sessionId || item.session_id || '');
+                if (!hermesSessionId) continue;
+
+                const title = item.title || `Session ${hermesSessionId.slice(0, 8)}`;
+                const existing = state.sessions.find((s) => s.id === hermesSessionId);
+
+                if (existing) {
+                    existing.title = title;
+                    existing.source = 'hermes';
+                    existing.model = item.model || existing.model || '';
+                    if (item.startedAt) existing.startedAt = item.startedAt;
+                    refreshed++;
+                } else {
+                    state.sessions.push(normalizeSession({
+                        id: hermesSessionId,
+                        title,
+                        profile: item.model || '',
+                        source: 'hermes',
+                        startedAt: item.startedAt || null,
+                        hermesProfile: state.activeHermesProfile || state.hermesStatus?.profile || null,
+                        hermesUpdatedAt: null,
+                        messages: [],
+                    }));
+                    imported++;
+                }
+            }
+
+            if (imported > 0 || refreshed > 0) {
+                state._displayedSessionCount = SESSIONS_PAGE_SIZE;
+                schedulePersistSessions();
+                scheduleRenderHistorySessions();
+                appendSystemConsoleLine(`[AGENT] Chats refreshed: ${imported} new, ${refreshed} updated.`);
+            } else {
+                appendSystemConsoleLine(`[AGENT] Chats are up to date.`);
+            }
+        } catch (err) {
+            appendSystemConsoleLine(`[AGENT] Chat refresh failed: ${err.message}`);
+        } finally {
+            if (btn) btn.classList.remove('refreshing');
+        }
     }
 
     function normalizeHermesMessages(rawMessages) {
@@ -1129,22 +1349,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                 backend: 'hermes',
             }))
             .filter((msg) => msg.content.trim().length > 0);
-    }
-
-    function extractHermesSessionMeta(item) {
-        const hermesSessionId = String(item.id || item.sessionId || item.session_id || item.uuid || '');
-        const hermesUpdatedAt = item.updatedAt || item.updated_at || item.updated || null;
-        const title = item.title || item.name || (hermesSessionId ? `Hermes ${hermesSessionId.slice(0, 8)}` : 'Hermes session');
-        return { hermesSessionId, hermesUpdatedAt, title };
-    }
-
-    async function hydrateHermesSessionMessages(hermesSessionId, item) {
-        if (Array.isArray(item.messages) && item.messages.length > 0) {
-            return normalizeHermesMessages(item.messages);
-        }
-        const result = await ai.getHermesSessionMessages(hermesSessionId);
-        if (!result.available || !Array.isArray(result.messages)) return [];
-        return normalizeHermesMessages(result.messages);
     }
 
     async function syncHermesSessions() {
@@ -1163,58 +1367,79 @@ document.addEventListener('DOMContentLoaded', async () => {
             let activeSessionUpdated = false;
 
             for (const item of result.items) {
-                const { hermesSessionId, hermesUpdatedAt, title } = extractHermesSessionMeta(item);
+                const hermesSessionId = String(item.id || item.sessionId || item.session_id || '');
                 if (!hermesSessionId) continue;
+                
+                // Use the Hermes session ID as the canonical ID — no more two-ID system
+                const title = item.title || `Session ${hermesSessionId.slice(0, 8)}`;
 
-                const existing = state.sessions.find((s) => s.hermesSessionId === hermesSessionId);
+                const existing = state.sessions.find((s) => s.id === hermesSessionId);
                 const shouldHydrate =
                     !existing ||
-                    !existing.messages?.length ||
-                    isHermesSessionNewer(hermesUpdatedAt, existing.hermesUpdatedAt);
+                    !existing.messages?.length;
 
                 if (existing) {
-                    existing.title = title || existing.title;
+                    existing.title = title;
                     existing.source = 'hermes';
-                    existing.hermesProfile =
-                        item.profile || item.profileId || existing.hermesProfile || state.activeHermesProfile || state.hermesStatus.profile || null;
-                    existing.hermesUpdatedAt = hermesUpdatedAt || existing.hermesUpdatedAt;
+                    existing.model = item.model || existing.model || '';
+                    if (item.startedAt) existing.startedAt = item.startedAt;
 
                     if (shouldHydrate) {
-                        const messages = await hydrateHermesSessionMessages(hermesSessionId, item);
-                        if (messages.length > 0) {
-                            existing.messages = messages;
-                            refreshed++;
-                            if (existing.id === state.activeSessionId) {
-                                activeSessionUpdated = true;
+                        try {
+                            const msgs = await ai.getHermesSessionMessages(hermesSessionId);
+                            if (msgs.available && Array.isArray(msgs.messages) && msgs.messages.length > 0) {
+                                existing.messages = normalizeHermesMessages(msgs.messages);
+                                refreshed++;
+                                if (existing.id === state.activeSessionId) {
+                                    activeSessionUpdated = true;
+                                }
                             }
+                        } catch (err) {
+                            // skip this hydrate
                         }
                     }
                     continue;
                 }
 
-                const messages = shouldHydrate ? await hydrateHermesSessionMessages(hermesSessionId, item) : [];
+                // Import new session
+                let messages = [];
+                if (Array.isArray(item.messages) && item.messages.length > 0) {
+                    messages = normalizeHermesMessages(item.messages);
+                } else {
+                    try {
+                        const msgs = await ai.getHermesSessionMessages(hermesSessionId);
+                        if (msgs.available && Array.isArray(msgs.messages)) {
+                            messages = normalizeHermesMessages(msgs.messages);
+                        }
+                    } catch (err) {
+                        // messages stay empty
+                    }
+                }
+
                 state.sessions.unshift(normalizeSession({
-                    id: `hermes_${hermesSessionId}`,
+                    id: hermesSessionId,
                     title,
                     profile: item.model || '',
                     source: 'hermes',
-                    hermesSessionId,
-                    hermesProfile: item.profile || item.profileId || state.activeHermesProfile || state.hermesStatus.profile || null,
-                    hermesUpdatedAt,
+                    startedAt: item.startedAt || null,
+                    hermesProfile: state.activeHermesProfile || state.hermesStatus?.profile || null,
+                    hermesUpdatedAt: null,
                     messages,
                 }));
                 imported++;
             }
 
             if (imported > 0 || refreshed > 0) {
+                // Reset pagination so fresh imports appear
+                state._displayedSessionCount = SESSIONS_PAGE_SIZE;
                 schedulePersistSessions();
                 scheduleRenderHistorySessions();
             }
             if (imported > 0) {
-                appendSystemConsoleLine(`[AGENT] Imported ${imported} Hermes session${imported === 1 ? '' : 's'} into archives.`);
+                appendSystemConsoleLine(`[AGENT] Imported ${imported} Hermes session${imported === 1 ? '' : 's'}.`);
             }
             if (refreshed > 0) {
-                appendSystemConsoleLine(`[AGENT] Refreshed ${refreshed} Hermes session${refreshed === 1 ? '' : 's'} from dashboard.`);
+                appendSystemConsoleLine(`[AGENT] Refreshed ${refreshed} Hermes session${refreshed === 1 ? '' : 's'} messages from state.db.`);
             }
             if (activeSessionUpdated && state.activeSessionId) {
                 loadSession(state.activeSessionId);
@@ -1306,6 +1531,35 @@ document.addEventListener('DOMContentLoaded', async () => {
         elements.deckChatScroller.appendChild(row);
         elements.deckChatScroller.scrollTop = elements.deckChatScroller.scrollHeight;
         return div;
+    }
+
+    function setAssistantBubbleToolPreview(bubbleNode, toolName) {
+        if (!bubbleNode || !toolName) return;
+        bubbleNode.classList.add('assistant-bubble-tool-active');
+        bubbleNode.replaceChildren();
+
+        const preview = document.createElement('div');
+        preview.className = 'chat-tool-preview';
+        preview.setAttribute('aria-live', 'polite');
+
+        const label = document.createElement('span');
+        label.className = 'chat-tool-preview-label';
+        label.textContent = 'Calling';
+
+        const name = document.createElement('code');
+        name.className = 'chat-tool-preview-name';
+        name.textContent = String(toolName);
+
+        preview.appendChild(label);
+        preview.appendChild(name);
+        bubbleNode.appendChild(preview);
+        elements.deckChatScroller.scrollTop = elements.deckChatScroller.scrollHeight;
+    }
+
+    function clearAssistantBubbleToolPreview(bubbleNode) {
+        if (!bubbleNode) return;
+        bubbleNode.classList.remove('assistant-bubble-tool-active');
+        visualizer.clearThinkingCaption();
     }
 
     async function submitDeckMessage() {
