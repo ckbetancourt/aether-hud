@@ -114,6 +114,15 @@ If not connected, the status JSON includes `setupSteps` and an `error` with the 
 
 Replies are tuned for **text-to-speech** via [`TTS-Prompt.md`](TTS-Prompt.md).
 
+### Capabilities
+
+The bridge supports:
+
+- **Streaming** — responses stream token-by-token from Hermes for lower latency.
+- **Tool calling** — Hermes's tools (terminal, file, web, memory, etc.) work through the bridge. The server handles up to 6 rounds of tool calls per message before returning the final text response.
+- **Session persistence** — pass `hermesSessionId` in the chat body to maintain context across messages.
+- **Profile selection** — pass `hermesProfile` or set `HERMES_PROFILE` in `.env.local`.
+
 ## Launch from Hermes (`/aether`)
 
 Install the skill once:

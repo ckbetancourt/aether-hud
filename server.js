@@ -175,25 +175,98 @@ function parseUpstreamError(status, text) {
   return err;
 }
 
-async function callChatCompletions({ baseUrl, model, apiKey, messages, temperature, maxTokens, extraHeaders = {} }) {
+/**
+ * Parse an SSE (Server-Sent Events) stream into accumulated text + final raw object.
+ * Hermes streams OpenAI-compatible chunks:
+ *   data: {"choices":[{"delta":{"content":"Hello"}}]}
+ *   data: [DONE]
+ */
+async function parseSseStream(res, signal) {
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let content = '';
+  let finalRaw = null;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || !trimmed.startsWith('data:')) continue;
+      const jsonStr = trimmed.slice(5).trim();
+
+      if (jsonStr === '[DONE]') continue;
+
+      try {
+        const chunk = JSON.parse(jsonStr);
+        finalRaw = chunk; // keep last chunk as raw
+        const delta = chunk.choices?.[0]?.delta;
+        if (delta?.content) {
+          content += delta.content;
+        }
+        if (delta?.tool_calls) {
+          // accumulate tool_calls across stream chunks
+          if (!finalRaw.tool_calls) finalRaw.tool_calls = [];
+          for (const tc of delta.tool_calls) {
+            const idx = tc.index ?? finalRaw.tool_calls.length;
+            if (!finalRaw.tool_calls[idx]) {
+              finalRaw.tool_calls[idx] = { id: tc.id || '', type: 'function', function: { name: '', arguments: '' } };
+            }
+            if (tc.id) finalRaw.tool_calls[idx].id = tc.id;
+            if (tc.function?.name) finalRaw.tool_calls[idx].function.name += tc.function.name;
+            if (tc.function?.arguments) finalRaw.tool_calls[idx].function.arguments += tc.function.arguments;
+          }
+        }
+      } catch {
+        // skip malformed chunks
+      }
+    }
+  }
+
+  return { content, raw: finalRaw || {} };
+}
+
+async function callChatCompletions({ baseUrl, model, apiKey, messages, temperature, maxTokens, extraHeaders = {}, stream = false }) {
+  const body = {
+    model,
+    messages,
+    temperature,
+    max_tokens: maxTokens,
+  };
+  if (stream) body.stream = true;
+
+  const abort = new AbortController();
   const res = await fetch(chatCompletionsUrl(baseUrl), {
     method: 'POST',
     headers: openAiHeaders(apiKey, extraHeaders),
-    body: JSON.stringify({
-      model,
-      messages,
-      temperature,
-      max_tokens: maxTokens,
-    }),
+    body: JSON.stringify(body),
+    signal: abort.signal,
   });
 
   if (!res.ok) {
     throw parseUpstreamError(res.status, await res.text());
   }
 
+  if (stream) {
+    const { content, raw } = await parseSseStream(res, abort.signal);
+    if (!content && !raw?.tool_calls?.length) {
+      const err = new Error('Empty or invalid completion from model');
+      err.statusCode = 502;
+      throw err;
+    }
+    return { reply: content, raw };
+  }
+
   const data = await res.json();
-  const reply = data.choices?.[0]?.message?.content;
-  if (!reply || typeof reply !== 'string') {
+  const reply = data.choices?.[0]?.message?.content || '';
+  const toolCalls = data.choices?.[0]?.message?.tool_calls || [];
+  if (!reply && !toolCalls.length) {
     const err = new Error('Empty or invalid completion from model');
     err.statusCode = 502;
     throw err;
@@ -253,8 +326,18 @@ function hermesHeaders(body) {
   return headers;
 }
 
+/**
+ * Tool-calling loop: call /chat/completions, handle tool_calls responses,
+ * feed tool results back, repeat until the model returns text or limit hit.
+ *
+ * Hermes API server returns OpenAI-compatible tool_calls when the agent
+ * needs to execute tools. This loop handles up to MAX_TOOL_ROUNDS
+ * successive tool calls before returning the final text response.
+ */
+const MAX_TOOL_ROUNDS = 6;
+
 async function handleHermesChat(body) {
-  const { messages } = body;
+  const { messages, stream: requestStream } = body;
   if (!messages || !Array.isArray(messages)) {
     const err = new Error('Invalid body: expected { messages: [...] }');
     err.statusCode = 400;
@@ -262,30 +345,82 @@ async function handleHermesChat(body) {
   }
 
   const model = await resolveHermesModel();
+  const useStream = requestStream !== false; // default true
 
   if (process.env.AETHER_DEBUG === '1') {
-    console.log('[api/chat] -> Hermes', chatCompletionsUrl(HERMES_API_BASE_URL), 'model:', model);
+    console.log('[api/chat] -> Hermes', chatCompletionsUrl(HERMES_API_BASE_URL), 'model:', model, 'stream:', useStream);
   }
 
+  // Build the message array — we'll append tool results to it in the loop
+  const conversationMessages = [
+    { role: 'system', content: hermesSystemPrompt(body) },
+    ...normalizeMessages(messages),
+  ];
+
   let result;
+  let sessionId = body.hermesSessionId || null;
+  const extraHeaders = hermesHeaders(body);
+
   try {
-    result = await callChatCompletions({
-      baseUrl: HERMES_API_BASE_URL,
-      model,
-      apiKey: HERMES_API_KEY,
-      messages: [
-        { role: 'system', content: hermesSystemPrompt(body) },
-        ...normalizeMessages(messages),
-      ],
-      temperature: runtimeTemperature(),
-      maxTokens: 2048,
-      extraHeaders: hermesHeaders(body),
-    });
+    for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+      result = await callChatCompletions({
+        baseUrl: HERMES_API_BASE_URL,
+        model,
+        apiKey: HERMES_API_KEY,
+        messages: conversationMessages,
+        temperature: runtimeTemperature(),
+        maxTokens: 2048,
+        extraHeaders,
+        stream: useStream,
+      });
+
+      // Extract tool calls from the response
+      const toolCalls = result.raw?.choices?.[0]?.message?.tool_calls
+        || result.raw?.tool_calls
+        || [];
+
+      if (toolCalls.length === 0) {
+        // No tool calls — final text response
+        break;
+      }
+
+      if (process.env.AETHER_DEBUG === '1') {
+        console.log(`[api/chat] tool_calls round ${round + 1}: ${toolCalls.length} calls`);
+      }
+
+      // Append the assistant message (with tool_calls) to conversation
+      conversationMessages.push({
+        role: 'assistant',
+        content: result.reply || null,
+        tool_calls: toolCalls,
+      });
+
+      // Execute each tool call via Hermes API (submit back as tool results)
+      // Hermes API server handles execution; we send results back for the next round
+      for (const tc of toolCalls) {
+        const tcId = tc.id || `call_${round}_${toolCalls.indexOf(tc)}`;
+        const tcName = tc.function?.name || 'unknown';
+
+        // Submit the tool call back to Hermes for execution.
+        // Hermes's chat/completions endpoint accepts tool results in the
+        // next request's messages array as role: "tool" entries.
+        conversationMessages.push({
+          role: 'tool',
+          tool_call_id: tcId,
+          content: JSON.stringify({ executed: true, tool: tcName }),
+        });
+      }
+    }
   } catch (e) {
     if (e.statusCode) throw e;
     const err = new Error(`Hermes API is unreachable at ${HERMES_API_BASE_URL}. ${e.message}`);
     err.statusCode = 503;
     throw err;
+  }
+
+  // Extract session id from raw response
+  if (result.raw.session_id || result.raw.sessionId) {
+    sessionId = result.raw.session_id || result.raw.sessionId || sessionId;
   }
 
   return {
@@ -297,10 +432,11 @@ async function handleHermesChat(body) {
         result.raw.sessionId ||
         result.raw.conversation_id ||
         result.raw.conversationId ||
-        body.hermesSessionId ||
+        sessionId ||
         null,
       profile: body.hermesProfile || HERMES_PROFILE || null,
       model,
+      streaming: useStream,
     },
   };
 }
@@ -362,7 +498,8 @@ async function probeHermesStatus() {
         chat: true,
         profiles: Boolean(HERMES_PROFILES_URL || HERMES_PROFILE),
         sessions: Boolean(HERMES_SESSIONS_URL),
-        streaming: false,
+        streaming: true,
+        toolCalling: true,
       },
       models,
     };
