@@ -1,28 +1,44 @@
-# Aether Voice HUD
+---
+name: aether
+description: Launch the Aether HUD voice-first browser interface for Hermes Agent.
+version: 1.0.0
+metadata:
+  hermes:
+    tags: [aether, hud, voice, ui]
+    category: integrations
+---
 
-Use this skill when the user wants to open, launch, or switch into the Aether voice-first interface for Hermes Agent.
+# Aether HUD
 
-## Command
+Use this skill when the user wants to open, launch, or switch into the **Aether HUD** (browser voice UI). Hermes stays the agent runtime; Aether is the spoken interface.
 
-From the Aether repository root, run:
+## When to use
+
+- User types `/aether` in Hermes chat
+- User asks to open Aether, the voice HUD, or the Jarvis-style orb UI
+
+## Repository path
+
+Before running launcher commands, `cd` to the Aether HUD repo:
+
+1. If `AETHER_HUD_ROOT` is set in the environment, use that directory.
+2. Else if `aether-hud-root.txt` exists in this skill directory (written by `npm run hermes:install-skill`), read the path from that file.
+3. Else ask the user for the clone path once, then run commands there.
+
+## What to run
+
+From the repository root:
 
 ```bash
 npm run hermes:launch
 ```
 
-This starts the Aether HUD server if it is not already running and prints the local URL. It defaults the HUD server to Hermes bridge mode when launched this way.
+That starts the Aether HUD server if needed and opens `http://localhost:8787`. It does **not** start the `hermes` CLI.
 
-## Slash Command Contract
+## Hermes bridge
 
-Register `/aether` in Hermes to execute the repository command above. If the installed Hermes build supports command manifests, use `hermes/aether.command.json` as the command descriptor. If slash-command registration is not available, load this skill and run the command directly.
-
-## Expected Environment
-
-- `AETHER_BACKEND=hermes` (default)
-- `HERMES_API_BASE_URL` points at the running Hermes API server (default `http://127.0.0.1:8000/v1`)
-- Model, API key, and profile come from Hermes by default — no extra env vars required
-- Optional: `HERMES_API_KEY`, `HERMES_PROFILE`, or `HERMES_MODEL` only when you need to override Hermes defaults
+Aether talks to Hermes through the local API server (`HERMES_API_BASE_URL`, default `http://127.0.0.1:8000/v1`). The HUD and `hermes` CLI are separate processes.
 
 ## Behavior
 
-Aether remains the browser voice and HUD layer. Hermes remains the agent runtime for sessions, tools, profiles, and memory.
+Aether provides browser speech input, TTS, and HUD rendering. Hermes provides profiles, tools, APIs, memory, and sessions.

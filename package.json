@@ -7,7 +7,8 @@
   },
   "scripts": {
     "start": "node scripts/free-port.js && node server.js",
-    "hermes:launch": "node scripts/aether-hermes-launch.js --open"
+    "hermes:launch": "node scripts/aether-hermes-launch.js --open",
+    "hermes:install-skill": "bash scripts/install-hermes-skill.sh"
   },
   "engines": {
     "node": ">=18.0.0"
