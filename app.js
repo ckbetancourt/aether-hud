@@ -4,15 +4,44 @@
  */
 
 document.addEventListener('DOMContentLoaded', () => {
+    let resizeLoopInterval = null;
+    let persistSessionsTimer = null;
+    let historyRenderScheduled = false;
+
+    const MAX_SESSIONS = 40;
+    const MAX_MESSAGES_PER_SESSION = 100;
+    const MAX_MESSAGE_CHARS = 32000;
+
+    function loadProfileAccents() {
+        try {
+            return JSON.parse(localStorage.getItem('aether_profile_accents') || '{}');
+        } catch {
+            return {};
+        }
+    }
+
+    function loadGlobalAccentTheme(activeProfileId) {
+        const stored = localStorage.getItem('aether_accent_theme');
+        if (stored && AETHER_ACCENT_THEMES[stored]) return stored;
+        const profile = AETHER_PROFILES[activeProfileId] || AETHER_PROFILES.general;
+        const fallback = profile.defaultAccent || 'jarvis-red';
+        localStorage.setItem('aether_accent_theme', fallback);
+        return fallback;
+    }
+
     // 1. Core State Definition
     const state = {
-        activeModel: 'aether',
+        activeProfile: resolveProfileId(localStorage.getItem('aether_active_profile') || 'general'),
         sessions: JSON.parse(localStorage.getItem('aether_sessions') || '[]'),
         activeSessionId: localStorage.getItem('aether_active_session_id') || null,
         isVoiceActive: false,
         speechEnabled: JSON.parse(localStorage.getItem('aether_speech_enabled') ?? 'true'),
-        memory: JSON.parse(localStorage.getItem('aether_memory') || '{}')
+        memory: JSON.parse(localStorage.getItem('aether_memory') || '{}'),
+        globalAccentTheme: null,
+        profileAccents: loadProfileAccents(),
+        activeAccentTheme: null,
     };
+    state.globalAccentTheme = loadGlobalAccentTheme(state.activeProfile);
 
     // 2. Instantiate Systems
     const ai = new AIEngine();
@@ -25,7 +54,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // 3. Select HUD DOM Elements
     const elements = {
         // Badges
-        activeModelBadge: document.getElementById('activeModelBadge'),
+        activeProfileBadge: document.getElementById('activeProfileBadge'),
         activeStatusBadge: document.getElementById('activeStatusBadge'),
         hudOrbLabel: document.getElementById('hudOrbLabel'),
         
@@ -43,20 +72,15 @@ document.addEventListener('DOMContentLoaded', () => {
         sidebarDrawer: document.getElementById('sidebarDrawer'),
         newChatBtn: document.getElementById('newChatBtn'),
 
-        // Text Dialog Modals
-        keyboardTrigger: document.getElementById('keyboardTrigger'),
-        textInputOverlay: document.getElementById('textInputOverlay'),
-        closeTextOverlayBtn: document.getElementById('closeTextOverlayBtn'),
-        chatInput: document.getElementById('chatInput'),
-        sendMessageBtn: document.getElementById('sendMessageBtn'),
+        hudShell: document.getElementById('hudShell'),
 
         // Terminal Console Log widgets
         consoleLatency: document.getElementById('consoleLatency'),
         consoleScroller: document.getElementById('consoleScroller'),
         chatHistoryList: document.getElementById('chatHistoryList'),
 
-        // Bottom Chat Deck widgets
-        bottomChatDeck: document.getElementById('bottomChatDeck'),
+        // Right chat column
+        chatColumn: document.getElementById('chatColumn'),
         chatDeckToggle: document.getElementById('chatDeckToggle'),
         closeChatDeckBtn: document.getElementById('closeChatDeckBtn'),
         deckChatScroller: document.getElementById('deckChatScroller'),
@@ -64,13 +88,16 @@ document.addEventListener('DOMContentLoaded', () => {
         deckSendMessageBtn: document.getElementById('deckSendMessageBtn'),
 
         // Settings inputs
-        apiKey: document.getElementById('apiKey'),
-        llmBackendUrl: document.getElementById('llmBackendUrl'),
         synthVoice: document.getElementById('synthVoice'),
+        voicePreviewBtn: document.getElementById('voicePreviewBtn'),
+        voiceInputBehavior: document.getElementById('voiceInputBehavior'),
         synthSpeed: document.getElementById('synthSpeed'),
         synthSpeedVal: document.getElementById('synthSpeedVal'),
         simulationSpeed: document.getElementById('simulationSpeed'),
-        simulationSpeedVal: document.getElementById('simulationSpeedVal')
+        simulationSpeedVal: document.getElementById('simulationSpeedVal'),
+
+        accentRememberProfile: document.getElementById('accentRememberProfile'),
+        accentRememberProfileLabel: document.getElementById('accentRememberProfileLabel'),
     };
 
     // Initialize speech mute UI button state
@@ -82,18 +109,32 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 4. UI Setup and Event Wiring
     setupEventListeners();
+    applyAccentForActiveProfile();
+    updateProfileAccentIndicators();
+    updateRememberProfileLabel();
     renderHistorySessions();
     startLatencyTelemetryMock();
 
     // Load active session or spawn new
     if (!state.activeSessionId) {
         startNewSession();
+        changeActiveProfile(state.activeProfile);
     } else {
         loadSession(state.activeSessionId);
     }
     
     // Process icons
     lucide.createIcons();
+
+    const chatCollapsed =
+        localStorage.getItem('aether_chat_column_collapsed') === 'true' ||
+        (localStorage.getItem('aether_chat_column_collapsed') === null &&
+            localStorage.getItem('aether_chat_column_open') === 'false');
+    if (chatCollapsed) {
+        collapseChatColumn();
+    } else {
+        expandChatColumn(false);
+    }
 
     /* ==========================================================================
        A. HUD Control Event Listeners
@@ -111,64 +152,51 @@ document.addEventListener('DOMContentLoaded', () => {
             if (e.target === elements.settingsModal) closeSettingsModal();
         });
 
-        // Quick action text prompts inside drawer
-        document.querySelectorAll('.drawer-quick-actions .action-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const actionText = btn.getAttribute('data-action');
-                submitDirectTextCommand(actionText);
-                toggleSidebarDrawer();
-            });
-        });
-
         // Model selector buttons inside drawer
-        document.querySelectorAll('.personality-card').forEach(card => {
+        document.querySelectorAll('.profile-card').forEach(card => {
             card.addEventListener('click', () => {
-                const modelId = card.getAttribute('data-model');
-                changeActiveModel(modelId);
+                const profileId = card.getAttribute('data-profile');
+                changeActiveProfile(profileId);
             });
         });
 
-        // Input Keyboard overlay triggers
-        elements.keyboardTrigger.addEventListener('click', openTextOverlay);
-        elements.closeTextOverlayBtn.addEventListener('click', closeTextOverlay);
-        elements.textInputOverlay.addEventListener('click', (e) => {
-            if (e.target === elements.textInputOverlay) closeTextOverlay();
+        document.querySelectorAll('.accent-swatch').forEach((swatch) => {
+            swatch.addEventListener('click', () => {
+                const themeId = swatch.getAttribute('data-accent-theme');
+                if (themeId) selectAccentTheme(themeId);
+            });
         });
-        
-        // Listen to global key presses (Press Space to instantly open typewriter modal!)
+
+        // Global shortcut: focus chat composer (expand column if collapsed)
         window.addEventListener('keydown', (e) => {
             const activeTag = document.activeElement.tagName.toLowerCase();
+            const typingInComposer = activeTag === 'textarea' && document.activeElement === elements.deckChatInputField;
+            const collapsed = elements.hudShell?.classList.contains('chat-collapsed');
+
             if (activeTag !== 'input' && activeTag !== 'textarea') {
                 if (e.key === ' ' || e.key === 'Spacebar') {
                     e.preventDefault();
-                    openTextOverlay();
-                } else if (e.key.length === 1) {
-                    openTextOverlay();
-                    elements.chatInput.value += e.key;
+                    expandChatColumn();
+                } else if (e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) {
+                    expandChatColumn();
+                    elements.deckChatInputField.value += e.key;
+                    elements.deckChatInputField.focus();
                 }
+            } else if (!typingInComposer && e.key === 'Escape' && !collapsed) {
+                collapseChatColumn();
             }
         });
-
-        elements.chatInput.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                submitUserCommand();
-            }
-        });
-        elements.sendMessageBtn.addEventListener('click', submitUserCommand);
 
         // Disconnect reset session
         elements.disconnectBtn.addEventListener('click', () => {
             speech.stopSpeaking();
-            speech.speak("Telemetry offline. Purging active registers.", state.activeModel);
-            
+
             appendSystemConsoleLine("[ALERT] Disconnected. Session cleared.");
-            
-            // Clear messages
+
             const sessIndex = state.sessions.findIndex(s => s.id === state.activeSessionId);
             if (sessIndex !== -1) {
                 state.sessions[sessIndex].messages = [];
-                localStorage.setItem('aether_sessions', JSON.stringify(state.sessions));
+                schedulePersistSessions();
             }
 
             elements.consoleScroller.innerHTML = `<div class="console-log-line system-line">[SYSTEM] Client connection active. Telemetries initialized.</div>
@@ -186,11 +214,11 @@ document.addEventListener('DOMContentLoaded', () => {
             toggleSidebarDrawer();
         });
 
-        // Bottom Chat Deck triggers
-        elements.chatDeckToggle.addEventListener('click', toggleChatDeck);
-        elements.closeChatDeckBtn.addEventListener('click', toggleChatDeck);
+        // Right chat column triggers
+        elements.chatDeckToggle.addEventListener('click', toggleChatColumn);
+        elements.closeChatDeckBtn.addEventListener('click', collapseChatColumn);
         elements.deckChatInputField.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') {
+            if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
                 submitDeckMessage();
             }
@@ -208,6 +236,11 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         window.addEventListener('aetherVoicesLoaded', populateVoicesList);
+
+        if (elements.voicePreviewBtn) {
+            elements.voicePreviewBtn.addEventListener('click', previewSelectedVoice);
+        }
+
     }
 
     /* ==========================================================================
@@ -218,22 +251,58 @@ document.addEventListener('DOMContentLoaded', () => {
         elements.historyDrawerToggle.classList.toggle('active');
     }
 
-    function openTextOverlay() {
-        elements.textInputOverlay.classList.add('open');
-        elements.chatInput.focus();
+    function runTransitionResizeLoop() {
+        if (resizeLoopInterval) clearInterval(resizeLoopInterval);
+        let elapsed = 0;
+        resizeLoopInterval = setInterval(() => {
+            if (visualizer && typeof visualizer.resize === 'function') {
+                visualizer.resize();
+            }
+            elapsed += 16;
+            if (elapsed >= 400) {
+                clearInterval(resizeLoopInterval);
+                resizeLoopInterval = null;
+            }
+        }, 16);
     }
 
-    function closeTextOverlay() {
-        elements.textInputOverlay.classList.remove('open');
-        elements.chatInput.value = '';
+    function expandChatColumn(focusInput = true) {
+        elements.hudShell?.classList.remove('chat-collapsed');
+        elements.chatDeckToggle.classList.add('active');
+        localStorage.setItem('aether_chat_column_collapsed', 'false');
+        if (focusInput) {
+            elements.deckChatInputField.focus();
+        }
+        updateMicButtonTitle();
+        runTransitionResizeLoop();
     }
 
-    function submitUserCommand() {
-        const text = elements.chatInput.value.trim();
-        if (!text) return;
+    function collapseChatColumn() {
+        elements.hudShell?.classList.add('chat-collapsed');
+        elements.chatDeckToggle.classList.remove('active');
+        localStorage.setItem('aether_chat_column_collapsed', 'true');
+        updateMicButtonTitle();
+        runTransitionResizeLoop();
+    }
+
+    function updateMicButtonTitle() {
+        if (!elements.voiceRecognitionBtn) return;
+        const behavior = localStorage.getItem('aether_voice_input_behavior') || 'auto';
+        const isChatCollapsed = elements.hudShell?.classList.contains('chat-collapsed');
         
-        closeTextOverlay();
-        submitDirectTextCommand(text);
+        if (behavior === 'llm' || (behavior === 'auto' && isChatCollapsed)) {
+            elements.voiceRecognitionBtn.title = "Speak directly to Aether (Voice-to-LLM Mode)";
+        } else {
+            elements.voiceRecognitionBtn.title = "Speak to type in Chat input (Speech-to-Text Mode)";
+        }
+    }
+
+    function toggleChatColumn() {
+        if (elements.hudShell?.classList.contains('chat-collapsed')) {
+            expandChatColumn();
+        } else {
+            collapseChatColumn();
+        }
     }
 
     async function submitDirectTextCommand(text) {
@@ -260,7 +329,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Query cognitive engine
             const aiResponse = await ai.getResponse(
                 text, 
-                state.activeModel, 
+                state.activeProfile, 
                 history, 
                 // Ignore checklist/memory overlay drawer triggers in minimalist screen, 
                 // or just log task events to console!
@@ -308,7 +377,7 @@ document.addEventListener('DOMContentLoaded', () => {
      */
     function streamResponseText(logNode, bubbleNode, fullText) {
         return new Promise((resolve) => {
-            logNode.innerHTML = `<span style="color:#ffffff; font-weight:bold;">[${state.activeModel.toUpperCase()}]</span> `;
+            logNode.innerHTML = `<span style="color:#ffffff; font-weight:bold;">[${state.activeProfile.toUpperCase()}]</span> `;
 
             const textSpan = document.createElement('span');
             const cursorSpan = document.createElement('span');
@@ -331,7 +400,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // Synthesis spoken feedback
             visualizer.setState('speaking');
-            speech.speak(fullText, state.activeModel, null, () => {
+            speech.speak(fullText, null, null, () => {
                 if (visualizer.state === 'speaking') {
                     visualizer.setState('idle');
                 }
@@ -403,7 +472,25 @@ document.addEventListener('DOMContentLoaded', () => {
             (transcript) => {
                 appendSystemConsoleLine(`[VOICE] Transcribed: "${transcript}"`);
                 stopVoiceMode();
-                submitDirectTextCommand(transcript);
+
+                const behavior = localStorage.getItem('aether_voice_input_behavior') || 'auto';
+                const isChatCollapsed = elements.hudShell?.classList.contains('chat-collapsed');
+
+                if (behavior === 'llm' || (behavior === 'auto' && isChatCollapsed)) {
+                    submitDirectTextCommand(transcript);
+                } else {
+                    if (isChatCollapsed) {
+                        expandChatColumn();
+                    }
+                    const currentVal = elements.deckChatInputField.value.trim();
+                    if (currentVal) {
+                        elements.deckChatInputField.value = currentVal + " " + transcript;
+                    } else {
+                        elements.deckChatInputField.value = transcript;
+                    }
+                    elements.deckChatInputField.focus();
+                    appendSystemConsoleLine("[SYSTEM] Transcribed text inserted into chat composer.");
+                }
             },
             // onEnd
             () => {
@@ -433,7 +520,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (state.speechEnabled) {
             elements.speechSynthesisToggle.classList.add('active');
             elements.speechSynthesisToggle.querySelector('i').setAttribute('data-lucide', 'volume-2');
-            speech.speak("Vocal synthesis operational.", state.activeModel);
             appendSystemConsoleLine("[SYSTEM] Voice synthesis activated.");
         } else {
             elements.speechSynthesisToggle.classList.remove('active');
@@ -445,31 +531,101 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     /* ==========================================================================
-       D. AI Personality Themes Switcher
+       C2. HUD accent themes (independent of activity profiles)
        ========================================================================== */
-    function changeActiveModel(modelId) {
-        state.activeModel = modelId;
-        
-        // Apply styling class overrides
-        document.body.className = `theme-${modelId}`;
-        
-        // Toggle cards active state
-        document.querySelectorAll('.personality-card').forEach(card => {
+    function getAccentTheme(themeId) {
+        return AETHER_ACCENT_THEMES[themeId] || AETHER_ACCENT_THEMES['jarvis-red'];
+    }
+
+    function resolveAccentForProfile(profileId) {
+        const id = resolveProfileId(profileId);
+        return state.profileAccents[id] || state.globalAccentTheme;
+    }
+
+    function applyAccentTheme(themeId) {
+        const theme = getAccentTheme(themeId);
+        state.activeAccentTheme = theme.id;
+
+        visualizer.setAccentTheme(theme);
+
+        document.querySelectorAll('.accent-swatch').forEach((swatch) => {
+            swatch.classList.toggle(
+                'active',
+                swatch.getAttribute('data-accent-theme') === theme.id
+            );
+            swatch.setAttribute('aria-pressed', swatch.classList.contains('active') ? 'true' : 'false');
+        });
+    }
+
+    function updateProfileAccentIndicators() {
+        document.querySelectorAll('.profile-card').forEach((card) => {
+            const profileId = card.getAttribute('data-profile');
+            card.classList.toggle('has-accent-override', Boolean(state.profileAccents[profileId]));
+        });
+    }
+
+    function updateRememberProfileLabel() {
+        if (!elements.accentRememberProfileLabel) return;
+        const profile = ai.getProfile(state.activeProfile);
+        elements.accentRememberProfileLabel.textContent = `Remember for ${profile.displayName}`;
+    }
+
+    function selectAccentTheme(themeId) {
+        if (!AETHER_ACCENT_THEMES[themeId]) return;
+
+        const rememberForProfile = elements.accentRememberProfile?.checked;
+        if (rememberForProfile) {
+            state.profileAccents[state.activeProfile] = themeId;
+            localStorage.setItem('aether_profile_accents', JSON.stringify(state.profileAccents));
+        } else {
+            state.globalAccentTheme = themeId;
+            localStorage.setItem('aether_accent_theme', themeId);
+        }
+
+        applyAccentTheme(themeId);
+        updateProfileAccentIndicators();
+    }
+
+    function clearGlobalAccentOverrides() {
+        document.body.removeAttribute('data-accent-theme');
+        for (const prop of [
+            '--accent-primary',
+            '--accent-secondary',
+            '--accent-glow',
+            '--accent-glow-subtle',
+            '--border-glow',
+        ]) {
+            document.body.style.removeProperty(prop);
+        }
+    }
+
+    function applyAccentForActiveProfile() {
+        clearGlobalAccentOverrides();
+        applyAccentTheme(resolveAccentForProfile(state.activeProfile));
+    }
+
+    /* ==========================================================================
+       D. Activity profile switcher (Aether personality stays constant)
+       ========================================================================== */
+    function changeActiveProfile(profileId) {
+        const id = resolveProfileId(profileId);
+        const profile = ai.getProfile(id);
+        state.activeProfile = id;
+        localStorage.setItem('aether_active_profile', id);
+
+        document.querySelectorAll('.profile-card').forEach(card => {
             card.classList.remove('active');
-            if (card.getAttribute('data-model') === modelId) {
+            if (card.getAttribute('data-profile') === id) {
                 card.classList.add('active');
             }
         });
 
-        // Set top bar title
-        const modelData = ai.personalities[modelId];
-        elements.activeModelBadge.textContent = modelData.displayName.toUpperCase().replace(' ', '-');
+        elements.activeProfileBadge.textContent = `PROFILE-${profile.displayName.toUpperCase()}`;
+        applyAccentForActiveProfile();
+        updateRememberProfileLabel();
 
-        // Play vocal chime
         speech.stopSpeaking();
-        speech.speak(modelData.greeting, modelId);
-        
-        appendSystemConsoleLine(`[SYSTEM] Loaded core module: ${modelData.displayName}`);
+        appendSystemConsoleLine(`[SYSTEM] Active profile: ${profile.displayName} (Aether)`);
     }
 
     /* ==========================================================================
@@ -493,26 +649,82 @@ document.addEventListener('DOMContentLoaded', () => {
     /* ==========================================================================
        F. Archives & Session Cache Persistence
        ========================================================================== */
+    function pruneSessions(sessions) {
+        return sessions.slice(0, MAX_SESSIONS).map((s) => ({
+            ...s,
+            messages: (s.messages || []).slice(-MAX_MESSAGES_PER_SESSION).map((m) => {
+                if (m.content && m.content.length > MAX_MESSAGE_CHARS) {
+                    return {
+                        ...m,
+                        content: m.content.slice(0, MAX_MESSAGE_CHARS),
+                        truncated: true,
+                    };
+                }
+                return m;
+            }),
+        }));
+    }
+
+    function flushPersistSessions() {
+        persistSessionsTimer = null;
+        const run = () => {
+            state.sessions = pruneSessions(state.sessions);
+            try {
+                localStorage.setItem('aether_sessions', JSON.stringify(state.sessions));
+            } catch (err) {
+                console.error('Failed to persist sessions:', err);
+            }
+        };
+        if (typeof requestIdleCallback === 'function') {
+            requestIdleCallback(run, { timeout: 500 });
+        } else {
+            setTimeout(run, 0);
+        }
+    }
+
+    function schedulePersistSessions() {
+        if (persistSessionsTimer) clearTimeout(persistSessionsTimer);
+        persistSessionsTimer = setTimeout(flushPersistSessions, 150);
+    }
+
+    function scheduleRenderHistorySessions() {
+        if (historyRenderScheduled) return;
+        historyRenderScheduled = true;
+        requestAnimationFrame(() => {
+            historyRenderScheduled = false;
+            renderHistorySessions();
+        });
+    }
+
+    function refreshHistoryIcons() {
+        if (typeof lucide !== 'undefined' && elements.chatHistoryList) {
+            lucide.createIcons({ root: elements.chatHistoryList });
+        }
+    }
+
     function startNewSession() {
         const id = 'sess_' + Date.now();
         const newSession = {
             id: id,
             title: `Session ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
-            model: state.activeModel,
+            profile: state.activeProfile,
             messages: []
         };
 
         state.sessions.unshift(newSession);
         state.activeSessionId = id;
         
-        localStorage.setItem('aether_sessions', JSON.stringify(state.sessions));
         localStorage.setItem('aether_active_session_id', id);
+        schedulePersistSessions();
 
         // Wipe logs
         elements.consoleScroller.innerHTML = `<div class="console-log-line system-line">[SYSTEM] Client connection active. Telemetries initialized.</div>
-        <div class="console-log-line">Welcome. I am Aether. Swipe your cursor to shift parallax or press Space to type prompt...</div>`;
+        <div class="console-log-line">Welcome. I am Aether. Press Space to open chat or use the mic to coordinate telemetries.</div>`;
 
-        renderHistorySessions();
+        elements.deckChatScroller.innerHTML = '';
+        appendAssistantChatBubble('New session started. Awaiting inputs…');
+
+        scheduleRenderHistorySessions();
         speech.stopSpeaking();
     }
 
@@ -526,7 +738,7 @@ document.addEventListener('DOMContentLoaded', () => {
         state.activeSessionId = sessionId;
         localStorage.setItem('aether_active_session_id', sessionId);
         
-        changeActiveModel(session.model);
+        changeActiveProfile(session.profile || session.model);
 
         // Load logs
         elements.consoleScroller.innerHTML = `<div class="console-log-line system-line">[SYSTEM] Historical session re-loaded.</div>`;
@@ -539,12 +751,26 @@ document.addEventListener('DOMContentLoaded', () => {
                     appendSystemConsoleLine(`[USER] &gt; ${msg.content}`);
                 } else {
                     const line = appendSystemConsoleLine(`[AETHER] ...`);
-                    line.innerHTML = `<span style="color:#ffffff; font-weight:bold;">[${session.model.toUpperCase()}]</span> <span>${parseConsoleMarkdown(msg.content)}</span>`;
+                    const profileLabel = (session.profile || session.model || 'general').toUpperCase();
+                    line.innerHTML = `<span style="color:#ffffff; font-weight:bold;">[${profileLabel}]</span> <span>${parseConsoleMarkdown(msg.content)}</span>`;
                 }
             });
         }
 
-        renderHistorySessions();
+        elements.deckChatScroller.innerHTML = '';
+        if (session.messages.length === 0) {
+            appendAssistantChatBubble('Session loaded. Awaiting inputs…');
+        } else {
+            session.messages.forEach((msg) => {
+                if (msg.role === 'user') {
+                    appendUserChatBubble(msg.content);
+                } else {
+                    appendAssistantChatBubble(msg.content);
+                }
+            });
+        }
+
+        scheduleRenderHistorySessions();
         scrollConsoleBottom();
     }
 
@@ -563,19 +789,22 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        localStorage.setItem('aether_sessions', JSON.stringify(state.sessions));
-        renderHistorySessions();
+        schedulePersistSessions();
+        scheduleRenderHistorySessions();
     }
 
     function renderHistorySessions() {
-        elements.chatHistoryList.innerHTML = '';
-        
+        const list = elements.chatHistoryList;
+        list.innerHTML = '';
+
         if (state.sessions.length === 0) {
-            elements.chatHistoryList.innerHTML = `<div style="font-size:0.65rem; color:var(--text-dim); text-align:center; padding:10px;">Archive empty</div>`;
+            list.innerHTML = `<div style="font-size:0.65rem; color:var(--text-dim); text-align:center; padding:10px;">Archive empty</div>`;
             return;
         }
 
-        state.sessions.forEach(s => {
+        const fragment = document.createDocumentFragment();
+
+        state.sessions.forEach((s) => {
             const btn = document.createElement('button');
             btn.className = `history-item ${s.id === state.activeSessionId ? 'active' : ''}`;
             
@@ -598,20 +827,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 loadSession(s.id);
                 toggleSidebarDrawer();
             });
-            elements.chatHistoryList.appendChild(btn);
+            fragment.appendChild(btn);
         });
 
-        lucide.createIcons();
+        list.appendChild(fragment);
+        refreshHistoryIcons();
     }
 
     /* ==========================================================================
        G. Settings Dialog Form Controllers
        ========================================================================== */
-    function toggleChatDeck() {
-        elements.bottomChatDeck.classList.toggle('open');
-        elements.chatDeckToggle.classList.toggle('active');
-        lucide.createIcons();
-    }
 
     function appendUserChatBubble(text) {
         const div = document.createElement('div');
@@ -639,17 +864,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const text = elements.deckChatInputField.value.trim();
         if (!text) return;
         elements.deckChatInputField.value = '';
-        if (!elements.bottomChatDeck.classList.contains('open')) {
-            toggleChatDeck();
+        if (elements.hudShell?.classList.contains('chat-collapsed')) {
+            expandChatColumn(false);
         }
         await submitDirectTextCommand(text);
     }
 
     function openSettingsModal() {
-        elements.apiKey.value = localStorage.getItem('aether_api_key') || '';
-        if (elements.llmBackendUrl) {
-            elements.llmBackendUrl.value = localStorage.getItem('aether_llm_backend_url') || '';
-        }
         elements.synthSpeed.value = localStorage.getItem('aether_voice_speed') || '1.0';
         elements.synthSpeedVal.textContent = elements.synthSpeed.value + 'x';
         
@@ -659,8 +880,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const vals = ['Snail', 'Slow', 'Normal', 'Fast', 'Instant'];
         elements.simulationSpeedVal.textContent = vals[Math.min(4, Math.floor((delayVal - 1) / 2))];
 
+        if (elements.voiceInputBehavior) {
+            elements.voiceInputBehavior.value = localStorage.getItem('aether_voice_input_behavior') || 'auto';
+        }
+
         populateVoicesList();
-        
+        lucide.createIcons();
+
         elements.settingsModal.classList.add('open');
     }
 
@@ -669,22 +895,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function saveSettings() {
-        const key = elements.apiKey.value.trim();
-        if (key) {
-            localStorage.setItem('aether_api_key', key);
-        } else {
-            localStorage.removeItem('aether_api_key');
-        }
-
-        if (elements.llmBackendUrl) {
-            const backend = elements.llmBackendUrl.value.trim().replace(/\/$/, '');
-            if (backend) {
-                localStorage.setItem('aether_llm_backend_url', backend);
-            } else {
-                localStorage.removeItem('aether_llm_backend_url');
-            }
-        }
-
         localStorage.setItem('aether_voice_speed', elements.synthSpeed.value);
         localStorage.setItem('aether_stream_delay', elements.simulationSpeed.value);
 
@@ -692,28 +902,34 @@ document.addEventListener('DOMContentLoaded', () => {
             localStorage.setItem('aether_voice_name', elements.synthVoice.value);
         }
 
+        if (elements.voiceInputBehavior) {
+            localStorage.setItem('aether_voice_input_behavior', elements.voiceInputBehavior.value);
+        }
+
         closeSettingsModal();
-        
-        speech.synth = window.speechSynthesis;
+        updateMicButtonTitle();
+
         speech.loadVoices();
-        
-        speech.speak("Parameters successfully updated.", state.activeModel);
+
         appendSystemConsoleLine("[SYSTEM] Settings updated.");
     }
 
     function populateVoicesList() {
         if (!elements.synthVoice) return;
         elements.synthVoice.innerHTML = '';
-        
+
         const systemVoices = speech.voices;
         if (systemVoices.length === 0) {
             elements.synthVoice.innerHTML = '<option value="">No voices available</option>';
+            if (elements.voicePreviewBtn) {
+                elements.voicePreviewBtn.disabled = true;
+            }
             return;
         }
 
         const savedVoiceName = localStorage.getItem('aether_voice_name');
 
-        systemVoices.forEach(v => {
+        systemVoices.forEach((v) => {
             const opt = document.createElement('option');
             opt.value = v.name;
             opt.textContent = `${v.name} (${v.lang})`;
@@ -722,6 +938,17 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             elements.synthVoice.appendChild(opt);
         });
+
+        if (elements.voicePreviewBtn) {
+            elements.voicePreviewBtn.disabled = false;
+        }
+    }
+
+    function previewSelectedVoice() {
+        if (!elements.synthVoice || !elements.synthVoice.value) return;
+
+        const rate = parseFloat(elements.synthSpeed?.value || '1.0');
+        speech.previewVoice(elements.synthVoice.value, rate);
     }
 
     /* ==========================================================================

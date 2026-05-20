@@ -3,7 +3,7 @@
   "private": true,
   "description": "Jarvis HUD with optional local LLM proxy",
   "scripts": {
-    "start": "node server.js"
+    "start": "node scripts/free-port.js && node server.js"
   },
   "engines": {
     "node": ">=18.0.0"

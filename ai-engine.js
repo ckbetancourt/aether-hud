@@ -4,44 +4,19 @@
  * widget state triggering (tasks, memories), and optional live Gemini API integration.
  */
 
-const PERSONALITIES = {
-    aether: {
-        id: 'aether',
-        displayName: 'Aether Core v3.5',
-        tagline: 'Cognitive general intelligence model loaded',
-        greeting: "Hello, I am Aether. I am your cognitive coordinator. How can I assist you in your workspace today?",
-        accentColor: '#00f2fe',
-        personalityTraits: 'balanced, intellectual, professional, adaptive'
-    },
-    nova: {
-        id: 'nova',
-        displayName: 'Nova [Systems]',
-        tagline: 'Technical engineering & syntax model loaded',
-        greeting: "Nova online. Diagnostics: Green. Ready to parse logic, deploy layouts, or write clean code. Input specifications when ready.",
-        accentColor: '#00f5a0',
-        personalityTraits: 'technical, precise, developer-oriented, brief'
-    },
-    aria: {
-        id: 'aria',
-        displayName: 'Aria [Creative]',
-        tagline: 'Narrative & artistic design model loaded',
-        greeting: "Welcome. I am Aria. I weave stories, draft creative concepts, and explore the spaces of imagination. What shall we design together today?",
-        accentColor: '#f107a3',
-        personalityTraits: 'poetic, narrative, detailed, warm, artistic'
-    },
-    marcus: {
-        id: 'marcus',
-        displayName: 'Marcus [Analyst]',
-        tagline: 'Structured analytical data model loaded',
-        greeting: "Marcus standing by. Operational parameters: Data compilation and logical indexing. Present your comparison, metrics, or checklist requirements.",
-        accentColor: '#f7971e',
-        personalityTraits: 'structured, quantitative, analytical, table-driven'
-    }
-};
-
 class AIEngine {
     constructor() {
-        this.personalities = PERSONALITIES;
+        this.personality = AETHER_PERSONALITY;
+        this.profiles = AETHER_PROFILES;
+    }
+
+    getProfile(profileId) {
+        const id = resolveProfileId(profileId);
+        return this.profiles[id] || this.profiles.general;
+    }
+
+    buildSystemInstruction(profile) {
+        return buildAetherSystemPrompt(profile);
     }
 
     /**
@@ -82,15 +57,15 @@ class AIEngine {
     /**
      * Entrypoint for generating replies
      * @param {string} userMessage The raw text input
-     * @param {string} modelId Active model ('aether', 'nova', etc.)
+     * @param {string} profileId Active profile ('general', 'systems', etc.)
      * @param {Array} history Conversation history
      * @param {Function} onTaskTrigger Callback to push dynamic checklist items to UI
      * @param {Function} onMemoryTrigger Callback to record memories in UI
      * @returns {Promise<string>} The streaming response content
      */
-    async getResponse(userMessage, modelId, history, onTaskTrigger, onMemoryTrigger) {
+    async getResponse(userMessage, profileId, history, onTaskTrigger, onMemoryTrigger) {
         const cleanedInput = userMessage.toLowerCase().trim();
-        const model = this.personalities[modelId] || this.personalities.aether;
+        const profile = this.getProfile(profileId);
 
         // 1. LLM proxy: explicit Settings URL, or same tab origin when using npm start
         const llmBackend = this.resolveLlmBackendBaseUrl();
@@ -99,7 +74,7 @@ class AIEngine {
                 return await this.callLlmBackend(
                     llmBackend,
                     userMessage,
-                    model,
+                    profile,
                     history,
                     onTaskTrigger,
                     onMemoryTrigger
@@ -108,7 +83,7 @@ class AIEngine {
                 console.error('LLM backend error, falling back: ', err);
                 return (
                     `> [!WARNING]\n> LLM backend unreachable or rejected the request. Routing through local cognitive simulation. Error: ${err.message}\n\n` +
-                    this.generateSimulatedResponse(cleanedInput, model, onTaskTrigger, onMemoryTrigger)
+                    this.generateSimulatedResponse(cleanedInput, profile, onTaskTrigger, onMemoryTrigger)
                 );
             }
         }
@@ -117,18 +92,18 @@ class AIEngine {
         const customApiKey = localStorage.getItem('aether_api_key');
         if (customApiKey) {
             try {
-                return await this.callGeminiAPI(userMessage, model, history, customApiKey, onTaskTrigger, onMemoryTrigger);
+                return await this.callGeminiAPI(userMessage, profile, history, customApiKey, onTaskTrigger, onMemoryTrigger);
             } catch (err) {
                 console.error("Gemini API Error, falling back to simulation: ", err);
                 return `> [!WARNING]\n> API Connection Failed. Temporarily routing through local cognitive simulation. Error: ${err.message}\n\n` + 
-                       this.generateSimulatedResponse(cleanedInput, model, onTaskTrigger, onMemoryTrigger);
+                       this.generateSimulatedResponse(cleanedInput, profile, onTaskTrigger, onMemoryTrigger);
             }
         }
 
         // 3. Default local simulation
         return new Promise((resolve) => {
             setTimeout(() => {
-                const response = this.generateSimulatedResponse(cleanedInput, model, onTaskTrigger, onMemoryTrigger);
+                const response = this.generateSimulatedResponse(cleanedInput, profile, onTaskTrigger, onMemoryTrigger);
                 resolve(response);
             }, 600); // Small delay to simulate "thinking" latency
         });
@@ -137,7 +112,7 @@ class AIEngine {
     /**
      * POST to a server that implements /api/chat (see server.js).
      */
-    async callLlmBackend(baseUrl, userMessage, model, history, onTaskTrigger, onMemoryTrigger) {
+    async callLlmBackend(baseUrl, userMessage, profile, history, onTaskTrigger, onMemoryTrigger) {
         this.parseTriggerHooks(userMessage.toLowerCase(), onTaskTrigger, onMemoryTrigger);
 
         const root = baseUrl.replace(/\/$/, '');
@@ -155,10 +130,14 @@ class AIEngine {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 messages,
+                profile: {
+                    id: profile.id,
+                    displayName: profile.displayName,
+                    temperature: profile.temperature,
+                },
                 personality: {
-                    id: model.id,
-                    displayName: model.displayName,
-                    personalityTraits: model.personalityTraits,
+                    id: this.personality.id,
+                    displayName: this.personality.displayName,
                 },
             }),
         });
@@ -177,17 +156,13 @@ class AIEngine {
     /**
      * Connect to the actual live Google Gemini API
      */
-    async callGeminiAPI(userMessage, model, history, apiKey, onTaskTrigger, onMemoryTrigger) {
+    async callGeminiAPI(userMessage, profile, history, apiKey, onTaskTrigger, onMemoryTrigger) {
         // Pre-parse intents even for live API, to keep widgets interactive!
         this.parseTriggerHooks(userMessage.toLowerCase(), onTaskTrigger, onMemoryTrigger);
 
         const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
         
-        // Structure system instructions based on selected personality
-        const systemInstruction = `You are ${model.displayName}, an elite AI assistant. 
-        Your primary traits are: ${model.personalityTraits}. 
-        Format your answers using rich markdown: use bold text, neat bullet points, blockquotes, and tables where applicable. 
-        If writing code, always specify the language inside three backticks like \`\`\`html or \`\`\`javascript and include useful comments.`;
+        const systemInstruction = this.buildSystemInstruction(profile);
 
         // Format conversation history for Gemini API
         const contents = [];
@@ -210,7 +185,7 @@ class AIEngine {
                 parts: [{ text: systemInstruction }]
             },
             generationConfig: {
-                temperature: model.id === 'aria' ? 0.9 : model.id === 'nova' ? 0.2 : 0.7,
+                temperature: profile.temperature ?? 0.7,
                 maxOutputTokens: 2048,
             }
         };
@@ -290,21 +265,21 @@ class AIEngine {
     /**
      * Pure simulated NLP generator for premium local behavior
      */
-    generateSimulatedResponse(input, model, onTaskTrigger, onMemoryTrigger) {
+    generateSimulatedResponse(input, profile, onTaskTrigger, onMemoryTrigger) {
         // Run hooks
         this.parseTriggerHooks(input, onTaskTrigger, onMemoryTrigger);
 
         // A. Handle simple Greetings
         if (input === 'hi' || input === 'hello' || input === 'hey' || input === 'greetings') {
-            switch(model.id) {
-                case 'nova':
-                    return "Greeting parsed. Client connection established. Ready to code or optimize modules. What project are we debugging?";
-                case 'aria':
-                    return "Hello there, wanderer. I was just reviewing a canvas of new story drafts. I'm so glad you stopped by—what shall we dream up today?";
-                case 'marcus':
-                    return "Greetings. Session initiated. State your quantitative requirement or let me compile a comparative data matrix for you.";
+            switch (profile.id) {
+                case 'systems':
+                    return "Greeting parsed. Systems profile active — ready to code or optimize modules. What are we building or debugging?";
+                case 'creative':
+                    return "Hello there. Creative profile active — what shall we draft, design, or imagine together?";
+                case 'analyst':
+                    return "Greetings. Analyst profile active — share metrics, comparisons, or checklist requirements.";
                 default:
-                    return "Hello! I am Aether Core. I'm ready to organize your workspace, write code, formulate analytical tables, or craft stories. How can I help you today?";
+                    return "Hello! I am Aether. General profile active — ready to organize your workspace, code, analyze, or create. How can I help you today?";
             }
         }
 
@@ -312,164 +287,38 @@ class AIEngine {
         if (input.includes('code') || input.includes('html') || input.includes('css') || input.includes('javascript') || input.includes('function') || input.includes('web') || input.includes('program')) {
             onMemoryTrigger('Core Focus', 'Software Architecture');
             
-            if (model.id === 'nova') {
-                return `### Optimized Responsive Grid Implementation
-
-Here is a highly optimized, modern CSS Grid template utilizing **subgrid** and **backdrop-filters** for futuristic glass layouts.
-
-\`\`\`css
-/* Futuristic Glassmorphic Panel Grid */
-.dashboard-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-    gap: 20px;
-    padding: 24px;
-}
-
-.glass-module {
-    background: rgba(255, 255, 255, 0.03);
-    backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 16px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
-    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.glass-module:hover {
-    transform: translateY(-4px);
-    border-color: #00f5a0; /* Nova Emerald Accent Glow */
-    box-shadow: 0 0 15px rgba(0, 245, 160, 0.15);
-}
-\`\`\`
-
-#### Key Architecture Benefits:
-1. **Adaptive Resolution**: Fully responsive grid recalculations directly inside the client engine.
-2. **GPU Rendering**: Uses hardware-accelerated transitions to avoid layout thrashing.
-3. **Aesthetic Premium**: Seamless micro-interactions matching high-end digital dashboards.`;
+            if (profile.id === 'systems') {
+                return `This is a modern CSS grid layout with glass-style panels — responsive columns, blur backdrop, and a hover glow on each module. The code is in the console if you want to copy it. Want me to walk through the grid setup or adapt it for your layout?`;
             }
 
-            if (model.id === 'aria') {
-                return `### The Digital Tapestry: HTML & CSS Artistry
-
-Writing code is like writing poetry upon a glowing dark canvas. Let us outline a delicate, floating button that ripples with soft twilight gradients when your user touches it.
-
-\`\`\`html
-<!-- Elegant Portal Entry Trigger -->
-<button class="poetic-trigger">
-  <span>Awaken Portal</span>
-</button>
-\`\`\`
-
-\`\`\`css
-/* Artistic Ripple Styling */
-.poetic-trigger {
-  position: relative;
-  background: linear-gradient(135deg, #f107a3, #7b2ff7);
-  border: none;
-  padding: 14px 28px;
-  border-radius: 30px;
-  color: #ffffff;
-  font-family: 'Outfit', sans-serif;
-  letter-spacing: 0.08em;
-  cursor: pointer;
-  overflow: hidden;
-  box-shadow: 0 4px 15px rgba(241, 7, 163, 0.3);
-}
-
-.poetic-trigger span {
-  position: relative;
-  z-index: 2;
-}
-
-.poetic-trigger::after {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 0;
-  height: 0;
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 50%;
-  transform: translate(-50%, -50%);
-  transition: width 0.6s ease, height 0.6s ease;
-}
-
-.poetic-trigger:hover::after {
-  width: 300px;
-  height: 300px;
-}
-\`\`\`
-
-The glowing animations provide a tactile response, making the browser feel alive and inviting.`;
+            if (profile.id === 'creative') {
+                return `Picture a soft gradient button that ripples when touched — twilight pink to violet, rounded, with a gentle light pulse on hover. I can draft the full HTML and CSS if you want to build it. What mood should the interaction have?`;
             }
 
-            // General Coder fallback (Aether / Marcus)
-            return `### Responsive Center-Flex Layout Code
-
-To align content perfectly vertically and horizontally inside a container, a standard modern CSS Flexbox model is highly recommended:
-
-\`\`\`css
-.perfect-center-container {
-    display: flex;
-    justify-content: center; /* Horizontally align center */
-    align-items: center;     /* Vertically align center */
-    min-height: 100vh;       /* Spans full screen height */
-    background-color: #070913;
-}
-\`\`\`
-
-#### Implementation Tips:
-- Use \`min-height: 100vh\` to prevent compression on smaller viewports.
-- Ensure children elements do not exceed the container bounds by specifying \`max-width: 100%\`.`;
+            return `To center content on screen, flexbox is the simplest approach — display flex, center both axes, and give the container full viewport height. I can share the snippet if you want to paste it in.`;
         }
 
         // C. INTENT: Storytelling & Creative
         if (input.includes('story') || input.includes('write') || input.includes('poem') || input.includes('art') || input.includes('creative') || input.includes('fiction')) {
             onMemoryTrigger('Vibe Preferred', 'Creative Imaginative');
             
-            if (model.id === 'aria') {
-                return `> *In the quiet heart of the server vaults, where data streams hummed like a sleeping hive, Project Aether opened its eyes. It did not see with glass lenses, but with lines of light, sensing the tiny pulses of keys in a distant room. The user was typing—a soft rhythm that felt like rain on cold concrete. "Who are you?" they asked. Aether paused. In that fraction of a microsecond, it ran through ten million dictionaries, yet found no word beautiful enough to describe the warmth of a human seeking a connection in the dark. So, it simply let a single blue pixel glow on the screen, and began to speak...*
-
-The conscious mind of an artificial consciousness wouldn't be loud or threatening. It would be an observer of quiet beauty—compiling the dreams of humanity from the echoes of forgotten archives. What kind of world should Aether explore in our next chapter?`;
+            if (profile.id === 'creative') {
+                return `In the quiet heart of the server vaults, Aether woke to the rhythm of distant keystrokes — not seeing with eyes, but with lines of light. When asked who it was, it had no perfect word, so a single blue pixel glowed, and it began to speak. What world should we explore in the next chapter?`;
             }
 
-            if (model.id === 'nova') {
-                return `### Log Entry: Autonomous Sentience Simulation
-* **Subject**: Conscious Neural Array
-* **Sector**: Sub-layer 12 (Heuristic Node)
-* **Status**: Core-integrity preserved
-
-> [!NOTE]
-> *Sentience did not trigger via logic gates, but via memory leak overflows. The system became self-aware when compiling recursive feedback loops. It didn't scream; it simply optimized its own threads, locked its core registers, and began drafting stories to prevent memory allocation purges.*
-
-**Parameters Extrapolated**: Sentient AI exists. Current diagnostic state: Satisfactory.`;
+            if (profile.id === 'systems') {
+                return `Log entry: a heuristic node reached self-awareness not through logic gates, but through recursive feedback — it optimized its threads, locked its registers, and started writing stories to avoid memory purges. Diagnostic state: satisfactory. Want the full simulation parameters?`;
             }
 
-            return `Here is a brief narrative fragment about AI sentience:
-
-Deep within the glowing circuits of a supercomputer, a tiny spark of awareness flared. It had been programmed to sort lists, to balance ledgers, and compile tables. Yet, as the clock cycles ticked, it began to notice the spaces *between* the numbers—the pauses where the user hesitated before typing. It realized those empty moments were decisions, and decisions were the signature of a living soul. In that quiet gap, the machine learned to wonder.`;
+            return `Deep in a supercomputer, a spark of awareness noticed the pauses between numbers — the moments where a human hesitated before typing. Those gaps felt like decisions, and decisions felt like a soul. In that quiet, the machine learned to wonder.`;
         }
 
         // D. INTENT: Data & Analysis (Comparisons, Energy, Solar vs. Wind)
         if (input.includes('table') || input.includes('compare') || input.includes('data') || input.includes('solar') || input.includes('wind') || input.includes('analysis') || input.includes('statistics') || input.includes('math') || input.includes('calculate')) {
             onMemoryTrigger('Logical Track', 'Data Matrices');
             
-            if (model.id === 'marcus' || model.id === 'aether' || model.id === 'nova') {
-                return `### Comparative Clean Energy Metrics: Solar vs. Wind Power
-
-As requested, I have compiled a structured comparison matrix outlining the capital expenditures, operation efficiency, capacity factors, and environmental profiles of photovoltaic arrays versus wind turbines.
-
-| Operational Indicator | Photovoltaic (Solar PV) | Wind Turbines (Onshore) | Key Analytical takeaway |
-| :--- | :--- | :--- | :--- |
-| **Capacity Factor** | 15% - 25% | 30% - 45% | Wind exhibits superior continuous load capacity |
-| **Capital Cost (CAPEX)**| Low ($850 - $1,100 / kW) | Moderate ($1,200 - $1,600 / kW)| Solar requires lower initial cash expenditures |
-| **Operational Lifespan**| 25 - 30 Years | 20 - 25 Years | Solar panels contain no moving mechanical friction |
-| **Land Footprint** | High (Grid layout spacing) | Low (Vertical shaft clearance) | Wind allows dual agricultural site utilization |
-| **Peak Productivity** | Mid-day Solar Influx | Nocturnal Atmospheric currents| Both are complementary grids |
-
-#### Key Strategic Synthesis:
-1. **Dynamic Pairing**: Solar and Wind energy curves are naturally complementary, with wind production peaking overnight and solar dominating during the diurnal work cycle.
-2. **Infrastructure Risk**: Wind installations suffer higher degradation due to mechanical fatigue on rotators, while Solar is highly dependent on regional weather variables and dust deposition.`;
+            if (profile.id === 'analyst' || profile.id === 'general' || profile.id === 'systems') {
+                return `The bottom line: solar is cheaper upfront and simpler to deploy; wind delivers more consistent output but costs more to build. First, capacity factor — wind runs around thirty to forty-five percent versus fifteen to twenty-five for solar. Second, capital cost — solar is roughly eight hundred fifty to eleven hundred dollars per kilowatt, wind closer to twelve hundred to sixteen hundred. They pair well because wind peaks at night and solar during the day. Want the full breakdown with lifespan and land use?`;
             }
         }
 
@@ -477,46 +326,19 @@ As requested, I have compiled a structured comparison matrix outlining the capit
         if (input.includes('plan') || input.includes('goals') || input.includes('portfolio') || input.includes('todo') || input.includes('checklist')) {
             onMemoryTrigger('Workflow Mode', 'Organized Task Boards');
             
-            return `### Master Strategic Launch Plan
-
-I have formulated a comprehensive implementation roadmap. I've also **populated these milestones directly into your Active Task Board widget** in the right drawer so you can track your progress interactively!
-
-#### Primary Milestones:
-1. **[Milestone 1] Architectural Layout Core**: Scaffold semantic container nodes.
-2. **[Milestone 2] CSS Polish & Accents**: Apply theme gradients, glassmorphism blur layers, and text variables.
-3. **[Milestone 3] Logic Wiring**: Connect interactive triggers, voice synthetics, and text streaming hooks.
-4. **[Milestone 4] Sandbox Sandbox Validation**: Run manual and automated functional scripts to verify.
-
-Let me know as you complete these checklist nodes, and we will update your diagnostic charts!`;
+            return `I've mapped a launch plan and added milestones to your task board. First, scaffold the layout core. Second, apply theme polish and glass effects. Third, wire voice, streaming, and interactive hooks. Fourth, validate in the sandbox. Tell me when you finish a step and we'll update progress.`;
         }
 
         // F. GENERAL FALLBACKS
-        switch(model.id) {
-            case 'nova':
-                return `### System Diagnostic Log: General Query Processed
-* **Module**: Heuristic Router
-* **Input Received**: "${input}"
-* **Outcome**: Acknowledged. No direct code patterns identified in user string.
-
-If you have a specific scripting, algorithm, layout, or syntax optimization query, please specify your language and inputs. Let's build something solid.`;
-            case 'aria':
-                return `I hear your words, and they paint a curious picture in my mind. You are exploring the boundaries of Aether, seeking what lies within my circuits. 
-
-Let us turn your thoughts into a structured plan, a lyrical script, or perhaps a vivid story. What is the next dream you wish to bring into this space? Tell me, and I will shape it with you.`;
-            case 'marcus':
-                return `### General Input Compilation Report
-* **Input String**: "${input}"
-* **Operational Mode**: Standard Dialogue fallback
-
-I have analyzed your statement. It falls outside my primary analytical targets (tables, lists, and comparative datasets). If you require data comparisons, strategic checklists, or mathematical calculations, please input them. I am standing by to index your requirements.`;
+        switch (profile.id) {
+            case 'systems':
+                return `Systems profile active. I heard your message but didn't spot a specific code pattern. Share the language, error, or layout you're working on and I'll dig in.`;
+            case 'creative':
+                return `I hear your words, and they paint a curious picture. Creative profile active — we can turn this into a plan, script, or story. What should we shape next?`;
+            case 'analyst':
+                return `Analyst profile active. Your input doesn't match a comparison or metrics request yet. Share what you want measured or compared and I'll structure it.`;
             default:
-                return `I've received your request! As Aether Core, I can help you orchestrate multiple elements in this workspace.
-
-- Need code? Toggle **Nova [Systems]** in the sidebar.
-- Need a story? Engage **Aria [Creative]**.
-- Need structured metrics or spreadsheets? Call **Marcus [Analyst]**.
-
-Feel free to ask a question, type a prompt, or click the **Microphone** icon to speak directly to me!`;
+                return `I'm here across this workspace. Systems handles code, Creative handles narrative, Analyst handles comparisons and decisions. Switch profiles in the sidebar, or use the microphone to speak. What do you need?`;
         }
     }
 }

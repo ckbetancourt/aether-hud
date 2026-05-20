@@ -20,11 +20,36 @@ const MIME = {
   '.js': 'application/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
+  '.md': 'text/markdown; charset=utf-8',
   '.ico': 'image/x-icon',
   '.png': 'image/png',
   '.svg': 'image/svg+xml',
   '.webp': 'image/webp',
 };
+
+const {
+  AETHER_PROFILES,
+  resolveProfileId,
+  buildAetherSystemPrompt,
+} = require('./aether-config.js');
+
+function buildSystemPrompt(body) {
+  const profileId = body.profile && body.profile.id;
+  const id = resolveProfileId(profileId || 'general');
+  const profile = AETHER_PROFILES[id] || AETHER_PROFILES.general;
+  return buildAetherSystemPrompt(profile);
+}
+
+function temperatureForProfile(profile) {
+  if (profile && typeof profile.temperature === 'number') {
+    return profile.temperature;
+  }
+  const id = profile && profile.id;
+  if (id === 'creative') return 0.9;
+  if (id === 'systems') return 0.2;
+  if (id === 'analyst') return 0.5;
+  return 0.7;
+}
 
 function corsHeaders() {
   return {
@@ -34,27 +59,8 @@ function corsHeaders() {
   };
 }
 
-function buildSystemPrompt(personality) {
-  const p = personality || {};
-  const name = p.displayName || 'Aether Core';
-  const traits = p.personalityTraits || 'balanced, intellectual, professional, adaptive';
-  return (
-    `You are ${name}, an elite AI assistant. ` +
-    `Your primary traits are: ${traits}. ` +
-    'Format your answers using rich markdown: use bold text, neat bullet points, blockquotes, and tables where applicable. ' +
-    'If writing code, always specify the language inside three backticks like ```html or ```javascript and include useful comments.'
-  );
-}
-
-function temperatureForPersonality(personality) {
-  const id = personality && personality.id;
-  if (id === 'aria') return 0.9;
-  if (id === 'nova') return 0.2;
-  return 0.7;
-}
-
 async function handleChat(body) {
-  const { messages, personality } = body;
+  const { messages, profile, personality } = body;
   if (!messages || !Array.isArray(messages)) {
     const err = new Error('Invalid body: expected { messages: [...] }');
     err.statusCode = 400;
@@ -65,7 +71,7 @@ async function handleChat(body) {
     console.log('[api/chat] ->', `${OPENAI_BASE_URL}/chat/completions`, 'model:', OPENAI_MODEL);
   }
 
-  const sys = buildSystemPrompt(personality);
+  const sys = buildSystemPrompt({ profile, personality });
   const openaiMessages = [
     { role: 'system', content: sys },
     ...messages.map((m) => ({
@@ -87,7 +93,7 @@ async function handleChat(body) {
     body: JSON.stringify({
       model: OPENAI_MODEL,
       messages: openaiMessages,
-      temperature: temperatureForPersonality(personality),
+      temperature: temperatureForProfile(profile),
       max_tokens: 2048,
     }),
   });
@@ -217,6 +223,14 @@ const server = http.createServer(async (req, res) => {
   }
 
   sendJson(res, 405, { error: 'Method not allowed' });
+});
+
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`Port ${PORT} is already in use. Run: npm start (auto-frees the port) or kill $(lsof -t -i :${PORT})`);
+    process.exit(1);
+  }
+  throw err;
 });
 
 server.listen(PORT, () => {
