@@ -16,12 +16,57 @@ const OPENAI_BASE_URL = (process.env.OPENAI_BASE_URL || 'https://api.openai.com/
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
 const HERMES_API_BASE_URL = (process.env.HERMES_API_BASE_URL || 'http://127.0.0.1:8000/v1').replace(/\/$/, '');
-const HERMES_MODEL = process.env.HERMES_MODEL || 'hermes';
+const HERMES_MODEL_OVERRIDE = (process.env.HERMES_MODEL || '').trim();
+const HERMES_MODEL_FALLBACK = 'hermes';
 const HERMES_API_KEY = process.env.HERMES_API_KEY || '';
 const HERMES_PROFILE = process.env.HERMES_PROFILE || '';
 const HERMES_PROFILES_URL = (process.env.HERMES_PROFILES_URL || '').trim();
 const HERMES_SESSIONS_URL = (process.env.HERMES_SESSIONS_URL || '').trim();
 const IS_HERMES_BACKEND = AETHER_BACKEND === 'hermes';
+
+/** First model id discovered from Hermes /models when HERMES_MODEL is unset */
+let cachedHermesModel = null;
+
+function modelIdFromEntry(entry) {
+  if (!entry) return null;
+  if (typeof entry === 'string') return entry;
+  return entry.id || entry.name || null;
+}
+
+function pickFirstHermesModel(modelsPayload) {
+  const list = Array.isArray(modelsPayload?.data) ? modelsPayload.data : [];
+  for (const entry of list) {
+    const id = modelIdFromEntry(entry);
+    if (id) return id;
+  }
+  return null;
+}
+
+async function fetchHermesModelsPayload() {
+  const res = await fetch(`${HERMES_API_BASE_URL}/models`, {
+    method: 'GET',
+    headers: openAiHeaders(HERMES_API_KEY),
+  });
+  if (!res.ok) return null;
+  return res.json().catch(() => ({}));
+}
+
+async function resolveHermesModel() {
+  if (HERMES_MODEL_OVERRIDE) return HERMES_MODEL_OVERRIDE;
+  if (cachedHermesModel) return cachedHermesModel;
+  const payload = await fetchHermesModelsPayload();
+  const discovered = pickFirstHermesModel(payload);
+  cachedHermesModel = discovered || HERMES_MODEL_FALLBACK;
+  return cachedHermesModel;
+}
+
+function hermesProfileFields() {
+  const profile = HERMES_PROFILE || null;
+  return {
+    profile,
+    profileNote: profile ? null : 'Use Hermes default or select a profile in Aether settings.',
+  };
+}
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -36,14 +81,14 @@ const MIME = {
 };
 
 const {
-  buildAetherSystemPrompt,
+  buildAetherTtsPrompt,
 } = require('./aether-config.js');
 
 function buildSystemPrompt(body = {}) {
   if (body.voiceSystemPrompt && typeof body.voiceSystemPrompt === 'string') {
     return body.voiceSystemPrompt;
   }
-  return buildAetherSystemPrompt();
+  return buildAetherTtsPrompt();
 }
 
 function runtimeTemperature() {
@@ -180,15 +225,17 @@ async function handleHermesChat(body) {
     throw err;
   }
 
+  const model = await resolveHermesModel();
+
   if (process.env.AETHER_DEBUG === '1') {
-    console.log('[api/chat] -> Hermes', chatCompletionsUrl(HERMES_API_BASE_URL), 'model:', HERMES_MODEL);
+    console.log('[api/chat] -> Hermes', chatCompletionsUrl(HERMES_API_BASE_URL), 'model:', model);
   }
 
   let result;
   try {
     result = await callChatCompletions({
       baseUrl: HERMES_API_BASE_URL,
-      model: HERMES_MODEL,
+      model,
       apiKey: HERMES_API_KEY,
       messages: [
         { role: 'system', content: hermesSystemPrompt(body) },
@@ -217,7 +264,7 @@ async function handleHermesChat(body) {
         body.hermesSessionId ||
         null,
       profile: body.hermesProfile || HERMES_PROFILE || null,
-      model: HERMES_MODEL,
+      model,
     },
   };
 }
@@ -239,38 +286,46 @@ async function probeHermesStatus() {
     };
   }
 
-  const modelsUrl = `${HERMES_API_BASE_URL}/models`;
+  const profileFields = hermesProfileFields();
   try {
-    const res = await fetch(modelsUrl, {
-      method: 'GET',
-      headers: openAiHeaders(HERMES_API_KEY),
-    });
-    if (!res.ok) {
+    const data = await fetchHermesModelsPayload();
+    if (!data) {
       return {
         enabled: true,
         backend: 'hermes',
         connected: false,
         baseUrl: HERMES_API_BASE_URL,
-        model: HERMES_MODEL,
-        profile: HERMES_PROFILE || null,
-        error: `Hermes status probe failed with HTTP ${res.status}.`,
+        model: HERMES_MODEL_OVERRIDE || cachedHermesModel || HERMES_MODEL_FALLBACK,
+        modelSource: HERMES_MODEL_OVERRIDE ? 'env' : 'fallback',
+        ...profileFields,
+        error: 'Hermes status probe failed when fetching /models.',
       };
     }
-    const data = await res.json().catch(() => ({}));
+
+    const models = Array.isArray(data.data) ? data.data.slice(0, 12) : [];
+    const discovered = pickFirstHermesModel(data);
+    if (!HERMES_MODEL_OVERRIDE && discovered) {
+      cachedHermesModel = discovered;
+    }
+    const model =
+      HERMES_MODEL_OVERRIDE || discovered || cachedHermesModel || HERMES_MODEL_FALLBACK;
+    const modelSource = HERMES_MODEL_OVERRIDE ? 'env' : discovered ? 'hermes' : 'fallback';
+
     return {
       enabled: true,
       backend: 'hermes',
       connected: true,
       baseUrl: HERMES_API_BASE_URL,
-      model: HERMES_MODEL,
-      profile: HERMES_PROFILE || null,
+      model,
+      modelSource,
+      ...profileFields,
       capabilities: {
         chat: true,
         profiles: Boolean(HERMES_PROFILES_URL || HERMES_PROFILE),
         sessions: Boolean(HERMES_SESSIONS_URL),
         streaming: false,
       },
-      models: Array.isArray(data.data) ? data.data.slice(0, 12) : [],
+      models,
     };
   } catch (e) {
     return {
@@ -278,8 +333,9 @@ async function probeHermesStatus() {
       backend: 'hermes',
       connected: false,
       baseUrl: HERMES_API_BASE_URL,
-      model: HERMES_MODEL,
-      profile: HERMES_PROFILE || null,
+      model: HERMES_MODEL_OVERRIDE || cachedHermesModel || HERMES_MODEL_FALLBACK,
+      modelSource: HERMES_MODEL_OVERRIDE ? 'env' : 'fallback',
+      ...profileFields,
       error: `Hermes API is unreachable at ${HERMES_API_BASE_URL}. ${e.message}`,
     };
   }
@@ -459,11 +515,15 @@ server.on('error', (err) => {
 
 server.listen(PORT, () => {
   console.log(`Aether HUD + ${IS_HERMES_BACKEND ? 'Hermes bridge' : 'LLM proxy'} at http://localhost:${PORT}`);
-  console.log(
-    IS_HERMES_BACKEND
-      ? `Hermes model: ${HERMES_MODEL} via ${HERMES_API_BASE_URL}${HERMES_PROFILE ? ` profile: ${HERMES_PROFILE}` : ''}`
-      : `Model: ${OPENAI_MODEL} via ${OPENAI_BASE_URL}`
-  );
+  if (IS_HERMES_BACKEND) {
+    const profileSuffix = HERMES_PROFILE ? ` profile: ${HERMES_PROFILE}` : ' (Hermes default profile)';
+    console.log(
+      `Hermes bridge via ${HERMES_API_BASE_URL}${profileSuffix}` +
+        (HERMES_MODEL_OVERRIDE ? ` model override: ${HERMES_MODEL_OVERRIDE}` : ' (model from Hermes /models)')
+    );
+  } else {
+    console.log(`Model: ${OPENAI_MODEL} via ${OPENAI_BASE_URL}`);
+  }
   const hasLocal = fs.existsSync(path.join(__dirname, '.env.local'));
   const hasEnv = fs.existsSync(path.join(__dirname, '.env'));
   console.log(`Env files: ${hasEnv ? '.env' : '(no .env)'}${hasLocal ? ' + .env.local (overrides)' : ''}`);

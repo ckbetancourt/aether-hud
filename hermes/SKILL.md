@@ -18,10 +18,10 @@ Register `/aether` in Hermes to execute the repository command above. If the ins
 
 ## Expected Environment
 
-- `AETHER_BACKEND=hermes`
-- `HERMES_API_BASE_URL` points at the running Hermes API server.
-- `HERMES_API_KEY` is optional if the local Hermes API server does not require a bearer token.
-- `HERMES_PROFILE` is optional and selects the default Hermes runtime profile.
+- `AETHER_BACKEND=hermes` (default)
+- `HERMES_API_BASE_URL` points at the running Hermes API server (default `http://127.0.0.1:8000/v1`)
+- Model, API key, and profile come from Hermes by default — no extra env vars required
+- Optional: `HERMES_API_KEY`, `HERMES_PROFILE`, or `HERMES_MODEL` only when you need to override Hermes defaults
 
 ## Behavior
 

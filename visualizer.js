@@ -1,5 +1,5 @@
 /**
- * Aether Jarvis HUD Visualization Engine
+ * Aether HUD Visualization Engine
  * Renders a full-screen, high-performance sci-fi hologram:
  * - A 3D-like liquid morphing plasma orb using harmonic math curves
  * - Concentric rotating orbital tracks, tick mark gauges, and dashed segments

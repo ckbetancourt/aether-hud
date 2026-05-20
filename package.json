@@ -1,7 +1,7 @@
 {
   "name": "aether-jarvis-hud",
   "private": true,
-  "description": "Jarvis HUD with optional local LLM proxy",
+  "description": "Aether HUD — voice-first interface for Hermes Agent",
   "bin": {
     "aether": "bin/aether"
   },

@@ -1,5 +1,5 @@
 /**
- * Aether Jarvis HUD Main Application Orchestrator
+ * Aether HUD Main Application Orchestrator
  * Coordinates interactive HUD states, Speech Engines, canvas parallax, and local archives.
  */
 
@@ -385,7 +385,7 @@ document.addEventListener('DOMContentLoaded', () => {
             saveMessageToSession('assistant', responseText, responseMeta);
 
         } catch (err) {
-            console.error("Jarvis Telemetry failure: ", err);
+            console.error("Aether telemetry failure: ", err);
             const errMsg = `[AETHER ERROR] Telemetry routing failed. Error: ${err.message}`;
             consoleLogNode.innerHTML = `<span style="color:var(--error);">${errMsg}</span>`;
             bubbleNode.innerHTML = `<span style="color:var(--error);">${errMsg}</span>`;

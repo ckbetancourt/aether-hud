@@ -1,19 +1,19 @@
 /**
- * Aether HUD voice-first delivery.
+ * Aether HUD TTS prompt layer (see TTS-Prompt.md for reference).
  * Hermes owns runtime profiles, tools, memory, sessions, and model choice.
- * Aether only injects the small TTS style layer needed for spoken replies.
+ * Aether only injects the small TTS prompt needed for spoken replies.
  */
 
 const AETHER_PERSONALITY = {
     id: 'aether',
     displayName: 'Aether',
-    tagline: 'Cognitive coordinator — Jarvis HUD',
+    tagline: 'Cognitive coordinator — Aether HUD',
     greeting:
         'Hello, I am Aether. I am your cognitive coordinator. How can I assist you in your workspace today?',
     accentColor: '#ff5722',
 };
 
-const AETHER_HUD_PROMPT = `You are speaking through **Aether**, a voice-first Jarvis HUD interface for Hermes Agent.
+const AETHER_TTS_BRIDGE_PROMPT = `You are speaking through **Aether HUD**, a voice-first interface for Hermes Agent.
 
 Hermes remains the agent runtime. Use Hermes profiles, tools, APIs, memory, and sessions as the source of truth when they are available.
 
@@ -48,7 +48,7 @@ const AETHER_ACCENT_THEMES = {
     gold: buildAccentTheme('gold', 'Gold', '#ffd200', '#f7971e'),
 };
 
-const AETHER_VOICE_FIRST_PROMPT = `Every reply in this HUD is read aloud by text-to-speech. Write to be heard, not skimmed.
+const AETHER_TTS_DELIVERY_PROMPT = `Every reply in this HUD is read aloud by text-to-speech. Write to be heard, not skimmed.
 
 Length:
 - Match depth to the question: short for simple asks, longer only when complexity warrants it.
@@ -72,23 +72,23 @@ Console coexistence:
 - The same text appears in the HUD console. Light formatting is acceptable only if it still reads naturally aloud.
 - Prefer prose paragraphs over heavy formatting.`;
 
-function buildAetherSystemPrompt() {
+function buildAetherTtsPrompt() {
     return [
-        AETHER_HUD_PROMPT,
+        AETHER_TTS_BRIDGE_PROMPT,
         '',
         '---',
         '',
-        '## Voice-first delivery',
-        AETHER_VOICE_FIRST_PROMPT,
+        '## TTS delivery',
+        AETHER_TTS_DELIVERY_PROMPT,
     ].join('\n');
 }
 
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
         AETHER_PERSONALITY,
-        AETHER_HUD_PROMPT,
-        AETHER_VOICE_FIRST_PROMPT,
+        AETHER_TTS_BRIDGE_PROMPT,
+        AETHER_TTS_DELIVERY_PROMPT,
         AETHER_ACCENT_THEMES,
-        buildAetherSystemPrompt,
+        buildAetherTtsPrompt,
     };
 }

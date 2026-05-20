@@ -9,7 +9,7 @@ class AIEngine {
     }
 
     buildSystemInstruction() {
-        return buildAetherSystemPrompt();
+        return buildAetherTtsPrompt();
     }
 
     /**

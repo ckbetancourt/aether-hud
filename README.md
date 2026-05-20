@@ -1,4 +1,4 @@
-# Aether Jarvis HUD
+# Aether HUD
 
 Aether is a browser-based, voice-first HUD for Hermes Agent. Hermes owns the model, tools, APIs, memory, runtime profiles, and sessions; Aether provides speech input, browser TTS, HUD rendering, and a small voice-first prompt layer so replies sound natural when read aloud.
 
@@ -13,32 +13,38 @@ Open `http://localhost:8787`.
 
 ## Hermes Bridge
 
-Run or expose Hermes Agent as an OpenAI-compatible local API server, then set:
+Hermes mode is the default. Start the Hermes API server, then point Aether at it. In most setups you only need:
 
 ```bash
 AETHER_BACKEND=hermes
 HERMES_API_BASE_URL=http://127.0.0.1:8000/v1
-HERMES_MODEL=hermes
-HERMES_API_KEY=
-HERMES_PROFILE=
 ```
 
-Hermes mode is the default. Aether keeps the same `/api/chat` frontend contract but routes requests through Hermes. The HUD sends the local session id, optional Hermes session id, optional Hermes runtime profile, and TTS style system prompt to the server. Hermes responses are normalized back into the HUD as `{ reply, backend, hermes }`.
+You do **not** need to set `HERMES_MODEL`, `HERMES_API_KEY`, or `HERMES_PROFILE` — Hermes owns model routing, API auth, and runtime profiles. Aether discovers the model from Hermes `/models` when connected, uses no bearer token unless you override `HERMES_API_KEY`, and uses the HUD profile picker (or Hermes default) for profiles.
+
+Aether keeps the same `/api/chat` frontend contract but routes requests through Hermes. The HUD sends the local session id, optional Hermes session id, optional Hermes runtime profile, and TTS style system prompt to the server. Hermes responses are normalized back into the HUD as `{ reply, backend, hermes }`.
 
 ### Connect Aether To Hermes
 
 1. Start the Hermes API server with your installed Hermes Agent build. Aether expects an OpenAI-compatible base URL that serves `/models` and `/chat/completions`.
 
-2. Create or update `.env.local` in this repository:
+2. Create or update `.env.local` in this repository (minimal example):
 
 ```bash
 AETHER_BACKEND=hermes
 HERMES_API_BASE_URL=http://127.0.0.1:8000/v1
-HERMES_MODEL=hermes
-HERMES_API_KEY=
-HERMES_PROFILE=
 PORT=8787
 ```
+
+Optional overrides — only when your Hermes build requires them:
+
+```bash
+# HERMES_MODEL=anthropic/claude-sonnet-4
+# HERMES_API_KEY=your-bearer-token
+# HERMES_PROFILE=my-hermes-profile
+```
+
+If you still have old `OPENAI_*` entries in `.env.local`, remove them or set `AETHER_BACKEND=hermes` so Aether does not use the OpenAI fallback path.
 
 3. Start Aether:
 
@@ -83,7 +89,7 @@ If your Hermes installation has a slash-command registry, register `/aether` to 
 
 Hermes profiles are the only runtime profiles. Aether stores the selected Hermes profile as `aether_hermes_profile` and displays it in the HUD badge. Aether no longer injects separate activity-profile behavior.
 
-Aether still injects a compact TTS style prompt. That prompt tells Hermes to write for spoken delivery, avoid heavy markdown, avoid tables, and keep code blocks short when speech output is enabled.
+Aether still injects a compact TTS prompt (see [`TTS-Prompt.md`](TTS-Prompt.md) for reference; runtime source is [`aether-config.js`](aether-config.js)). That prompt tells Hermes to write for spoken delivery, avoid heavy markdown, avoid tables, and keep code blocks short when speech output is enabled.
 
 Local archives remain in browser `localStorage`. Hermes-backed sessions add optional metadata:
 
