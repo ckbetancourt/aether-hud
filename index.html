@@ -30,7 +30,7 @@
             </div>
             
             <div class="hud-status-area">
-                <span class="badge badge-model" id="activeProfileBadge">PROFILE-GENERAL</span>
+                <span class="badge badge-model" id="activeProfileBadge">HERMES-DEFAULT</span>
                 <div class="status-telemetry-group">
                     <span class="badge badge-status" id="activeStatusBadge">
                         <span class="pulse-dot"></span>
@@ -132,7 +132,7 @@
 
                 <section class="accent-section" style="margin-bottom:24px;">
                     <h3 class="section-label font-heading">HUD Accent</h3>
-                    <p class="section-hint">Orb &amp; animation only — the rest of the HUD stays the same. Optionally remember per profile.</p>
+                    <p class="section-hint">Orb &amp; animation only. Hermes profiles own behavior and runtime context.</p>
                     <div class="accent-swatch-row" id="accentSwatchRow">
                         <button type="button" class="accent-swatch active" data-accent-theme="jarvis-red" title="Jarvis Red" aria-label="Jarvis Red" aria-pressed="true" style="--swatch-primary: #ff4436; --swatch-secondary: #ff6e40;"></button>
                         <button type="button" class="accent-swatch" data-accent-theme="jarvis-blue" title="Jarvis Blue" aria-label="Jarvis Blue" aria-pressed="false" style="--swatch-primary: #00c8ff; --swatch-secondary: #00e8ff;"></button>
@@ -140,45 +140,6 @@
                         <button type="button" class="accent-swatch" data-accent-theme="emerald" title="Emerald" aria-label="Emerald" aria-pressed="false" style="--swatch-primary: #00f5a0; --swatch-secondary: #00d9f6;"></button>
                         <button type="button" class="accent-swatch" data-accent-theme="violet" title="Violet" aria-label="Violet" aria-pressed="false" style="--swatch-primary: #f107a3; --swatch-secondary: #7b2ff7;"></button>
                         <button type="button" class="accent-swatch" data-accent-theme="gold" title="Gold" aria-label="Gold" aria-pressed="false" style="--swatch-primary: #ffd200; --swatch-secondary: #f7971e;"></button>
-                    </div>
-                    <label class="accent-remember-label">
-                        <input type="checkbox" id="accentRememberProfile">
-                        <span id="accentRememberProfileLabel">Remember for General</span>
-                    </label>
-                </section>
-
-                <section style="margin-bottom:24px;">
-                    <h3 class="section-label font-heading">Activity Profiles</h3>
-                    <p class="section-hint">Aether stays the same — profiles set focus &amp; system prompts (<code>soul.md</code> + <code>profiles/</code>).</p>
-                    <div class="profile-list" id="profileList">
-                        <div class="profile-card active" data-profile="general" style="--color-1: #ff5722; --color-2: #ff9800;">
-                            <div class="avatar-sphere" style="box-shadow: 0 0 10px rgba(255, 87, 34, 0.4);">Gn</div>
-                            <div class="profile-info">
-                                <h4>General</h4>
-                                <p>Workspace coordination</p>
-                            </div>
-                        </div>
-                        <div class="profile-card" data-profile="systems" style="--color-1: #00f5a0; --color-2: #00d9f6;">
-                            <div class="avatar-sphere" style="box-shadow: 0 0 10px rgba(0, 245, 160, 0.4);">Sy</div>
-                            <div class="profile-info">
-                                <h4>Systems</h4>
-                                <p>Code &amp; architecture</p>
-                            </div>
-                        </div>
-                        <div class="profile-card" data-profile="creative" style="--color-1: #f107a3; --color-2: #7b2ff7;">
-                            <div class="avatar-sphere" style="box-shadow: 0 0 10px rgba(241, 7, 163, 0.4);">Cr</div>
-                            <div class="profile-info">
-                                <h4>Creative</h4>
-                                <p>Narrative &amp; design</p>
-                            </div>
-                        </div>
-                        <div class="profile-card" data-profile="analyst" style="--color-1: #f7971e; --color-2: #ffd200;">
-                            <div class="avatar-sphere" style="box-shadow: 0 0 10px rgba(247, 151, 30, 0.4);">An</div>
-                            <div class="profile-info">
-                                <h4>Analyst</h4>
-                                <p>Metrics &amp; comparisons</p>
-                            </div>
-                        </div>
                     </div>
                 </section>
 
@@ -234,6 +195,16 @@
                     </select>
                     <div style="font-size: 0.68rem; color: var(--text-dim); margin-top: 2px;">
                         Control whether spoken audio immediately queries Aether or populates the composer for review.
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="hermesProfileSelect">Hermes Runtime Profile</label>
+                    <select class="form-select" id="hermesProfileSelect">
+                        <option value="">Hermes default profile</option>
+                    </select>
+                    <div id="hermesStatusText" style="font-size: 0.68rem; color: var(--text-dim); margin-top: 2px;">
+                        Hermes mode is detected from the local Aether server.
                     </div>
                 </div>
                 

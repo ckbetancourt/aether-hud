@@ -1,6 +1,6 @@
 /**
- * Serves the static HUD and proxies chat to an OpenAI-compatible /v1/chat/completions endpoint.
- * Keeps API keys on the server (dotenv: .env then .env.local overrides — LM Studio users often use .env.local).
+ * Serves the static HUD and bridges chat to Hermes Agent by default.
+ * Keeps API keys on the server (dotenv: .env then .env.local overrides).
  */
 const path = require('path');
 const fs = require('fs');
@@ -11,9 +11,17 @@ const http = require('http');
 
 const ROOT = __dirname;
 const PORT = Number(process.env.PORT) || 8787;
+const AETHER_BACKEND = (process.env.AETHER_BACKEND || 'hermes').toLowerCase();
 const OPENAI_BASE_URL = (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/$/, '');
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
+const HERMES_API_BASE_URL = (process.env.HERMES_API_BASE_URL || 'http://127.0.0.1:8000/v1').replace(/\/$/, '');
+const HERMES_MODEL = process.env.HERMES_MODEL || 'hermes';
+const HERMES_API_KEY = process.env.HERMES_API_KEY || '';
+const HERMES_PROFILE = process.env.HERMES_PROFILE || '';
+const HERMES_PROFILES_URL = (process.env.HERMES_PROFILES_URL || '').trim();
+const HERMES_SESSIONS_URL = (process.env.HERMES_SESSIONS_URL || '').trim();
+const IS_HERMES_BACKEND = AETHER_BACKEND === 'hermes';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -28,39 +36,92 @@ const MIME = {
 };
 
 const {
-  AETHER_PROFILES,
-  resolveProfileId,
   buildAetherSystemPrompt,
 } = require('./aether-config.js');
 
-function buildSystemPrompt(body) {
-  const profileId = body.profile && body.profile.id;
-  const id = resolveProfileId(profileId || 'general');
-  const profile = AETHER_PROFILES[id] || AETHER_PROFILES.general;
-  return buildAetherSystemPrompt(profile);
+function buildSystemPrompt(body = {}) {
+  if (body.voiceSystemPrompt && typeof body.voiceSystemPrompt === 'string') {
+    return body.voiceSystemPrompt;
+  }
+  return buildAetherSystemPrompt();
 }
 
-function temperatureForProfile(profile) {
-  if (profile && typeof profile.temperature === 'number') {
-    return profile.temperature;
-  }
-  const id = profile && profile.id;
-  if (id === 'creative') return 0.9;
-  if (id === 'systems') return 0.2;
-  if (id === 'analyst') return 0.5;
-  return 0.7;
+function runtimeTemperature() {
+  const parsed = Number(process.env.AETHER_TEMPERATURE);
+  return Number.isFinite(parsed) ? parsed : 0.7;
 }
 
 function corsHeaders() {
   return {
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
   };
 }
 
-async function handleChat(body) {
-  const { messages, profile, personality } = body;
+function openAiHeaders(apiKey, extra = {}) {
+  const headers = {
+    'Content-Type': 'application/json',
+    ...extra,
+  };
+  if (apiKey) {
+    headers.Authorization = `Bearer ${apiKey}`;
+  }
+  return headers;
+}
+
+function chatCompletionsUrl(baseUrl) {
+  return `${baseUrl.replace(/\/$/, '')}/chat/completions`;
+}
+
+function normalizeMessages(messages) {
+  return messages.map((m) => ({
+    role: m.role === 'assistant' ? 'assistant' : 'user',
+    content: String(m.content ?? ''),
+  }));
+}
+
+function parseUpstreamError(status, text) {
+  let detail = text;
+  try {
+    const j = JSON.parse(text);
+    detail = j.error?.message || j.message || text;
+  } catch {
+    /* keep text */
+  }
+  const err = new Error(detail || `Upstream HTTP ${status}`);
+  err.statusCode = status >= 400 && status < 600 ? status : 502;
+  return err;
+}
+
+async function callChatCompletions({ baseUrl, model, apiKey, messages, temperature, maxTokens, extraHeaders = {} }) {
+  const res = await fetch(chatCompletionsUrl(baseUrl), {
+    method: 'POST',
+    headers: openAiHeaders(apiKey, extraHeaders),
+    body: JSON.stringify({
+      model,
+      messages,
+      temperature,
+      max_tokens: maxTokens,
+    }),
+  });
+
+  if (!res.ok) {
+    throw parseUpstreamError(res.status, await res.text());
+  }
+
+  const data = await res.json();
+  const reply = data.choices?.[0]?.message?.content;
+  if (!reply || typeof reply !== 'string') {
+    const err = new Error('Empty or invalid completion from model');
+    err.statusCode = 502;
+    throw err;
+  }
+  return { reply, raw: data };
+}
+
+async function handleOpenAiChat(body) {
+  const { messages } = body;
   if (!messages || !Array.isArray(messages)) {
     const err = new Error('Invalid body: expected { messages: [...] }');
     err.statusCode = 400;
@@ -71,55 +132,184 @@ async function handleChat(body) {
     console.log('[api/chat] ->', `${OPENAI_BASE_URL}/chat/completions`, 'model:', OPENAI_MODEL);
   }
 
-  const sys = buildSystemPrompt({ profile, personality });
+  const sys = buildSystemPrompt(body);
   const openaiMessages = [
     { role: 'system', content: sys },
-    ...messages.map((m) => ({
-      role: m.role === 'assistant' ? 'assistant' : 'user',
-      content: String(m.content ?? ''),
-    })),
+    ...normalizeMessages(messages),
   ];
-
-  const headers = {
-    'Content-Type': 'application/json',
-  };
-  if (OPENAI_API_KEY) {
-    headers.Authorization = `Bearer ${OPENAI_API_KEY}`;
-  }
-
-  const res = await fetch(`${OPENAI_BASE_URL}/chat/completions`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({
-      model: OPENAI_MODEL,
-      messages: openaiMessages,
-      temperature: temperatureForProfile(profile),
-      max_tokens: 2048,
-    }),
+  const result = await callChatCompletions({
+    baseUrl: OPENAI_BASE_URL,
+    model: OPENAI_MODEL,
+    apiKey: OPENAI_API_KEY,
+    messages: openaiMessages,
+    temperature: runtimeTemperature(),
+    maxTokens: 2048,
   });
+  return { reply: result.reply, backend: 'openai' };
+}
 
-  if (!res.ok) {
-    const text = await res.text();
-    let detail = text;
-    try {
-      const j = JSON.parse(text);
-      detail = j.error?.message || j.message || text;
-    } catch {
-      /* keep text */
+function hermesSystemPrompt(body) {
+  const base = buildSystemPrompt(body);
+  return [
+    base,
+    '',
+    '---',
+    '',
+    '## Hermes Agent bridge',
+    'You are operating through Hermes Agent as the runtime behind the Aether voice HUD.',
+    'Use Hermes tools, APIs, memory, sessions, and profile context when the runtime provides them.',
+    'Keep responses voice-first and report tool or agent state in concise spoken language.',
+  ].join('\n');
+}
+
+function hermesHeaders(body) {
+  const sessionId = body.hermesSessionId || body.sessionId || '';
+  const profile = body.hermesProfile || HERMES_PROFILE || '';
+  const headers = {};
+  if (sessionId) headers['X-Hermes-Session-Id'] = String(sessionId);
+  if (profile) headers['X-Hermes-Profile'] = String(profile);
+  headers['X-Hermes-Use-Tools'] = 'true';
+  return headers;
+}
+
+async function handleHermesChat(body) {
+  const { messages } = body;
+  if (!messages || !Array.isArray(messages)) {
+    const err = new Error('Invalid body: expected { messages: [...] }');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  if (process.env.AETHER_DEBUG === '1') {
+    console.log('[api/chat] -> Hermes', chatCompletionsUrl(HERMES_API_BASE_URL), 'model:', HERMES_MODEL);
+  }
+
+  let result;
+  try {
+    result = await callChatCompletions({
+      baseUrl: HERMES_API_BASE_URL,
+      model: HERMES_MODEL,
+      apiKey: HERMES_API_KEY,
+      messages: [
+        { role: 'system', content: hermesSystemPrompt(body) },
+        ...normalizeMessages(messages),
+      ],
+      temperature: runtimeTemperature(),
+      maxTokens: 2048,
+      extraHeaders: hermesHeaders(body),
+    });
+  } catch (e) {
+    if (e.statusCode) throw e;
+    const err = new Error(`Hermes API is unreachable at ${HERMES_API_BASE_URL}. ${e.message}`);
+    err.statusCode = 503;
+    throw err;
+  }
+
+  return {
+    reply: result.reply,
+    backend: 'hermes',
+    hermes: {
+      sessionId:
+        result.raw.session_id ||
+        result.raw.sessionId ||
+        result.raw.conversation_id ||
+        result.raw.conversationId ||
+        body.hermesSessionId ||
+        null,
+      profile: body.hermesProfile || HERMES_PROFILE || null,
+      model: HERMES_MODEL,
+    },
+  };
+}
+
+async function handleChat(body) {
+  if (IS_HERMES_BACKEND) {
+    return handleHermesChat(body);
+  }
+  return handleOpenAiChat(body);
+}
+
+async function probeHermesStatus() {
+  if (!IS_HERMES_BACKEND) {
+    return {
+      enabled: false,
+      backend: AETHER_BACKEND,
+      connected: false,
+      reason: 'AETHER_BACKEND is not set to hermes.',
+    };
+  }
+
+  const modelsUrl = `${HERMES_API_BASE_URL}/models`;
+  try {
+    const res = await fetch(modelsUrl, {
+      method: 'GET',
+      headers: openAiHeaders(HERMES_API_KEY),
+    });
+    if (!res.ok) {
+      return {
+        enabled: true,
+        backend: 'hermes',
+        connected: false,
+        baseUrl: HERMES_API_BASE_URL,
+        model: HERMES_MODEL,
+        profile: HERMES_PROFILE || null,
+        error: `Hermes status probe failed with HTTP ${res.status}.`,
+      };
     }
-    const err = new Error(detail || `Upstream HTTP ${res.status}`);
-    err.statusCode = res.status >= 400 && res.status < 600 ? res.status : 502;
-    throw err;
+    const data = await res.json().catch(() => ({}));
+    return {
+      enabled: true,
+      backend: 'hermes',
+      connected: true,
+      baseUrl: HERMES_API_BASE_URL,
+      model: HERMES_MODEL,
+      profile: HERMES_PROFILE || null,
+      capabilities: {
+        chat: true,
+        profiles: Boolean(HERMES_PROFILES_URL || HERMES_PROFILE),
+        sessions: Boolean(HERMES_SESSIONS_URL),
+        streaming: false,
+      },
+      models: Array.isArray(data.data) ? data.data.slice(0, 12) : [],
+    };
+  } catch (e) {
+    return {
+      enabled: true,
+      backend: 'hermes',
+      connected: false,
+      baseUrl: HERMES_API_BASE_URL,
+      model: HERMES_MODEL,
+      profile: HERMES_PROFILE || null,
+      error: `Hermes API is unreachable at ${HERMES_API_BASE_URL}. ${e.message}`,
+    };
+  }
+}
+
+async function fetchOptionalHermesList(kind, url, fallbackItem) {
+  if (!IS_HERMES_BACKEND) {
+    return { available: false, items: [], reason: 'Hermes backend is disabled.' };
+  }
+  if (!url) {
+    const items = fallbackItem ? [fallbackItem] : [];
+    return {
+      available: Boolean(fallbackItem),
+      items,
+      reason: fallbackItem
+        ? `${kind} listing is not configured; showing the configured default.`
+        : `${kind} listing URL is not configured.`,
+    };
   }
 
-  const data = await res.json();
-  const reply = data.choices?.[0]?.message?.content;
-  if (!reply || typeof reply !== 'string') {
-    const err = new Error('Empty or invalid completion from model');
-    err.statusCode = 502;
-    throw err;
+  const res = await fetch(url, {
+    method: 'GET',
+    headers: openAiHeaders(HERMES_API_KEY),
+  });
+  if (!res.ok) {
+    throw parseUpstreamError(res.status, await res.text());
   }
-  return reply;
+  const data = await res.json();
+  const items = Array.isArray(data) ? data : data.data || data.items || [];
+  return { available: true, items };
 }
 
 function readBody(req) {
@@ -194,7 +384,7 @@ const server = http.createServer(async (req, res) => {
 
   const pathname = u.pathname;
 
-  if (req.method === 'OPTIONS' && pathname === '/api/chat') {
+  if (req.method === 'OPTIONS' && pathname.startsWith('/api/')) {
     res.writeHead(204, corsHeaders());
     res.end();
     return;
@@ -203,8 +393,8 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'POST' && pathname === '/api/chat') {
     try {
       const body = await readBody(req);
-      const reply = await handleChat(body || {});
-      sendJson(res, 200, { reply });
+      const result = await handleChat(body || {});
+      sendJson(res, 200, result);
     } catch (e) {
       const status = e.statusCode || (e instanceof SyntaxError ? 400 : 500);
       console.error('[api/chat]', e.message || e);
@@ -214,7 +404,41 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (req.method === 'GET' || req.method === 'HEAD') {
-    if (pathname === '/api/chat') {
+    if (pathname === '/api/hermes/status') {
+      const status = await probeHermesStatus();
+      sendJson(res, status.connected || !status.enabled ? 200 : 503, status);
+      return;
+    }
+
+    if (pathname === '/api/hermes/profiles') {
+      try {
+        const data = await fetchOptionalHermesList(
+          'Hermes profile',
+          HERMES_PROFILES_URL,
+          HERMES_PROFILE ? { id: HERMES_PROFILE, name: HERMES_PROFILE } : null
+        );
+        sendJson(res, 200, data);
+      } catch (e) {
+        const status = e.statusCode || 502;
+        console.error('[api/hermes/profiles]', e.message || e);
+        sendJson(res, status, { available: false, items: [], error: e.message || 'Hermes profiles unavailable' });
+      }
+      return;
+    }
+
+    if (pathname === '/api/hermes/sessions') {
+      try {
+        const data = await fetchOptionalHermesList('Hermes session', HERMES_SESSIONS_URL, null);
+        sendJson(res, 200, data);
+      } catch (e) {
+        const status = e.statusCode || 502;
+        console.error('[api/hermes/sessions]', e.message || e);
+        sendJson(res, status, { available: false, items: [], error: e.message || 'Hermes sessions unavailable' });
+      }
+      return;
+    }
+
+    if (pathname.startsWith('/api/')) {
       sendJson(res, 405, { error: 'Method not allowed' });
       return;
     }
@@ -234,12 +458,19 @@ server.on('error', (err) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`Aether HUD + LLM proxy at http://localhost:${PORT}`);
-  console.log(`Model: ${OPENAI_MODEL} via ${OPENAI_BASE_URL}`);
+  console.log(`Aether HUD + ${IS_HERMES_BACKEND ? 'Hermes bridge' : 'LLM proxy'} at http://localhost:${PORT}`);
+  console.log(
+    IS_HERMES_BACKEND
+      ? `Hermes model: ${HERMES_MODEL} via ${HERMES_API_BASE_URL}${HERMES_PROFILE ? ` profile: ${HERMES_PROFILE}` : ''}`
+      : `Model: ${OPENAI_MODEL} via ${OPENAI_BASE_URL}`
+  );
   const hasLocal = fs.existsSync(path.join(__dirname, '.env.local'));
   const hasEnv = fs.existsSync(path.join(__dirname, '.env'));
   console.log(`Env files: ${hasEnv ? '.env' : '(no .env)'}${hasLocal ? ' + .env.local (overrides)' : ''}`);
-  if (!OPENAI_API_KEY && OPENAI_BASE_URL.includes('api.openai.com')) {
+  if (!IS_HERMES_BACKEND && !OPENAI_API_KEY && OPENAI_BASE_URL.includes('api.openai.com')) {
     console.warn('OPENAI_API_KEY is unset — set it in .env or the OpenAI API will reject requests.');
+  }
+  if (IS_HERMES_BACKEND && !HERMES_API_BASE_URL) {
+    console.warn('HERMES_API_BASE_URL is unset — set it to your running Hermes API server.');
   }
 });

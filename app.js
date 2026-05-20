@@ -12,6 +12,28 @@ document.addEventListener('DOMContentLoaded', () => {
     const MAX_MESSAGES_PER_SESSION = 100;
     const MAX_MESSAGE_CHARS = 32000;
 
+    function loadSavedSessions() {
+        try {
+            return JSON.parse(localStorage.getItem('aether_sessions') || '[]').map(normalizeSession);
+        } catch {
+            return [];
+        }
+    }
+
+    function normalizeSession(session) {
+        const savedHermesProfile = localStorage.getItem('aether_hermes_profile') || null;
+        return {
+            id: session.id || `sess_${Date.now()}`,
+            title: session.title || 'Untitled session',
+            profile: session.profile || session.model || '',
+            source: session.source || (session.hermesSessionId ? 'hermes' : 'local'),
+            hermesSessionId: session.hermesSessionId || null,
+            hermesProfile: session.hermesProfile || savedHermesProfile,
+            hermesUpdatedAt: session.hermesUpdatedAt || null,
+            messages: Array.isArray(session.messages) ? session.messages : [],
+        };
+    }
+
     function loadProfileAccents() {
         try {
             return JSON.parse(localStorage.getItem('aether_profile_accents') || '{}');
@@ -20,28 +42,27 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function loadGlobalAccentTheme(activeProfileId) {
+    function loadGlobalAccentTheme() {
         const stored = localStorage.getItem('aether_accent_theme');
         if (stored && AETHER_ACCENT_THEMES[stored]) return stored;
-        const profile = AETHER_PROFILES[activeProfileId] || AETHER_PROFILES.general;
-        const fallback = profile.defaultAccent || 'jarvis-red';
+        const fallback = 'jarvis-red';
         localStorage.setItem('aether_accent_theme', fallback);
         return fallback;
     }
 
     // 1. Core State Definition
     const state = {
-        activeProfile: resolveProfileId(localStorage.getItem('aether_active_profile') || 'general'),
-        sessions: JSON.parse(localStorage.getItem('aether_sessions') || '[]'),
+        sessions: loadSavedSessions(),
         activeSessionId: localStorage.getItem('aether_active_session_id') || null,
+        activeHermesProfile: localStorage.getItem('aether_hermes_profile') || '',
+        hermesStatus: null,
         isVoiceActive: false,
         speechEnabled: JSON.parse(localStorage.getItem('aether_speech_enabled') ?? 'true'),
         memory: JSON.parse(localStorage.getItem('aether_memory') || '{}'),
         globalAccentTheme: null,
-        profileAccents: loadProfileAccents(),
         activeAccentTheme: null,
     };
-    state.globalAccentTheme = loadGlobalAccentTheme(state.activeProfile);
+    state.globalAccentTheme = loadGlobalAccentTheme();
 
     // 2. Instantiate Systems
     const ai = new AIEngine();
@@ -95,9 +116,8 @@ document.addEventListener('DOMContentLoaded', () => {
         synthSpeedVal: document.getElementById('synthSpeedVal'),
         simulationSpeed: document.getElementById('simulationSpeed'),
         simulationSpeedVal: document.getElementById('simulationSpeedVal'),
-
-        accentRememberProfile: document.getElementById('accentRememberProfile'),
-        accentRememberProfileLabel: document.getElementById('accentRememberProfileLabel'),
+        hermesProfileSelect: document.getElementById('hermesProfileSelect'),
+        hermesStatusText: document.getElementById('hermesStatusText'),
     };
 
     // Initialize speech mute UI button state
@@ -109,16 +129,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 4. UI Setup and Event Wiring
     setupEventListeners();
-    applyAccentForActiveProfile();
-    updateProfileAccentIndicators();
-    updateRememberProfileLabel();
+    applyAccentTheme(state.globalAccentTheme);
+    updateHermesProfileBadge();
     renderHistorySessions();
     startLatencyTelemetryMock();
+    refreshHermesIntegration();
 
     // Load active session or spawn new
     if (!state.activeSessionId) {
         startNewSession();
-        changeActiveProfile(state.activeProfile);
     } else {
         loadSession(state.activeSessionId);
     }
@@ -150,14 +169,6 @@ document.addEventListener('DOMContentLoaded', () => {
         elements.saveSettingsBtn.addEventListener('click', saveSettings);
         elements.settingsModal.addEventListener('click', (e) => {
             if (e.target === elements.settingsModal) closeSettingsModal();
-        });
-
-        // Model selector buttons inside drawer
-        document.querySelectorAll('.profile-card').forEach(card => {
-            card.addEventListener('click', () => {
-                const profileId = card.getAttribute('data-profile');
-                changeActiveProfile(profileId);
-            });
         });
 
         document.querySelectorAll('.accent-swatch').forEach((swatch) => {
@@ -325,11 +336,18 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const activeSession = state.sessions.find(s => s.id === state.activeSessionId);
             const history = activeSession ? activeSession.messages : [];
+            if (state.hermesStatus?.enabled) {
+                appendSystemConsoleLine(
+                    state.hermesStatus.connected
+                        ? `[AGENT] Routing command through Hermes${activeSession?.hermesSessionId ? ` session ${String(activeSession.hermesSessionId).slice(0, 18)}` : ''}.`
+                        : '[AGENT] Hermes mode is enabled, but the bridge is offline. Attempting request for latest status.'
+                );
+            }
 
             // Query cognitive engine
             const aiResponse = await ai.getResponse(
                 text, 
-                state.activeProfile, 
+                null,
                 history, 
                 // Ignore checklist/memory overlay drawer triggers in minimalist screen, 
                 // or just log task events to console!
@@ -338,12 +356,33 @@ document.addEventListener('DOMContentLoaded', () => {
                 }, 
                 (k, v) => {
                     appendSystemConsoleLine(`[MEMORY BANK] Recorded ${k}: ${v}`);
+                },
+                {
+                    sessionId: activeSession?.id,
+                    hermesSessionId: activeSession?.hermesSessionId,
+                    hermesProfile: activeSession?.hermesProfile || state.activeHermesProfile,
                 }
             );
+            const responseText = typeof aiResponse === 'string' ? aiResponse : aiResponse.text || '';
+            const responseMeta = typeof aiResponse === 'object' && aiResponse !== null ? aiResponse : {};
+
+            if (responseMeta.backend === 'hermes') {
+                persistHermesSessionMetadata(responseMeta.hermes);
+                appendAgentStatusLine(responseMeta.hermes);
+                state.hermesStatus = {
+                    ...(state.hermesStatus || {}),
+                    enabled: true,
+                    connected: true,
+                    backend: 'hermes',
+                    model: responseMeta.hermes?.model || state.hermesStatus?.model,
+                    profile: responseMeta.hermes?.profile || state.hermesStatus?.profile,
+                };
+                updateHermesStatusUi(state.hermesStatus);
+            }
 
             // Stream response typewriter style inside terminal log and chat bubble
-            await streamResponseText(consoleLogNode, bubbleNode, aiResponse);
-            saveMessageToSession('assistant', aiResponse);
+            await streamResponseText(consoleLogNode, bubbleNode, responseText);
+            saveMessageToSession('assistant', responseText, responseMeta);
 
         } catch (err) {
             console.error("Jarvis Telemetry failure: ", err);
@@ -361,7 +400,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (text.startsWith('[USER]')) {
             line.style.color = '#ffffff';
             line.style.fontWeight = 'bold';
-        } else if (text.startsWith('[SYSTEM]') || text.startsWith('[TASK') || text.startsWith('[MEMORY')) {
+        } else if (text.startsWith('[SYSTEM]') || text.startsWith('[TASK') || text.startsWith('[MEMORY') || text.startsWith('[AGENT')) {
             line.style.color = 'var(--accent-secondary)';
             line.style.fontSize = '0.7rem';
         }
@@ -372,12 +411,35 @@ document.addEventListener('DOMContentLoaded', () => {
         return line;
     }
 
+    function hermesProfileLabel() {
+        return state.activeHermesProfile || state.hermesStatus?.profile || 'default';
+    }
+
+    function appendAgentStatusLine(hermes) {
+        if (!hermes) return;
+        const parts = ['[AGENT] Hermes response received'];
+        if (hermes.profile) parts.push(`profile=${hermes.profile}`);
+        if (hermes.sessionId) parts.push(`session=${String(hermes.sessionId).slice(0, 18)}`);
+        appendSystemConsoleLine(parts.join(' | '));
+    }
+
+    function persistHermesSessionMetadata(hermes) {
+        const sessionIndex = state.sessions.findIndex(s => s.id === state.activeSessionId);
+        if (sessionIndex === -1 || !hermes) return;
+        state.sessions[sessionIndex].source = 'hermes';
+        state.sessions[sessionIndex].hermesSessionId = hermes.sessionId || state.sessions[sessionIndex].hermesSessionId || null;
+        state.sessions[sessionIndex].hermesProfile = hermes.profile || state.activeHermesProfile || null;
+        state.sessions[sessionIndex].hermesUpdatedAt = new Date().toISOString();
+        schedulePersistSessions();
+        scheduleRenderHistorySessions();
+    }
+
     /**
      * Typewriter streaming logic to render text directly into terminal element
      */
     function streamResponseText(logNode, bubbleNode, fullText) {
         return new Promise((resolve) => {
-            logNode.innerHTML = `<span style="color:#ffffff; font-weight:bold;">[${state.activeProfile.toUpperCase()}]</span> `;
+            logNode.innerHTML = `<span style="color:#ffffff; font-weight:bold;">[HERMES:${hermesProfileLabel().toUpperCase()}]</span> `;
 
             const textSpan = document.createElement('span');
             const cursorSpan = document.createElement('span');
@@ -400,7 +462,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // Synthesis spoken feedback
             visualizer.setState('speaking');
-            speech.speak(fullText, null, null, () => {
+            const speakableText = prepareSpeechText(fullText);
+            speech.speak(speakableText, null, null, () => {
                 if (visualizer.state === 'speaking') {
                     visualizer.setState('idle');
                 }
@@ -437,6 +500,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }, intervalTime);
         });
+    }
+
+    function prepareSpeechText(text) {
+        return String(text || '')
+            .replace(/```[\s\S]*?```/g, 'I have included a code block in the chat.')
+            .replace(/\[(AGENT|SYSTEM|TASK TELEMETRY|MEMORY BANK)\][^\n]*/g, '')
+            .trim();
     }
 
     function scrollConsoleBottom() {
@@ -537,11 +607,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return AETHER_ACCENT_THEMES[themeId] || AETHER_ACCENT_THEMES['jarvis-red'];
     }
 
-    function resolveAccentForProfile(profileId) {
-        const id = resolveProfileId(profileId);
-        return state.profileAccents[id] || state.globalAccentTheme;
-    }
-
     function applyAccentTheme(themeId) {
         const theme = getAccentTheme(themeId);
         state.activeAccentTheme = theme.id;
@@ -557,33 +622,13 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    function updateProfileAccentIndicators() {
-        document.querySelectorAll('.profile-card').forEach((card) => {
-            const profileId = card.getAttribute('data-profile');
-            card.classList.toggle('has-accent-override', Boolean(state.profileAccents[profileId]));
-        });
-    }
-
-    function updateRememberProfileLabel() {
-        if (!elements.accentRememberProfileLabel) return;
-        const profile = ai.getProfile(state.activeProfile);
-        elements.accentRememberProfileLabel.textContent = `Remember for ${profile.displayName}`;
-    }
-
     function selectAccentTheme(themeId) {
         if (!AETHER_ACCENT_THEMES[themeId]) return;
 
-        const rememberForProfile = elements.accentRememberProfile?.checked;
-        if (rememberForProfile) {
-            state.profileAccents[state.activeProfile] = themeId;
-            localStorage.setItem('aether_profile_accents', JSON.stringify(state.profileAccents));
-        } else {
-            state.globalAccentTheme = themeId;
-            localStorage.setItem('aether_accent_theme', themeId);
-        }
+        state.globalAccentTheme = themeId;
+        localStorage.setItem('aether_accent_theme', themeId);
 
         applyAccentTheme(themeId);
-        updateProfileAccentIndicators();
     }
 
     function clearGlobalAccentOverrides() {
@@ -599,33 +644,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function applyAccentForActiveProfile() {
-        clearGlobalAccentOverrides();
-        applyAccentTheme(resolveAccentForProfile(state.activeProfile));
-    }
-
-    /* ==========================================================================
-       D. Activity profile switcher (Aether personality stays constant)
-       ========================================================================== */
-    function changeActiveProfile(profileId) {
-        const id = resolveProfileId(profileId);
-        const profile = ai.getProfile(id);
-        state.activeProfile = id;
-        localStorage.setItem('aether_active_profile', id);
-
-        document.querySelectorAll('.profile-card').forEach(card => {
-            card.classList.remove('active');
-            if (card.getAttribute('data-profile') === id) {
-                card.classList.add('active');
-            }
-        });
-
-        elements.activeProfileBadge.textContent = `PROFILE-${profile.displayName.toUpperCase()}`;
-        applyAccentForActiveProfile();
-        updateRememberProfileLabel();
-
-        speech.stopSpeaking();
-        appendSystemConsoleLine(`[SYSTEM] Active profile: ${profile.displayName} (Aether)`);
+    function updateHermesProfileBadge() {
+        if (!elements.activeProfileBadge) return;
+        elements.activeProfileBadge.textContent = `HERMES-${hermesProfileLabel().toUpperCase()}`;
     }
 
     /* ==========================================================================
@@ -707,7 +728,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const newSession = {
             id: id,
             title: `Session ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
-            profile: state.activeProfile,
+            profile: '',
+            source: state.hermesStatus?.connected ? 'hermes' : 'local',
+            hermesSessionId: null,
+            hermesProfile: state.activeHermesProfile || state.hermesStatus?.profile || null,
+            hermesUpdatedAt: null,
             messages: []
         };
 
@@ -737,8 +762,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         state.activeSessionId = sessionId;
         localStorage.setItem('aether_active_session_id', sessionId);
-        
-        changeActiveProfile(session.profile || session.model);
+        updateHermesProfileBadge();
 
         // Load logs
         elements.consoleScroller.innerHTML = `<div class="console-log-line system-line">[SYSTEM] Historical session re-loaded.</div>`;
@@ -752,7 +776,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 } else {
                     const line = appendSystemConsoleLine(`[AETHER] ...`);
                     const profileLabel = (session.profile || session.model || 'general').toUpperCase();
-                    line.innerHTML = `<span style="color:#ffffff; font-weight:bold;">[${profileLabel}]</span> <span>${parseConsoleMarkdown(msg.content)}</span>`;
+                    const agentLabel = session.source === 'hermes' ? ' HERMES' : '';
+                    line.innerHTML = `<span style="color:#ffffff; font-weight:bold;">[${profileLabel}${agentLabel}]</span> <span>${parseConsoleMarkdown(msg.content)}</span>`;
                 }
             });
         }
@@ -774,11 +799,14 @@ document.addEventListener('DOMContentLoaded', () => {
         scrollConsoleBottom();
     }
 
-    function saveMessageToSession(role, content) {
+    function saveMessageToSession(role, content, meta = {}) {
         const sessionIndex = state.sessions.findIndex(s => s.id === state.activeSessionId);
         if (sessionIndex === -1) return;
 
-        state.sessions[sessionIndex].messages.push({ role, content });
+        const message = { role, content };
+        if (meta.backend) message.backend = meta.backend;
+        if (meta.hermes?.sessionId) message.hermesSessionId = meta.hermes.sessionId;
+        state.sessions[sessionIndex].messages.push(message);
         
         // Title update
         if (state.sessions[sessionIndex].messages.length === 2) {
@@ -809,7 +837,7 @@ document.addEventListener('DOMContentLoaded', () => {
             btn.className = `history-item ${s.id === state.activeSessionId ? 'active' : ''}`;
             
             const icon = document.createElement('i');
-            icon.setAttribute('data-lucide', 'database');
+            icon.setAttribute('data-lucide', s.source === 'hermes' ? 'radio-tower' : 'database');
             icon.className = 'history-icon';
             icon.style.width = '12px';
             icon.style.height = '12px';
@@ -819,6 +847,10 @@ document.addEventListener('DOMContentLoaded', () => {
             titleSpan.style.textOverflow = 'ellipsis';
             titleSpan.style.whiteSpace = 'nowrap';
             titleSpan.textContent = s.title;
+
+            if (s.source === 'hermes') {
+                btn.title = `Hermes profile: ${s.hermesProfile || 'default'}${s.hermesSessionId ? ` | Session: ${s.hermesSessionId}` : ''}`;
+            }
 
             btn.appendChild(icon);
             btn.appendChild(titleSpan);
@@ -832,6 +864,109 @@ document.addEventListener('DOMContentLoaded', () => {
 
         list.appendChild(fragment);
         refreshHistoryIcons();
+    }
+
+    async function refreshHermesIntegration() {
+        try {
+            const status = await ai.getBackendStatus();
+            state.hermesStatus = status;
+            updateHermesStatusUi(status);
+            if (status.enabled && status.connected) {
+                appendSystemConsoleLine(`[AGENT] Hermes bridge connected: ${status.model || 'default model'}`);
+                syncHermesSessions();
+            } else if (status.enabled) {
+                appendSystemConsoleLine(`[AGENT] Hermes bridge unavailable: ${status.error || status.reason || 'status probe failed'}`);
+            }
+        } catch (err) {
+            state.hermesStatus = { enabled: false, connected: false, error: err.message };
+            updateHermesStatusUi(state.hermesStatus);
+        }
+    }
+
+    async function syncHermesSessions() {
+        if (!state.hermesStatus?.capabilities?.sessions) return;
+        try {
+            const result = await ai.getHermesSessions();
+            if (!result.available || !Array.isArray(result.items)) return;
+
+            let imported = 0;
+            result.items.forEach((item) => {
+                const hermesSessionId = String(item.id || item.sessionId || item.session_id || item.uuid || '');
+                if (!hermesSessionId) return;
+                const existing = state.sessions.find(s => s.hermesSessionId === hermesSessionId);
+                if (existing) {
+                    existing.hermesUpdatedAt = item.updatedAt || item.updated_at || existing.hermesUpdatedAt;
+                    return;
+                }
+                state.sessions.push(normalizeSession({
+                    id: `hermes_${hermesSessionId}`,
+                    title: item.title || item.name || `Hermes ${hermesSessionId.slice(0, 8)}`,
+                    profile: '',
+                    source: 'hermes',
+                    hermesSessionId,
+                    hermesProfile: item.profile || item.profileId || state.activeHermesProfile || state.hermesStatus.profile || null,
+                    hermesUpdatedAt: item.updatedAt || item.updated_at || null,
+                    messages: Array.isArray(item.messages) ? item.messages : [],
+                }));
+                imported++;
+            });
+
+            if (imported > 0) {
+                schedulePersistSessions();
+                scheduleRenderHistorySessions();
+                appendSystemConsoleLine(`[AGENT] Imported ${imported} Hermes session${imported === 1 ? '' : 's'} into archives.`);
+            }
+        } catch (err) {
+            appendSystemConsoleLine(`[AGENT] Hermes session listing unavailable: ${err.message}`);
+        }
+    }
+
+    function updateHermesStatusUi(status) {
+        updateHermesProfileBadge();
+        if (!elements.activeStatusBadge) return;
+        if (status?.enabled && status.connected) {
+            elements.activeStatusBadge.innerHTML = '<span class="pulse-dot"></span> HERMES';
+        } else if (status?.enabled) {
+            elements.activeStatusBadge.innerHTML = '<span class="pulse-dot"></span> HERMES OFFLINE';
+        } else {
+            elements.activeStatusBadge.innerHTML = '<span class="pulse-dot"></span> CONNECTED';
+        }
+
+        if (elements.hermesStatusText) {
+            if (status?.enabled && status.connected) {
+                elements.hermesStatusText.textContent = `Connected to ${status.model || 'Hermes'} at ${status.baseUrl || 'configured API'}.`;
+            } else if (status?.enabled) {
+                elements.hermesStatusText.textContent = status.error || status.reason || 'Hermes mode is enabled, but the API is not reachable.';
+            } else {
+                elements.hermesStatusText.textContent = 'Hermes mode is disabled. Set AETHER_BACKEND=hermes on the server to use the bridge.';
+            }
+        }
+    }
+
+    async function populateHermesProfilesList() {
+        if (!elements.hermesProfileSelect) return;
+        const current = state.activeHermesProfile || state.hermesStatus?.profile || '';
+        elements.hermesProfileSelect.innerHTML = '<option value="">Hermes default profile</option>';
+        try {
+            const result = await ai.getHermesProfiles();
+            const seen = new Set(['']);
+            (result.items || []).forEach((profile) => {
+                const id = String(profile.id || profile.name || profile.slug || profile);
+                if (!id || seen.has(id)) return;
+                seen.add(id);
+                const opt = document.createElement('option');
+                opt.value = id;
+                opt.textContent = profile.displayName || profile.name || id;
+                elements.hermesProfileSelect.appendChild(opt);
+            });
+            elements.hermesProfileSelect.value = current;
+        } catch (err) {
+            const opt = document.createElement('option');
+            opt.value = current;
+            opt.textContent = current ? `${current} (configured)` : 'Profiles unavailable';
+            elements.hermesProfileSelect.appendChild(opt);
+            elements.hermesProfileSelect.value = current;
+        }
     }
 
     /* ==========================================================================
@@ -884,6 +1019,13 @@ document.addEventListener('DOMContentLoaded', () => {
             elements.voiceInputBehavior.value = localStorage.getItem('aether_voice_input_behavior') || 'auto';
         }
 
+        if (elements.hermesProfileSelect) {
+            elements.hermesProfileSelect.value = state.activeHermesProfile;
+            populateHermesProfilesList();
+        }
+
+        refreshHermesIntegration();
+
         populateVoicesList();
         lucide.createIcons();
 
@@ -904,6 +1046,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (elements.voiceInputBehavior) {
             localStorage.setItem('aether_voice_input_behavior', elements.voiceInputBehavior.value);
+        }
+
+        if (elements.hermesProfileSelect) {
+            state.activeHermesProfile = elements.hermesProfileSelect.value.trim();
+            if (state.activeHermesProfile) {
+                localStorage.setItem('aether_hermes_profile', state.activeHermesProfile);
+            } else {
+                localStorage.removeItem('aether_hermes_profile');
+            }
+            const sessionIndex = state.sessions.findIndex(s => s.id === state.activeSessionId);
+            if (sessionIndex !== -1) {
+                state.sessions[sessionIndex].hermesProfile = state.activeHermesProfile || null;
+                schedulePersistSessions();
+            }
+            updateHermesProfileBadge();
         }
 
         closeSettingsModal();

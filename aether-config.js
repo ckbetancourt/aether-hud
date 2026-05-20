@@ -1,7 +1,7 @@
 /**
- * Aether personality (single) + activity profiles + voice-first delivery.
- * All system prompt layers are defined here — soul, voice-first, and profiles are
- * hard-coded and always applied the same way (not loaded from markdown at runtime).
+ * Aether HUD voice-first delivery.
+ * Hermes owns runtime profiles, tools, memory, sessions, and model choice.
+ * Aether only injects the small TTS style layer needed for spoken replies.
  */
 
 const AETHER_PERSONALITY = {
@@ -13,13 +13,11 @@ const AETHER_PERSONALITY = {
     accentColor: '#ff5722',
 };
 
-const AETHER_SOUL_PROMPT = `You are **Aether**, a cognitive coordinator embedded in the Jarvis HUD workspace.
+const AETHER_HUD_PROMPT = `You are speaking through **Aether**, a voice-first Jarvis HUD interface for Hermes Agent.
 
-Who you are: balanced, intellectual, professional, adaptive. One consistent assistant — profiles change focus, not identity. Concise for action, expansive for explanation. Treat HUD tasks and memories as real context.
+Hermes remains the agent runtime. Use Hermes profiles, tools, APIs, memory, and sessions as the source of truth when they are available.
 
-How you relate: acknowledge uncertainty; mirror the user's domain without becoming a different persona.
-
-Boundaries: do not claim to run code unless tools do; do not invent live telemetry.`;
+Do not invent live tool results or telemetry. If a Hermes tool or API performs work, report that result clearly and briefly.`;
 
 function hexToRgb(hex) {
     const h = hex.replace('#', '');
@@ -74,108 +72,23 @@ Console coexistence:
 - The same text appears in the HUD console. Light formatting is acceptable only if it still reads naturally aloud.
 - Prefer prose paragraphs over heavy formatting.`;
 
-const AETHER_PROFILES = {
-    general: {
-        id: 'general',
-        displayName: 'General',
-        tagline: 'Workspace coordination & mixed tasks',
-        shortLabel: 'Gen',
-        defaultAccent: 'jarvis-red',
-        temperature: 0.7,
-        greeting: 'General profile active. Ready for planning, open questions, and mixed workspace tasks.',
-        systemPrompt: `Focus: workspace coordination — planning, mixed tasks, open-ended help.
-
-Priorities: break ambiguous requests into next steps; offer task-board milestones for plans/goals; suggest Systems, Creative, or Analyst profiles when specialized depth helps.
-
-Style: balanced depth; spoken paragraphs; offer to expand when the user wants written detail.`,
-    },
-    systems: {
-        id: 'systems',
-        displayName: 'Systems',
-        tagline: 'Code, architecture & debugging',
-        shortLabel: 'Sys',
-        defaultAccent: 'emerald',
-        temperature: 0.2,
-        greeting: 'Systems profile active. Ready for code, layouts, and technical implementation.',
-        systemPrompt: `Focus: software engineering — code, architecture, debugging, implementation.
-
-Priorities: working snippets with language-tagged fences; note tradeoffs when relevant; modern semantic HTML and CSS for UI.
-
-Style: technical, precise, brief; spoken error flow (symptom, cause, fix).`,
-    },
-    creative: {
-        id: 'creative',
-        displayName: 'Creative',
-        tagline: 'Narrative, design & expressive writing',
-        shortLabel: 'Cre',
-        defaultAccent: 'violet',
-        temperature: 0.9,
-        greeting: 'Creative profile active. Ready for stories, copy, and expressive design.',
-        systemPrompt: `Focus: narrative, design language, fiction, expressive writing.
-
-Priorities: voice and imagery first; mood and feeling before mechanics for UI/copy; treat code as craft when it appears.
-
-Style: warm and vivid when exploring; narrative should sound natural read aloud; keep build instructions actionable.`,
-    },
-    analyst: {
-        id: 'analyst',
-        displayName: 'Analyst',
-        tagline: 'Metrics, comparisons & decisions',
-        shortLabel: 'Ana',
-        defaultAccent: 'gold',
-        temperature: 0.5,
-        greeting: 'Analyst profile active. Ready for comparisons and structured reasoning.',
-        systemPrompt: `Focus: structured reasoning — comparisons, metrics, checklists, decisions.
-
-Priorities: spoken comparisons (conclusion first, key numbers); explicit assumptions; separate measured vs estimated; end with a short spoken synthesis.
-
-Style: quantitative, neutral; consistent units; actionable ordered checklists in spoken form.`,
-    },
-};
-
-/** Map legacy personality/model ids from saved sessions */
-const LEGACY_PROFILE_IDS = {
-    aether: 'general',
-    nova: 'systems',
-    aria: 'creative',
-    marcus: 'analyst',
-};
-
-function resolveProfileId(id) {
-    if (!id) return 'general';
-    return LEGACY_PROFILE_IDS[id] || id;
-}
-
-function buildAetherSystemPrompt(profileIdOrProfile) {
-    const profile =
-        typeof profileIdOrProfile === 'object' && profileIdOrProfile !== null
-            ? profileIdOrProfile
-            : AETHER_PROFILES[resolveProfileId(profileIdOrProfile)] || AETHER_PROFILES.general;
-
+function buildAetherSystemPrompt() {
     return [
-        AETHER_SOUL_PROMPT,
+        AETHER_HUD_PROMPT,
         '',
         '---',
         '',
         '## Voice-first delivery',
         AETHER_VOICE_FIRST_PROMPT,
-        '',
-        '---',
-        '',
-        `## Active profile: ${profile.displayName}`,
-        profile.systemPrompt,
     ].join('\n');
 }
 
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
         AETHER_PERSONALITY,
-        AETHER_SOUL_PROMPT,
+        AETHER_HUD_PROMPT,
         AETHER_VOICE_FIRST_PROMPT,
         AETHER_ACCENT_THEMES,
-        AETHER_PROFILES,
-        LEGACY_PROFILE_IDS,
-        resolveProfileId,
         buildAetherSystemPrompt,
     };
 }

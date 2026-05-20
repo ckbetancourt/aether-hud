@@ -1,0 +1,9 @@
+{
+  "name": "aether",
+  "description": "Launch the Aether voice-first HUD for Hermes Agent.",
+  "command": "npm run hermes:launch",
+  "workingDirectory": "..",
+  "environment": {
+    "AETHER_BACKEND": "hermes"
+  }
+}

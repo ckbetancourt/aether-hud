@@ -539,7 +539,7 @@ body {
     box-shadow: 0 4px 20px var(--accent-glow);
 }
 
-/* Activity profiles */
+/* Drawer sections */
 .section-label {
     font-size: 0.65rem;
     font-weight: 700;
@@ -559,46 +559,6 @@ body {
 .section-hint code {
     font-size: 0.62rem;
     color: var(--accent-secondary);
-}
-
-.profile-list {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
-
-.profile-card {
-    position: relative;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 10px 14px;
-    border-radius: var(--border-radius-md);
-    cursor: pointer;
-    background: rgba(255, 255, 255, 0.01);
-    border: 1px solid transparent;
-    transition: all 0.2s ease;
-}
-
-.profile-card:hover {
-    background: rgba(255, 255, 255, 0.03);
-}
-
-.profile-card.active {
-    background: var(--accent-glow-subtle);
-    border-color: var(--accent-primary);
-}
-
-.profile-card.has-accent-override::after {
-    content: '';
-    position: absolute;
-    top: 10px;
-    right: 10px;
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--color-1, var(--accent-primary));
-    box-shadow: 0 0 6px var(--accent-glow);
 }
 
 .accent-swatch-row {
@@ -628,44 +588,6 @@ body {
     border-color: #fff;
     box-shadow: 0 0 0 2px var(--bg-base), 0 0 12px var(--swatch-primary);
     transform: scale(1.1);
-}
-
-.accent-remember-label {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 0.68rem;
-    color: var(--text-muted);
-    cursor: pointer;
-    user-select: none;
-}
-
-.accent-remember-label input {
-    accent-color: var(--accent-primary);
-}
-
-.avatar-sphere {
-    width: 28px;
-    height: 28px;
-    border-radius: 50%;
-    background: radial-gradient(circle, var(--color-1) 0%, var(--color-2) 100%);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 0.75rem;
-    font-weight: bold;
-    color: #fff;
-}
-
-.profile-info h4 {
-    font-size: 0.78rem;
-    font-weight: 600;
-    color: var(--text-primary);
-}
-
-.profile-info p {
-    font-size: 0.68rem;
-    color: var(--text-muted);
 }
 
 /* Historical records */

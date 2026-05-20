@@ -2,8 +2,12 @@
   "name": "aether-jarvis-hud",
   "private": true,
   "description": "Jarvis HUD with optional local LLM proxy",
+  "bin": {
+    "aether": "bin/aether"
+  },
   "scripts": {
-    "start": "node scripts/free-port.js && node server.js"
+    "start": "node scripts/free-port.js && node server.js",
+    "hermes:launch": "node scripts/aether-hermes-launch.js --open"
   },
   "engines": {
     "node": ">=18.0.0"
