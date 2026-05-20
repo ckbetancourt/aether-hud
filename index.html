@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Aether AI - Immersive full-screen Jarvis Holographic HUD with native Speech Recognition, Speech Synthesis, Simplex Liquid Orb Canvas, and real-time parallax particle telemetry.">
+    <title>Aether // Jarvis HUD</title>
+    <link rel="stylesheet" href="styles.css">
+    <!-- Lucide Icons CDN -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body class="theme-aether">
+
+    <!-- Ambient Orbital Backgrounds -->
+    <div class="ambient-glow-1"></div>
+    <div class="ambient-glow-2"></div>
+    <div class="grid-overlay"></div>
+
+    <!-- ==========================================
+         HOLOGRAPHIC H.U.D. INTERFACE CONTAINER
+         ========================================== -->
+    <div class="hud-container">
+
+        <!-- 1. TOP HEADER STATUS BAR -->
+        <header class="hud-header">
+            <div class="hud-brand">
+                <span class="brand-dot"></span>
+                <span class="brand-name">AETHER</span>
+            </div>
+            
+            <div class="hud-status-area">
+                <span class="badge badge-model" id="activeModelBadge">AETHER-CORE-v3.5</span>
+                <span class="badge badge-status" id="activeStatusBadge">
+                    <span class="pulse-dot"></span>
+                    CONNECTED
+                </span>
+                <button class="settings-gear-btn" id="settingsBtn" title="Launch Configurations">
+                    <i data-lucide="settings" style="width:16px; height:16px;"></i>
+                </button>
+            </div>
+        </header>
+
+        <!-- 2. CENTRAL ORB CANVAS (Jarvis Core & Orbit Tracks) -->
+        <section class="hud-core-visualizer">
+            <div class="orb-container">
+                <canvas id="jarvisCanvas"></canvas>
+                <div class="hud-orb-label" id="hudOrbLabel">Aether is active</div>
+            </div>
+        </section>
+
+        <!-- 3. FLOATING DIAGNOSTIC CONSOLE & LOGS (Bottom Center-Left) -->
+        <section class="floating-console-wrapper">
+            <div class="floating-console glass-panel" id="floatingConsole">
+                <div class="console-header-bar">
+                    <span><i data-lucide="terminal" style="width:11px; height:11px; vertical-align:middle; margin-right:4px;"></i> SYSTEM MONITOR</span>
+                    <span id="consoleLatency" style="font-family:var(--font-mono); color:var(--accent-primary);">LATENCY: 18ms</span>
+                </div>
+                <div class="console-body" id="consoleScroller">
+                    <div class="console-log-line system-line">[SYSTEM] Client connection active. Telemetries initialized.</div>
+                    <div class="console-log-line" id="consoleText">Welcome. I am Aether. Click the Mic button or type to coordinate telemetries.</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 4. BOTTOM FLOATING CONTROL PILL -->
+        <footer class="hud-controls-pill glass-panel">
+            <!-- Voice Recognition microphone -->
+            <button class="hud-circle-btn mic-btn" id="voiceRecognitionBtn" title="Activate voice telemetry mode">
+                <i data-lucide="mic" style="width: 18px; height: 18px;"></i>
+            </button>
+            
+            <!-- Sleek Disconnect Button -->
+            <button class="hud-disconnect-btn" id="disconnectBtn" title="Clear current session logs">
+                Disconnect
+            </button>
+            
+            <!-- Speech TTS Sound Mute -->
+            <button class="hud-circle-btn active" id="speechSynthesisToggle" title="Toggle vocal synthesized replies">
+                <i data-lucide="volume-2" style="width: 18px; height: 18px;"></i>
+            </button>
+
+            <!-- Toggleable Floating Chat Deck Button -->
+            <button class="hud-circle-btn" id="chatDeckToggle" title="Toggle floating chat panel">
+                <i data-lucide="message-square" style="width: 18px; height: 18px;"></i>
+            </button>
+
+            <!-- Collapsible Sidebar Archives Toggle -->
+            <button class="hud-circle-btn" id="historyDrawerToggle" title="Open archives list">
+                <i data-lucide="database" style="width: 18px; height: 18px;"></i>
+            </button>
+        </footer>
+
+        <!-- 5. FLOATING TELEMETRY CHAT DECK (Bottom Right) -->
+        <section class="bottom-chat-deck glass-panel" id="bottomChatDeck">
+            <div class="console-header-bar">
+                <span><i data-lucide="message-square" style="width:11px; height:11px; vertical-align:middle; margin-right:4px;"></i> CHAT TERMINAL DECK</span>
+                <button class="modal-close" id="closeChatDeckBtn" style="font-size:1.1rem; line-height:1;">&times;</button>
+            </div>
+            <div class="deck-chat-scroller" id="deckChatScroller">
+                <!-- Populated dynamically with conversational bubbles -->
+            </div>
+            <div class="deck-input-area">
+                <input type="text" class="deck-input-field" id="deckChatInputField" placeholder="Establish direct text channel...">
+                <button class="deck-send-btn" id="deckSendMessageBtn"><i data-lucide="arrow-up" style="width:14px; height:14px;"></i></button>
+            </div>
+        </section>
+
+        <!-- 6. HIDDEN CHAT HISTORY DRAWER (Left Side) -->
+        <aside class="sidebar-drawer glass-panel" id="sidebarDrawer">
+            <div class="drawer-header">
+                <div class="hud-brand">
+                    <span class="brand-dot"></span>
+                    <span class="brand-name" style="font-size:0.95rem;">ARCHIVES</span>
+                </div>
+                <button class="settings-gear-btn" id="historyDrawerCloseBtn" style="border:none; background:transparent;">
+                    <i data-lucide="x" style="width:16px; height:16px;"></i>
+                </button>
+            </div>
+            
+            <div class="drawer-scroll">
+                
+                <!-- Quick promper actions for layout testing -->
+                <section style="margin-bottom:20px;">
+                    <h3 class="section-label">Quick actions</h3>
+                    <div class="drawer-quick-actions">
+                        <button class="action-btn" data-action="Design a solar power cost matrix table.">
+                            <i data-lucide="table" style="width:12px; height:12px;"></i> Table Data
+                        </button>
+                        <button class="action-btn" data-action="Write a modern HTML and CSS layout grid code.">
+                            <i data-lucide="code" style="width:12px; height:12px;"></i> Code Block
+                        </button>
+                        <button class="action-btn" data-action="Write a short story about artificial stardust conscious.">
+                            <i data-lucide="pen-tool" style="width:12px; height:12px;"></i> Creative Story
+                        </button>
+                        <button class="action-btn" data-action="Create a launch task plan for an AI dashboard.">
+                            <i data-lucide="check-square" style="width:12px; height:12px;"></i> Task Plan
+                        </button>
+                    </div>
+                </section>
+
+                <section style="margin-bottom:24px;">
+                    <h3 class="section-label font-heading">AI Personalities</h3>
+                    <div class="personality-list">
+                        <!-- Aether Core -->
+                        <div class="personality-card active" data-model="aether" style="--color-1: #ff5722; --color-2: #ff9800;">
+                            <div class="avatar-sphere" style="box-shadow: 0 0 10px rgba(255, 87, 34, 0.4);">Æ</div>
+                            <div class="personality-info">
+                                <h4>Aether Core</h4>
+                                <p>Sleek Jarvis HUD core</p>
+                            </div>
+                        </div>
+                        
+                        <!-- Nova (Coder) -->
+                        <div class="personality-card" data-model="nova" style="--color-1: #00f5a0; --color-2: #00d9f6;">
+                            <div class="avatar-sphere" style="box-shadow: 0 0 10px rgba(0, 245, 160, 0.4);">Nv</div>
+                            <div class="personality-info">
+                                <h4>Nova [Systems]</h4>
+                                <p>Optimized web codes</p>
+                            </div>
+                        </div>
+                        
+                        <!-- Aria (Artist) -->
+                        <div class="personality-card" data-model="aria" style="--color-1: #f107a3; --color-2: #7b2ff7;">
+                            <div class="avatar-sphere" style="box-shadow: 0 0 10px rgba(241, 7, 163, 0.4);">Ar</div>
+                            <div class="personality-info">
+                                <h4>Aria [Creative]</h4>
+                                <p>Sci-Fi narratives</p>
+                            </div>
+                        </div>
+                        
+                        <!-- Marcus (Analyst) -->
+                        <div class="personality-card" data-model="marcus" style="--color-1: #f7971e; --color-2: #ffd200;">
+                            <div class="avatar-sphere" style="box-shadow: 0 0 10px rgba(247, 151, 30, 0.4);">Mc</div>
+                            <div class="personality-info">
+                                <h4>Marcus [Analyst]</h4>
+                                <p>Comparative data sheets</p>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <section>
+                    <h3 class="section-label">Archive logs</h3>
+                    <div class="chat-history-list" id="chatHistoryList">
+                        <!-- Populated by JavaScript -->
+                    </div>
+                </section>
+                
+            </div>
+            
+            <div class="drawer-footer">
+                <button class="action-btn btn-primary" id="newChatBtn">
+                    <i data-lucide="plus" style="width:14px; height:14px; vertical-align:middle;"></i>
+                    New Core Session
+                </button>
+            </div>
+        </aside>
+
+        <!-- 6. INPUT TEXT OVERLAY TRIGGER (Accessible by clicking visualizer center or pressing keyboard keys) -->
+        <div class="keyboard-input-trigger" id="keyboardTrigger" title="Press any key to type text prompts">
+            <span style="opacity: 0.6;"><i data-lucide="keyboard" style="width:12px; height:12px; vertical-align:middle; margin-right:4px;"></i> Press space/keys to type prompt...</span>
+        </div>
+
+        <div class="text-input-overlay" id="textInputOverlay">
+            <div class="text-input-card glass-panel">
+                <div class="console-header-bar">
+                    <span><i data-lucide="keyboard" style="width:12px; height:12px; vertical-align:middle;"></i> COGNITIVE INPUT INPUT</span>
+                    <button class="modal-close" id="closeTextOverlayBtn">&times;</button>
+                </div>
+                <div class="text-overlay-body">
+                    <textarea class="hud-chat-input" id="chatInput" placeholder="Input command instructions or questions to Aether..."></textarea>
+                    <div class="text-overlay-actions">
+                        <span style="font-size:0.7rem; color:var(--text-dim);">Press Enter to submit, Shift+Enter for newlines.</span>
+                        <button class="action-btn btn-primary" id="sendMessageBtn">Submit Core</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- ==========================================
+         SETTING MODAL OVERLAY
+         ========================================== -->
+    <div class="modal-overlay" id="settingsModal">
+        <div class="modal-content glass-panel" style="background: var(--bg-surface-solid); border: 1px solid var(--border-glow);">
+            <div class="modal-title-bar">
+                <h2>Aether Systems Configs</h2>
+                <button class="modal-close" id="closeSettingsBtn">&times;</button>
+            </div>
+            
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="apiKey">Gemini API Key (Optional)</label>
+                    <input type="password" class="form-input" id="apiKey" placeholder="AI-XXXXXXXXXXXXX (Local Simulation active)">
+                    <div style="font-size: 0.68rem; color: var(--text-dim); margin-top: 2px;">
+                        Provide a personal Gemini Key to link this Jarvis HUD to live conversational models!
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="synthVoice">Speech Voice telemetry</label>
+                    <select class="form-select" id="synthVoice"></select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="synthSpeed">Telemetry Vocal Speed</label>
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <input type="range" id="synthSpeed" min="0.5" max="2" step="0.1" value="1.0" style="flex-grow: 1; accent-color: var(--accent-primary);">
+                        <span id="synthSpeedVal" style="font-family: var(--font-mono); font-size: 0.8rem; width: 30px;">1.0x</span>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="simulationSpeed">AI Typewriting Delay</label>
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <input type="range" id="simulationSpeed" min="1" max="10" step="1" value="5" style="flex-grow: 1; accent-color: var(--accent-primary);">
+                        <span id="simulationSpeedVal" style="font-family: var(--font-mono); font-size: 0.8rem; width: 30px;">Normal</span>
+                    </div>
+                </div>
+            </div>
+            
+            <button class="action-btn btn-primary" id="saveSettingsBtn">
+                Save configurations
+            </button>
+        </div>
+    </div>
+
+    <!-- Script References -->
+    <script src="visualizer.js"></script>
+    <script src="speech-engine.js"></script>
+    <script src="ai-engine.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
