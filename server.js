@@ -32,6 +32,10 @@ const HERMES_API_KEY = process.env.HERMES_API_KEY || '';
 const HERMES_PROFILE = process.env.HERMES_PROFILE || '';
 const HERMES_PROFILES_URL = (process.env.HERMES_PROFILES_URL || '').trim();
 const HERMES_SESSIONS_URL = (process.env.HERMES_SESSIONS_URL || '').trim();
+const HERMES_DASHBOARD_URL = (process.env.HERMES_DASHBOARD_URL || 'http://127.0.0.1:9119').replace(
+  /\/$/,
+  ''
+);
 const IS_HERMES_BACKEND = AETHER_BACKEND === 'hermes';
 
 /** First model id discovered from Hermes /models when HERMES_MODEL is unset */
@@ -167,6 +171,66 @@ function openAiHeaders(apiKey, extra = {}) {
     headers.Authorization = `Bearer ${apiKey}`;
   }
   return headers;
+}
+
+function hermesDashboardHeaders(extra = {}) {
+  return {
+    Accept: 'application/json',
+    ...extra,
+  };
+}
+
+function resolveHermesDashboardBaseUrl() {
+  return HERMES_DASHBOARD_URL;
+}
+
+function resolveHermesSessionsListUrl() {
+  if (HERMES_SESSIONS_URL) return HERMES_SESSIONS_URL;
+  return `${resolveHermesDashboardBaseUrl()}/api/sessions`;
+}
+
+function resolveHermesSessionMessagesUrl(sessionId) {
+  const encoded = encodeURIComponent(String(sessionId));
+  return `${resolveHermesDashboardBaseUrl()}/api/sessions/${encoded}/messages`;
+}
+
+function normalizeHermesListItems(data) {
+  return Array.isArray(data) ? data : data?.data || data?.items || data?.sessions || [];
+}
+
+async function fetchHermesDashboardJson(url) {
+  const res = await fetch(url, {
+    method: 'GET',
+    headers: hermesDashboardHeaders(),
+  });
+  if (!res.ok) {
+    throw parseUpstreamError(res.status, await res.text());
+  }
+  return res.json();
+}
+
+async function probeHermesSessionsList() {
+  const url = resolveHermesSessionsListUrl();
+  try {
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: hermesDashboardHeaders(),
+    });
+    if (!res.ok) {
+      return {
+        ok: false,
+        url,
+        error: `HTTP ${res.status} from ${url}`,
+      };
+    }
+    return { ok: true, url };
+  } catch (e) {
+    return {
+      ok: false,
+      url,
+      error: e.message || 'Hermes sessions list unreachable',
+    };
+  }
 }
 
 function chatCompletionsUrl(baseUrl) {
@@ -503,22 +567,31 @@ async function probeHermesStatus() {
     const model =
       HERMES_MODEL_OVERRIDE || discovered || cachedHermesModel || HERMES_MODEL_FALLBACK;
     const modelSource = HERMES_MODEL_OVERRIDE ? 'env' : discovered ? 'hermes' : 'fallback';
+    const sessionsProbe = await probeHermesSessionsList();
 
     return {
       enabled: true,
       backend: 'hermes',
       connected: true,
       baseUrl: HERMES_API_BASE_URL,
+      dashboardUrl: resolveHermesDashboardBaseUrl(),
+      sessionsListUrl: sessionsProbe.url,
       model,
       modelSource,
       ...profileFields,
       capabilities: {
         chat: true,
         profiles: Boolean(HERMES_PROFILES_URL || HERMES_PROFILE),
-        sessions: Boolean(HERMES_SESSIONS_URL),
+        sessions: sessionsProbe.ok,
         streaming: true,
         toolCalling: true,
       },
+      sessionsProbe: sessionsProbe.ok
+        ? null
+        : {
+            error: sessionsProbe.error,
+            hint: 'Run hermes dashboard for session restore on reload (default http://127.0.0.1:9119).',
+          },
       models,
     };
   } catch (e) {
@@ -537,7 +610,7 @@ async function probeHermesStatus() {
   }
 }
 
-async function fetchOptionalHermesList(kind, url, fallbackItem) {
+async function fetchOptionalHermesList(kind, url, fallbackItem, options = {}) {
   if (!IS_HERMES_BACKEND) {
     return { available: false, items: [], reason: 'Hermes backend is disabled.' };
   }
@@ -552,16 +625,29 @@ async function fetchOptionalHermesList(kind, url, fallbackItem) {
     };
   }
 
-  const res = await fetch(url, {
-    method: 'GET',
-    headers: openAiHeaders(HERMES_API_KEY),
-  });
-  if (!res.ok) {
-    throw parseUpstreamError(res.status, await res.text());
-  }
-  const data = await res.json();
-  const items = Array.isArray(data) ? data : data.data || data.items || [];
-  return { available: true, items };
+  const data = options.useDashboardAuth
+    ? await fetchHermesDashboardJson(url)
+    : await (async () => {
+        const res = await fetch(url, {
+          method: 'GET',
+          headers: openAiHeaders(HERMES_API_KEY),
+        });
+        if (!res.ok) {
+          throw parseUpstreamError(res.status, await res.text());
+        }
+        return res.json();
+      })();
+  const items = normalizeHermesListItems(data);
+  return { available: true, items, sourceUrl: url };
+}
+
+async function fetchHermesSessionMessages(sessionId) {
+  const url = resolveHermesSessionMessagesUrl(sessionId);
+  const data = await fetchHermesDashboardJson(url);
+  const messages = Array.isArray(data)
+    ? data
+    : data?.messages || data?.data || data?.items || [];
+  return { available: true, messages, sourceUrl: url };
 }
 
 function readBody(req) {
@@ -791,9 +877,30 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    const hermesSessionMessagesMatch = pathname.match(/^\/api\/hermes\/sessions\/([^/]+)\/messages$/);
+    if (hermesSessionMessagesMatch) {
+      const sessionId = decodeURIComponent(hermesSessionMessagesMatch[1]);
+      try {
+        const data = await fetchHermesSessionMessages(sessionId);
+        sendJson(res, 200, data);
+      } catch (e) {
+        const status = e.statusCode || 502;
+        console.error('[api/hermes/sessions/:id/messages]', e.message || e);
+        sendJson(res, status, {
+          available: false,
+          messages: [],
+          error: e.message || 'Hermes session messages unavailable',
+        });
+      }
+      return;
+    }
+
     if (pathname === '/api/hermes/sessions') {
       try {
-        const data = await fetchOptionalHermesList('Hermes session', HERMES_SESSIONS_URL, null);
+        const sessionsUrl = resolveHermesSessionsListUrl();
+        const data = await fetchOptionalHermesList('Hermes session', sessionsUrl, null, {
+          useDashboardAuth: !HERMES_SESSIONS_URL,
+        });
         sendJson(res, 200, data);
       } catch (e) {
         const status = e.statusCode || 502;

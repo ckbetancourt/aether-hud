@@ -156,6 +156,18 @@ class AIEngine {
         return data;
     }
 
+    async getHermesSessionMessages(sessionId) {
+        const baseUrl = this.resolveLlmBackendBaseUrl();
+        if (!baseUrl || !sessionId) return { available: false, messages: [] };
+        const encoded = encodeURIComponent(String(sessionId));
+        const response = await fetch(`${baseUrl}/api/hermes/sessions/${encoded}/messages`);
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(data.error || data.message || `HTTP ${response.status}`);
+        }
+        return data;
+    }
+
     /**
      * Run trigger logic for widgets based on message content
      */

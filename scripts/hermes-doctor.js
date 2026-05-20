@@ -18,6 +18,16 @@ const HERMES_API_BASE_URL = (process.env.HERMES_API_BASE_URL || 'http://127.0.0.
   ''
 );
 const HERMES_API_KEY = process.env.HERMES_API_KEY || '';
+const HERMES_SESSIONS_URL = (process.env.HERMES_SESSIONS_URL || '').trim();
+const HERMES_DASHBOARD_URL = (process.env.HERMES_DASHBOARD_URL || 'http://127.0.0.1:9119').replace(
+  /\/$/,
+  ''
+);
+
+function resolveHermesSessionsListUrl() {
+  if (HERMES_SESSIONS_URL) return HERMES_SESSIONS_URL;
+  return `${HERMES_DASHBOARD_URL}/api/sessions`;
+}
 
 function readHermesEnv() {
   if (!fs.existsSync(HERMES_ENV_PATH)) return {};
@@ -169,7 +179,22 @@ async function main() {
     fail('/v1/models returned 401 — fix HERMES_API_KEY');
   }
 
-  console.log('\n5. Aether HUD server');
+  console.log('\n5. Hermes dashboard (session restore on reload)');
+  warn('Start in another terminal for full session import: hermes dashboard');
+  const sessionsUrl = resolveHermesSessionsListUrl();
+  warn(`Expect sessions API at ${sessionsUrl}`);
+
+  const sessions = await probeUrl(sessionsUrl, null);
+  if (sessions.ok) {
+    pass(`sessions list reachable (${sessionsUrl})`);
+  } else if (sessions.status === 0) {
+    warn(`cannot reach ${sessionsUrl} — session restore on reload will use local archives only`);
+    warn('run: hermes dashboard');
+  } else {
+    warn(`sessions list check failed: HTTP ${sessions.status || 'error'} ${sessions.error || sessions.text || ''}`);
+  }
+
+  console.log('\n6. Aether HUD server');
   const aetherStatus = await probeUrl(`http://127.0.0.1:${process.env.PORT || 8787}/api/hermes/status`);
   if (aetherStatus.ok) {
     pass('Aether server running — open http://localhost:8787');

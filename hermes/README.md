@@ -7,6 +7,7 @@ Aether does **not** connect to the `hermes` chat CLI directly. It connects to th
 | Process | Command | Purpose |
 |---------|---------|---------|
 | Hermes gateway | `hermes gateway` | Exposes OpenAI-compatible API (default `http://127.0.0.1:8642/v1`) |
+| Hermes dashboard (optional) | `hermes dashboard` | Session list + message history for HUD restore on reload (default `http://127.0.0.1:9119`) |
 | Hermes chat (optional) | `hermes` | Terminal agent; `/aether` skill launches the HUD |
 | Aether HUD server | `npm start` | Browser UI + proxy to Hermes API |
 
@@ -69,6 +70,20 @@ Then:
 npm run hermes:doctor
 npm start
 ```
+
+## Session restore on reload
+
+The Hermes **gateway** handles chat continuity (`X-Hermes-Session-Id`), but it does **not** expose a session list API. To import and resume Hermes sessions in the Aether Archives on page load, also run the **web dashboard** in another terminal:
+
+```bash
+hermes dashboard
+```
+
+Aether auto-probes `http://127.0.0.1:9119/api/sessions` (override with `HERMES_DASHBOARD_URL` or `HERMES_SESSIONS_URL` in `.env.local`). When the dashboard is running, the HUD imports session metadata and message history before restoring your active session.
+
+If the dashboard is not running, the HUD still works with locally cached archives only.
+
+Docs: [Hermes Web Dashboard](https://hermes-agent.nousresearch.com/docs/user-guide/features/web-dashboard)
 
 ## `/aether` slash command
 
