@@ -37,7 +37,7 @@ That starts the Aether HUD server if needed and opens `http://localhost:8787`. I
 
 ## Hermes bridge
 
-Aether talks to Hermes through the local API server (`HERMES_API_BASE_URL`, default `http://127.0.0.1:8000/v1`). The HUD and `hermes` CLI are separate processes.
+Aether talks to Hermes through the **gateway API** (`hermes gateway`, default `http://127.0.0.1:8642/v1`). The HUD and `hermes` chat are separate processes. See `hermes/README.md` in this repo.
 
 ## Behavior
 

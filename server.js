@@ -15,9 +15,19 @@ const AETHER_BACKEND = (process.env.AETHER_BACKEND || 'hermes').toLowerCase();
 const OPENAI_BASE_URL = (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/$/, '');
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
-const HERMES_API_BASE_URL = (process.env.HERMES_API_BASE_URL || 'http://127.0.0.1:8000/v1').replace(/\/$/, '');
+const HERMES_API_BASE_URL = (process.env.HERMES_API_BASE_URL || 'http://127.0.0.1:8642/v1').replace(
+  /\/$/,
+  ''
+);
 const HERMES_MODEL_OVERRIDE = (process.env.HERMES_MODEL || '').trim();
-const HERMES_MODEL_FALLBACK = 'hermes';
+const HERMES_MODEL_FALLBACK = 'hermes-agent';
+const HERMES_SETUP_STEPS = [
+  'In ~/.hermes/.env set API_SERVER_ENABLED=true and API_SERVER_KEY=your-secret',
+  'Run hermes gateway in a separate terminal (not just hermes chat)',
+  'In .env.local set HERMES_API_BASE_URL=http://127.0.0.1:8642/v1',
+  'In .env.local set HERMES_API_KEY to the same value as API_SERVER_KEY',
+  'Run npm run hermes:doctor then npm start',
+];
 const HERMES_API_KEY = process.env.HERMES_API_KEY || '';
 const HERMES_PROFILE = process.env.HERMES_PROFILE || '';
 const HERMES_PROFILES_URL = (process.env.HERMES_PROFILES_URL || '').trim();
@@ -42,20 +52,46 @@ function pickFirstHermesModel(modelsPayload) {
   return null;
 }
 
+function hermesConnectionHint(status) {
+  if (status === 401) {
+    return 'Unauthorized — set HERMES_API_KEY in .env.local to match API_SERVER_KEY in ~/.hermes/.env';
+  }
+  if (HERMES_API_BASE_URL.includes(':8000')) {
+    return 'Wrong port? Hermes API defaults to 8642. Start hermes gateway and use http://127.0.0.1:8642/v1';
+  }
+  return 'Is hermes gateway running? Chat-only hermes does not start the API server.';
+}
+
 async function fetchHermesModelsPayload() {
-  const res = await fetch(`${HERMES_API_BASE_URL}/models`, {
-    method: 'GET',
-    headers: openAiHeaders(HERMES_API_KEY),
-  });
-  if (!res.ok) return null;
-  return res.json().catch(() => ({}));
+  const url = `${HERMES_API_BASE_URL}/models`;
+  try {
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: openAiHeaders(HERMES_API_KEY),
+    });
+    if (!res.ok) {
+      return {
+        ok: false,
+        status: res.status,
+        error: hermesConnectionHint(res.status) || `HTTP ${res.status} from ${url}`,
+      };
+    }
+    const data = await res.json().catch(() => ({}));
+    return { ok: true, data };
+  } catch (e) {
+    return {
+      ok: false,
+      status: 0,
+      error: `${hermesConnectionHint(0)} ${e.message}`.trim(),
+    };
+  }
 }
 
 async function resolveHermesModel() {
   if (HERMES_MODEL_OVERRIDE) return HERMES_MODEL_OVERRIDE;
   if (cachedHermesModel) return cachedHermesModel;
-  const payload = await fetchHermesModelsPayload();
-  const discovered = pickFirstHermesModel(payload);
+  const probe = await fetchHermesModelsPayload();
+  const discovered = probe.ok ? pickFirstHermesModel(probe.data) : null;
   cachedHermesModel = discovered || HERMES_MODEL_FALLBACK;
   return cachedHermesModel;
 }
@@ -288,8 +324,8 @@ async function probeHermesStatus() {
 
   const profileFields = hermesProfileFields();
   try {
-    const data = await fetchHermesModelsPayload();
-    if (!data) {
+    const probe = await fetchHermesModelsPayload();
+    if (!probe.ok) {
       return {
         enabled: true,
         backend: 'hermes',
@@ -298,10 +334,13 @@ async function probeHermesStatus() {
         model: HERMES_MODEL_OVERRIDE || cachedHermesModel || HERMES_MODEL_FALLBACK,
         modelSource: HERMES_MODEL_OVERRIDE ? 'env' : 'fallback',
         ...profileFields,
-        error: 'Hermes status probe failed when fetching /models.',
+        error: probe.error || 'Hermes status probe failed when fetching /models.',
+        setupSteps: HERMES_SETUP_STEPS,
+        docsUrl: 'https://hermes-agent.nousresearch.com/docs/user-guide/features/api-server',
       };
     }
 
+    const data = probe.data;
     const models = Array.isArray(data.data) ? data.data.slice(0, 12) : [];
     const discovered = pickFirstHermesModel(data);
     if (!HERMES_MODEL_OVERRIDE && discovered) {
@@ -337,6 +376,8 @@ async function probeHermesStatus() {
       modelSource: HERMES_MODEL_OVERRIDE ? 'env' : 'fallback',
       ...profileFields,
       error: `Hermes API is unreachable at ${HERMES_API_BASE_URL}. ${e.message}`,
+      setupSteps: HERMES_SETUP_STEPS,
+      docsUrl: 'https://hermes-agent.nousresearch.com/docs/user-guide/features/api-server',
     };
   }
 }

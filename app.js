@@ -876,6 +876,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 syncHermesSessions();
             } else if (status.enabled) {
                 appendSystemConsoleLine(`[AGENT] Hermes bridge unavailable: ${status.error || status.reason || 'status probe failed'}`);
+                (status.setupSteps || []).forEach((step, i) => {
+                    appendSystemConsoleLine(`[AGENT] Setup ${i + 1}/${status.setupSteps.length}: ${step}`);
+                });
             }
         } catch (err) {
             state.hermesStatus = { enabled: false, connected: false, error: err.message };
@@ -936,7 +939,11 @@ document.addEventListener('DOMContentLoaded', () => {
             if (status?.enabled && status.connected) {
                 elements.hermesStatusText.textContent = `Connected to ${status.model || 'Hermes'} at ${status.baseUrl || 'configured API'}.`;
             } else if (status?.enabled) {
-                elements.hermesStatusText.textContent = status.error || status.reason || 'Hermes mode is enabled, but the API is not reachable.';
+                const err = status.error || status.reason || 'Hermes mode is enabled, but the API is not reachable.';
+                const steps = Array.isArray(status.setupSteps) ? status.setupSteps : [];
+                elements.hermesStatusText.textContent = steps.length
+                    ? `${err} Run: npm run hermes:doctor — ${steps[0]}`
+                    : err;
             } else {
                 elements.hermesStatusText.textContent = 'Hermes mode is disabled. Set AETHER_BACKEND=hermes on the server to use the bridge.';
             }

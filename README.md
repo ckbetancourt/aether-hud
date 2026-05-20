@@ -6,179 +6,151 @@ Aether HUD is a voice-first browser interface for [Hermes Agent](https://hermes-
 
 - **Node.js** 18 or newer
 - **Hermes Agent** installed (`hermes` in your terminal)
-- A **Hermes API server** reachable over HTTP (OpenAI-compatible, usually `http://127.0.0.1:8000/v1`)
+- **Hermes API gateway** running (`hermes gateway` — not the same as `hermes` chat)
 - A modern browser with speech recognition and synthesis (Chrome or Edge recommended)
 
 ## Quick start
 
-1. Clone this repository and install dependencies:
+### 1. Enable Hermes API (one time)
 
-   ```bash
-   npm install
-   ```
-
-2. Copy the example environment file and point Aether at your Hermes API:
-
-   ```bash
-   cp .env.example .env.local
-   ```
-
-   Edit `.env.local` if your Hermes API is not on the default host:
-
-   ```bash
-   AETHER_BACKEND=hermes
-   HERMES_API_BASE_URL=http://127.0.0.1:8000/v1
-   PORT=8787
-   ```
-
-3. Start the HUD server:
-
-   ```bash
-   npm start
-   ```
-
-4. Open [http://localhost:8787](http://localhost:8787).
-
-5. Use the microphone or chat panel to talk to Hermes through the HUD.
-
-To open the browser automatically:
+Edit `~/.hermes/.env`:
 
 ```bash
-npm run hermes:launch
+API_SERVER_ENABLED=true
+API_SERVER_KEY=change-me-local-dev
 ```
+
+### 2. Start the Hermes gateway (every session)
+
+In a terminal you keep open:
+
+```bash
+hermes gateway
+```
+
+You should see the API listening on `http://127.0.0.1:8642` (default port).
+
+### 3. Configure and run Aether
+
+```bash
+git clone <this-repo>
+cd aether-hud   # or your clone directory
+npm install
+cp .env.example .env.local
+```
+
+Edit `.env.local` — `HERMES_API_KEY` must match `API_SERVER_KEY` from step 1:
+
+```bash
+AETHER_BACKEND=hermes
+HERMES_API_BASE_URL=http://127.0.0.1:8642/v1
+HERMES_API_KEY=change-me-local-dev
+PORT=8787
+```
+
+Check wiring before starting the HUD:
+
+```bash
+npm run hermes:doctor
+npm start
+```
+
+Open [http://localhost:8787](http://localhost:8787).
+
+More detail: [`hermes/README.md`](hermes/README.md).
 
 ## How it fits together
 
 ```text
-┌─────────────┐     voice / chat      ┌──────────────┐     API      ┌─────────────┐
-│  Aether HUD │  ◄──────────────────► │  Aether      │  ◄────────► │   Hermes    │
-│  (browser)  │                       │  server      │             │   Agent     │
-└─────────────┘                       └──────────────┘             └─────────────┘
-                                                                           ▲
-                                                                           │
-                                                                    hermes (terminal)
+Terminal A (keep open)     Terminal B
+┌─────────────────────┐    ┌─────────────────────┐
+│  hermes gateway     │    │  npm start          │
+│  :8642 /v1 API      │◄───│  Aether server :8787│
+└─────────────────────┘    └──────────┬──────────┘
+                                        │
+                                        ▼
+                               Browser: Aether HUD
 ```
 
-| Component | What it does |
-|-----------|----------------|
-| **Hermes** (`hermes`) | Agent in the terminal — tools, memory, profiles, sessions |
-| **Hermes API** | HTTP bridge Aether uses for chat (`/chat/completions`) |
-| **Aether server** (`npm start`) | Serves the HUD and proxies chat to Hermes |
-| **Aether HUD** (browser) | Orb, voice input, text-to-speech, archives |
+| Component | Command | Role |
+|-----------|---------|------|
+| Hermes gateway | `hermes gateway` | OpenAI-compatible API Aether calls |
+| Hermes chat | `hermes` | Terminal agent; optional `/aether` skill |
+| Aether server | `npm start` | Serves HUD + proxies chat to Hermes |
+| Aether HUD | browser | Voice UI |
+
+**Common mistake:** running only `hermes` or `npm start` without `hermes gateway`. The HUD will show **HERMES OFFLINE**.
 
 ## Configuration
 
-Environment variables are read from `.env` and `.env.local` (`.env.local` wins).
-
-### Required for Hermes (typical setup)
+Environment variables load from `.env` then `.env.local` (`.env.local` wins).
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `AETHER_BACKEND` | `hermes` | Use Hermes as the agent runtime |
-| `HERMES_API_BASE_URL` | `http://127.0.0.1:8000/v1` | Hermes OpenAI-compatible API base URL |
-| `PORT` | `8787` | Port for the Aether HUD server |
+| `HERMES_API_BASE_URL` | `http://127.0.0.1:8642/v1` | Hermes API base URL |
+| `HERMES_API_KEY` | *(empty)* | Bearer token — must match `API_SERVER_KEY` in `~/.hermes/.env` when auth is enabled |
+| `PORT` | `8787` | Aether HUD server port |
 
-### Optional overrides
-
-Only set these if your Hermes build requires them:
-
-| Variable | Purpose |
-|----------|---------|
-| `HERMES_MODEL` | Force a specific model id (otherwise Aether picks from Hermes `/models`) |
-| `HERMES_API_KEY` | Bearer token if the Hermes API requires auth |
-| `HERMES_PROFILE` | Default Hermes profile for all requests (or pick one in HUD settings) |
-| `HERMES_PROFILES_URL` | URL to list Hermes profiles, if not on the default API |
-| `HERMES_SESSIONS_URL` | URL to list Hermes sessions for the archives drawer |
-| `AETHER_TEMPERATURE` | Generation temperature for the bridge (default `0.7`) |
-
-See [`.env.example`](.env.example) for a full template.
+Optional: `HERMES_MODEL`, `HERMES_PROFILE`, `HERMES_PROFILES_URL`, `HERMES_SESSIONS_URL`, `AETHER_TEMPERATURE`. See [`.env.example`](.env.example).
 
 ### Check the connection
 
-With the server running:
-
 ```bash
+npm run hermes:doctor
 curl http://localhost:8787/api/hermes/status
 ```
 
-When Hermes is reachable, you should see `"connected": true`. The HUD status badge shows **HERMES** instead of **HERMES OFFLINE**.
+When connected, `"connected": true` and the HUD badge shows **HERMES**.
+
+If not connected, the status JSON includes `setupSteps` and an `error` with the likely fix (wrong port, gateway not running, missing API key).
 
 ## Using the HUD
 
-- **Microphone** — speak a command; behavior depends on settings (send directly to Hermes or fill the chat composer first).
-- **Chat panel** — type when you prefer text; collapse it for a voice-only layout.
-- **Archives** — past conversations stored in the browser; Hermes-backed sessions can include Hermes session metadata when listing is configured.
-- **Settings** — voice speed, Hermes profile, and microphone behavior.
-- **Accent colors** — visual theme for the orb only; does not change Hermes behavior.
+- **Microphone** — speak a command (send directly or fill the composer, per settings).
+- **Chat panel** — type when you prefer text.
+- **Archives** — browser-stored history.
+- **Settings** — voice speed, Hermes profile (when configured), microphone behavior.
 
-Replies are written for **text-to-speech**. Aether adds a small TTS prompt layer so answers sound natural when read aloud. Reference: [`TTS-Prompt.md`](TTS-Prompt.md) (runtime source: [`aether-config.js`](aether-config.js)).
+Replies are tuned for **text-to-speech** via [`TTS-Prompt.md`](TTS-Prompt.md).
 
 ## Launch from Hermes (`/aether`)
 
-Hermes and the HUD are two programs. You can use either or both.
-
-### Terminal: Hermes
-
-```bash
-hermes
-```
-
-Slash commands are typed **in the Hermes chat**, not in your system shell.
-
-### Browser: Aether HUD
-
-From this repository:
-
-```bash
-npm run hermes:launch
-```
-
-That starts the Aether server if it is not already running and opens the HUD in your browser.
-
-### Register `/aether` in Hermes
-
-Hermes learns slash commands from **skills** in `~/.hermes/skills/`. Install the Aether skill once:
+Install the skill once:
 
 ```bash
 npm run hermes:install-skill
 ```
 
-Then in a Hermes session:
+In Hermes chat (not your shell):
 
-```bash
+```text
 hermes
 /aether
 ```
 
-If `/aether` does not appear, run `/reload-skills` or start a new session.
-
-Manual install:
+Or from this repo:
 
 ```bash
-mkdir -p ~/.hermes/skills/aether
-cp hermes/SKILL.md ~/.hermes/skills/aether/SKILL.md
-echo "/absolute/path/to/this/repo" > ~/.hermes/skills/aether/aether-hud-root.txt
+npm run hermes:launch
 ```
-
-More on Hermes skills: [Working with Skills](https://hermes-agent.nousresearch.com/docs/guides/work-with-skills).
 
 ## NPM scripts
 
 | Script | Description |
 |--------|-------------|
-| `npm start` | Start the HUD server on `PORT` |
-| `npm run hermes:launch` | Start the server if needed and open the HUD in the browser |
-| `npm run hermes:install-skill` | Install the `/aether` skill into `~/.hermes/skills/` |
+| `npm start` | Start the HUD server |
+| `npm run hermes:doctor` | Verify gateway + `.env.local` |
+| `npm run hermes:launch` | Start server and open browser |
+| `npm run hermes:install-skill` | Install `/aether` into `~/.hermes/skills/` |
 
 ## OpenAI-compatible fallback (advanced)
 
-To run the HUD against a generic OpenAI-compatible API instead of Hermes (no Hermes tools, memory, or sessions):
-
 ```bash
 AETHER_BACKEND=openai
-OPENAI_BASE_URL=https://api.openai.com/v1
-OPENAI_MODEL=gpt-4o-mini
-OPENAI_API_KEY=your-key
+OPENAI_BASE_URL=...
+OPENAI_MODEL=...
+OPENAI_API_KEY=...
 ```
 
-Works with OpenRouter, Groq, Ollama, LM Studio, and similar endpoints. Hermes integration is the intended setup.
+Hermes integration is the intended setup.
