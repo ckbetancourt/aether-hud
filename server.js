@@ -137,7 +137,7 @@ const hermesStateDb = (() => {
   }
 })();
 
-function hermesSessionsList(limit = 80) {
+function hermesSessionsList(limit = 25) {
   if (!hermesStateDb) return [];
   const rows = hermesStateDb.prepare(
     `SELECT id, title, started_at, model, message_count, input_tokens, output_tokens

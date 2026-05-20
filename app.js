@@ -10,8 +10,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     let persistSessionsTimer = null;
     let historyRenderScheduled = false;
 
-    const MAX_SESSIONS = 40;
-    const SESSIONS_PAGE_SIZE = 10;
+    const MAX_SESSIONS = 25;
+    const SESSIONS_PAGE_SIZE = 25;
     const MAX_MESSAGES_PER_SESSION = 100;
     const MAX_MESSAGE_CHARS = 32000;
 
