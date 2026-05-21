@@ -21,6 +21,8 @@ class SpeechEngine {
     this.timeDomainData = null;
     this.voiceAudioActive = false;
     this._voiceLevelSmooth = 0;
+    this._mouthLevel = 0;
+    this._lastAudioAnalysisAt = 0;
 
     this.voiceConfig = {
       pitch: 1.0,
@@ -202,6 +204,8 @@ class SpeechEngine {
     this.voiceAudioActive = false;
     if (resetSmoothing) {
       this._voiceLevelSmooth = 0;
+      this._mouthLevel = 0;
+      this._lastAudioAnalysisAt = 0;
     }
   }
 
@@ -221,11 +225,31 @@ class SpeechEngine {
       sumSq += sample * sample;
     }
     const rms = Math.sqrt(sumSq / this.timeDomainData.length);
+    let voicedBand = 0;
+    const startBin = 2;
+    const endBin = Math.min(36, this.frequencyData.length);
+    for (let i = startBin; i < endBin; i++) {
+      voicedBand += this.frequencyData[i] / 255;
+    }
+    voicedBand = voicedBand / Math.max(1, endBin - startBin);
+
     this._voiceLevelSmooth = this._voiceLevelSmooth * 0.78 + rms * 0.22;
+
+    const mouthInput = Math.min(1, rms * 3.1 + voicedBand * 0.28);
+    const mouthAttack = 0.62;
+    const mouthRelease = 0.16;
+    const mouthEase = mouthInput > this._mouthLevel ? mouthAttack : mouthRelease;
+    this._mouthLevel += (mouthInput - this._mouthLevel) * mouthEase;
+    if (this._mouthLevel < 0.025) this._mouthLevel = 0;
+    this._lastAudioAnalysisAt = performance.now();
 
     return {
       frequency: this.frequencyData,
       envelope: this._voiceLevelSmooth,
+      rawRms: rms,
+      voicedBand,
+      mouthEnvelope: this._mouthLevel,
+      hasLiveMouthAudio: true,
     };
   }
 

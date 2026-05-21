@@ -670,6 +670,11 @@ body {
     --creature-mouth-open: 0;
     --creature-mouth-round: 0;
     --creature-state-boost: 0;
+    --avatar-action-intensity: 0;
+    --avatar-speech-energy: 0;
+    --avatar-ear-perk: 0;
+    --avatar-spark: 0;
+    --avatar-scan: 0;
     position: absolute;
     top: 50%;
     left: 50%;
@@ -715,6 +720,20 @@ body {
     animation: creatureFloat 5.2s ease-in-out infinite;
 }
 
+.avatar-layer[data-expression="attentive"] .creature-eye,
+.avatar-layer[data-expression="focused"] .creature-eye {
+    filter: drop-shadow(0 0 6px color-mix(in srgb, var(--creature-secondary) 56%, transparent));
+}
+
+.avatar-layer[data-expression="happy"] .cheek,
+.avatar-layer[data-expression="soft"] .cheek {
+    opacity: calc(0.42 + var(--avatar-speech-energy) * 0.32);
+}
+
+.avatar-layer[data-state="speaking"] .creature-float {
+    animation-name: avatarSpeechBob;
+}
+
 .avatar-layer[data-state="listening"] .creature-float {
     animation-duration: 3.5s;
 }
@@ -746,6 +765,11 @@ body {
 .axel-svg .creature-body,
 .axel-svg .glass-part {
     fill: url(#axel-body);
+}
+
+.eve-svg .creature-body,
+.eve-svg .glass-part {
+    fill: url(#eve-body);
 }
 
 .wisp-svg .creature-body,
@@ -805,16 +829,67 @@ body {
     opacity: 0.35;
 }
 
-.creature-mouth {
-    fill: none;
-    stroke: rgba(4, 10, 20, 0.84);
-    stroke-width: calc(3.2px + var(--creature-mouth-open) * 2px);
-    stroke-linecap: round;
+.mouth-rig {
+    --mouth-open-scale: calc(var(--creature-mouth-open) + var(--mouth-wide) * 0.24 + var(--mouth-round) * 0.12);
     transform-box: fill-box;
     transform-origin: center;
-    transform: scaleX(calc(1 + var(--creature-mouth-round) * -0.35)) scaleY(calc(1 + var(--creature-mouth-open) * 1.8));
-    transition: transform 90ms linear, stroke-width 90ms linear;
+}
+
+.organic-mouth {
+    transform: translateY(calc(var(--creature-mouth-open) * 1.4px)) scale(1.2);
+    transition: transform 90ms ease-out;
+}
+
+.mouth-shadow,
+.mouth-cavity,
+.mouth-tongue,
+.mouth-upper-lip,
+.mouth-lower-lip,
+.mouth-closed-line {
+    transform-box: fill-box;
+    transform-origin: center;
     vector-effect: non-scaling-stroke;
+    transition: transform 92ms ease-out, opacity 92ms ease-out, stroke-width 92ms ease-out, fill 92ms ease-out;
+}
+
+.mouth-shadow {
+    fill: rgba(0, 0, 0, 0.18);
+    opacity: 0; /* TEMP: hide outer layer for inspection */
+    transform: scale(calc(0.65 + var(--creature-mouth-open) * 1.1 + var(--mouth-wide) * 0.35), calc(0.38 + var(--creature-mouth-open) * 0.45));
+}
+
+.mouth-cavity {
+    fill: rgba(3, 8, 18, calc(0.28 + var(--creature-mouth-open) * 0.64));
+    stroke: color-mix(in srgb, var(--creature-secondary) 36%, rgba(4, 10, 20, 0.34));
+    stroke-width: calc(0.8px + var(--creature-mouth-open) * 0.9px);
+    opacity: calc(0.12 + var(--creature-mouth-open) * 0.9);
+    transform: scale(
+        calc(0.18 + var(--creature-mouth-open) * 1.15 + var(--mouth-wide) * 0.74 - var(--mouth-round) * 0.28 + var(--mouth-smile) * 0.44 + var(--mouth-flat) * 0.56),
+        calc(0.12 + var(--creature-mouth-open) * 1.55 + var(--mouth-round) * 0.64 - var(--mouth-flat) * 0.36 - var(--mouth-smile) * 0.18)
+    );
+    filter: drop-shadow(0 0 calc(var(--avatar-speech-energy) * 8px) color-mix(in srgb, var(--creature-secondary) 70%, transparent));
+}
+
+.mouth-tongue {
+    fill: color-mix(in srgb, var(--creature-secondary) 42%, #ff8aa2 42%);
+    opacity: calc(var(--creature-mouth-open) * (1 - var(--mouth-round)) * 0.58);
+    transform: translateY(calc(4px + var(--creature-mouth-open) * 7px)) scale(calc(0.4 + var(--mouth-wide) * 0.7 + var(--mouth-smile) * 0.45), calc(0.35 + var(--creature-mouth-open) * 0.65));
+}
+
+.mouth-upper-lip,
+.mouth-lower-lip,
+.mouth-closed-line {
+    display: none;
+}
+
+.avatar-layer.avatar-wisp .mouth-cavity {
+    fill: color-mix(in srgb, var(--creature-secondary) calc(16% + var(--creature-mouth-open) * 32%), rgba(4, 8, 20, 0.68));
+    stroke: color-mix(in srgb, var(--creature-secondary) 42%, transparent);
+    opacity: calc(0.08 + var(--creature-mouth-open) * 0.64);
+}
+
+.avatar-layer.avatar-wisp .mouth-tongue {
+    opacity: 0;
 }
 
 .creature-core {
@@ -824,38 +899,63 @@ body {
 }
 
 .core-aura {
-    opacity: calc(0.52 + var(--creature-state-boost) * 0.28);
+    opacity: calc(0.28 + var(--creature-state-boost) * 0.16);
 }
 
 .core-ring {
     fill: none;
     stroke: color-mix(in srgb, var(--creature-secondary) 88%, white 12%);
     stroke-width: 2;
-    opacity: 0.78;
+    opacity: 0.42;
     vector-effect: non-scaling-stroke;
 }
 
 .core-light {
     fill: #fff;
-    opacity: 0.94;
+    opacity: 0.52;
 }
 
 .nova-ears,
-.axel-ears,
-.nova-limbs,
-.axel-limbs {
+.nova-limbs {
     transform-box: fill-box;
     transform-origin: center;
 }
 
-.nova-ears,
-.axel-ears {
+.nova-ears {
     animation: creatureEars 4.4s ease-in-out infinite;
 }
 
-.avatar-layer[data-state="listening"] .nova-ears,
-.avatar-layer[data-state="listening"] .axel-ears {
+.avatar-layer[data-state="listening"] .nova-ears {
     animation-duration: 2.2s;
+}
+
+.avatar-layer.avatar-nova[data-state="listening"] .creature-float {
+    animation-name: novaAttentiveLean;
+}
+
+.avatar-layer.avatar-nova[data-state="thinking"] .creature-float {
+    animation-name: novaThinkingTilt;
+}
+
+.avatar-layer.avatar-nova[data-action="ear-perk"] .nova-ears {
+    animation: novaEarPerk 1.5s ease-in-out;
+}
+
+.avatar-layer.avatar-nova[data-action="bounce"] .creature-float {
+    animation: novaBounce 1.25s cubic-bezier(0.2, 0.85, 0.25, 1.2);
+}
+
+.avatar-layer.avatar-nova[data-action="cheek-pulse"] .cheek,
+.avatar-layer.avatar-nova[data-state="speaking"] .cheek {
+    animation: novaCheekPulse 1.25s ease-in-out infinite;
+}
+
+.avatar-layer.avatar-nova[data-action="arm-wiggle"] .nova-limbs {
+    animation: novaArmWiggle 1.5s ease-in-out;
+}
+
+.avatar-layer.avatar-nova[data-action="glance"] .nova-ears {
+    animation: novaCuriousTilt 1.35s ease-in-out;
 }
 
 .nova-body {
@@ -871,110 +971,222 @@ body {
     opacity: 0.9;
 }
 
-.axel-head,
-.axel-torso {
-    stroke-width: 2.8;
-}
+/* ── EVE avatar ─────────────────────────────────── */
 
-.axel-head {
-    opacity: 0.92;
-}
-
-.axel-torso {
-    opacity: 0.82;
-}
-
-.axel-face-plate,
-.axel-cheek-plate,
-.axel-forehead-plate,
-.axel-chest-plate {
-    fill: color-mix(in srgb, var(--creature-primary) 18%, rgba(2, 10, 24, 0.58));
-    stroke: color-mix(in srgb, var(--creature-secondary) 70%, white 8%);
-    stroke-width: 2.3;
-    vector-effect: non-scaling-stroke;
-}
-
-.axel-cheek-plate,
-.axel-chest-plate {
-    opacity: 0.48;
-}
-
-.axel-forehead-plate {
-    opacity: 0.58;
-}
-
-.axel-v-fin {
+.eve-head,
+.eve-body {
     stroke-width: 2.4;
-    opacity: 0.9;
+    stroke: color-mix(in srgb, var(--creature-secondary) 58%, white 34%);
+    opacity: 0.97;
 }
 
-.axel-fin-edge,
-.axel-fin-cut,
-.axel-helmet-rim,
-.axel-crest,
-.axel-vent {
-    fill: none;
-    stroke: color-mix(in srgb, var(--creature-secondary) 72%, white 16%);
-    stroke-linecap: round;
-    stroke-linejoin: round;
-    vector-effect: non-scaling-stroke;
-    filter: drop-shadow(0 0 5px var(--creature-secondary));
-}
-
-.axel-fin-cut {
-    fill: color-mix(in srgb, var(--page-bg) 68%, transparent);
-    stroke-width: 1.8;
-    opacity: 0.62;
-}
-
-.axel-fin-edge {
-    stroke-width: 2.8;
-    opacity: 0.6;
-}
-
-.axel-crest {
-    fill: color-mix(in srgb, var(--creature-secondary) 46%, transparent);
-    stroke-width: 2;
-    opacity: 0.74;
-}
-
-.axel-helmet-rim {
-    stroke-width: 3;
-    opacity: 0.5;
-}
-
-.axel-vent {
+.eve-arm {
     stroke-width: 2.2;
-    opacity: 0.58;
+    stroke: color-mix(in srgb, var(--creature-secondary) 54%, white 34%);
+    opacity: 0.95;
 }
 
-.axel-dash-eyes {
+.eve-arms {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: eveArmFloat 5.4s ease-in-out infinite;
+}
+
+@keyframes eveArmFloat {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(5px); }
+}
+
+.eve-ground {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: eveGroundPulse 3.6s ease-in-out infinite;
+}
+
+.eve-ring {
+    fill: none;
+    stroke: color-mix(in srgb, var(--creature-secondary) 78%, white 14%);
+    stroke-width: 2;
+    vector-effect: non-scaling-stroke;
+    opacity: 0.4;
+    filter: drop-shadow(0 0 7px var(--creature-secondary));
+}
+
+@keyframes eveGroundPulse {
+    0%, 100% { transform: scale(1); opacity: 0.7; }
+    50% { transform: scale(1.05); opacity: 1; }
+}
+
+.eve-head-grp {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: eveHeadHover 5s ease-in-out infinite;
+}
+
+@keyframes eveHeadHover {
+    0%, 100% { transform: translateY(0) rotate(0deg); }
+    50% { transform: translateY(-6px) rotate(-2.5deg); }
+}
+
+.avatar-layer[data-state="listening"] .eve-head-grp {
+    animation-duration: 2.6s;
+}
+
+.avatar-layer.avatar-eve[data-state="thinking"] .eve-head-grp,
+.avatar-layer.avatar-eve[data-action="head-tilt"] .eve-head-grp {
+    animation: eveHeadTilt 1.7s ease-in-out infinite;
+}
+
+.avatar-layer.avatar-eve[data-action="visor-scan"] .eve-eyes,
+.avatar-layer.avatar-eve[data-state="thinking"] .eve-eyes {
+    animation: eveScanSweep 1.45s linear infinite;
+}
+
+.avatar-layer.avatar-eve[data-action="ring-calibrate"] .eve-ground,
+.avatar-layer.avatar-eve[data-state="speaking"] .eve-ground {
+    animation: eveRingCalibrate 1.4s ease-in-out infinite;
+}
+
+.avatar-layer.avatar-eve[data-action="arm-adjust"] .eve-arms,
+.avatar-layer.avatar-eve[data-state="listening"] .eve-arms {
+    animation: eveArmAdjust 1.5s ease-in-out infinite;
+}
+
+.avatar-layer.avatar-eve[data-action="focus-squint"] .eve-eye-blink,
+.avatar-layer.avatar-eve[data-expression="focused"] .eve-eye-blink {
+    transform: scaleY(calc(0.08 + var(--creature-blink) * 0.68));
+}
+
+.eve-sheen {
+    fill: rgba(255, 255, 255, 0.72);
+    filter: blur(5px);
+    opacity: 0.55;
+}
+
+.eve-seam {
+    fill: none;
+    stroke: color-mix(in srgb, var(--creature-secondary) 44%, white 16%);
+    stroke-width: 2;
+    stroke-linecap: round;
+    vector-effect: non-scaling-stroke;
+    opacity: 0.3;
+}
+
+.eve-face {
+    fill: rgba(6, 9, 20, 0.95);
+    stroke: color-mix(in srgb, var(--creature-secondary) 36%, white 8%);
+    stroke-width: 1.6;
+    vector-effect: non-scaling-stroke;
+}
+
+.eve-eyes {
     transform-box: fill-box;
     transform-origin: center;
     transform: translate(var(--creature-eye-x), var(--creature-eye-y));
 }
 
-.axel-eye-dash {
-    fill: color-mix(in srgb, var(--creature-secondary) 80%, white 20%);
-    stroke: color-mix(in srgb, var(--creature-secondary) 86%, white 14%);
-    stroke-width: 1.8;
-    stroke-linejoin: round;
-    opacity: calc(0.28 + var(--creature-blink) * 0.72);
-    filter: drop-shadow(0 0 8px var(--creature-secondary));
-    vector-effect: non-scaling-stroke;
+.eve-eye-blink {
     transform-box: fill-box;
     transform-origin: center;
-    transform: scaleY(calc(0.16 + var(--creature-blink) * 0.84));
-    transition: transform 80ms linear, opacity 80ms linear;
+    transform: scaleY(calc(0.08 + var(--creature-blink) * 0.92));
+    transition: transform 90ms linear;
+}
+
+.eve-eye {
+    fill: color-mix(in srgb, var(--creature-secondary) 88%, white 12%);
+    filter: drop-shadow(0 0 10px var(--creature-secondary));
+}
+
+.eve-eye-shine {
+    fill: rgba(255, 255, 255, 0.95);
+}
+
+.eve-eye-shine.sm {
+    fill: rgba(255, 255, 255, 0.66);
+}
+
+.eve-mouth-rig {
+    transform: scale(1.12);
+    transform-box: fill-box;
+    transform-origin: center;
+    filter: drop-shadow(0 0 calc(5px + var(--avatar-speech-energy) * 8px) var(--creature-secondary));
+}
+
+.eve-mouth-back,
+.eve-mouth-core,
+.eve-mouth-bar {
+    transform-box: fill-box;
+    transform-origin: center;
+    transition: transform 88ms ease-out, opacity 88ms ease-out, fill 88ms ease-out;
+}
+
+.eve-mouth-back {
+    fill: rgba(3, 7, 18, 0.76);
+    stroke: color-mix(in srgb, var(--creature-secondary) 60%, white 18%);
+    stroke-width: 1.4;
+    opacity: 0; /* TEMP: hide outer layer for inspection */
+    transform: scaleX(calc(0.72 + var(--creature-mouth-open) * 0.55 + var(--mouth-wide) * 0.38)) scaleY(calc(0.42 + var(--creature-mouth-open) * 1.15 + var(--mouth-round) * 0.38 - var(--mouth-flat) * 0.28));
+}
+
+.eve-mouth-core {
+    fill: color-mix(in srgb, var(--creature-secondary) calc(38% + var(--creature-mouth-open) * 46%), rgba(4, 8, 20, 0.88));
+    opacity: calc(0.46 + var(--creature-mouth-open) * 0.52);
+    transform: scaleX(calc(0.46 + var(--creature-mouth-open) * 0.64 + var(--mouth-wide) * 0.54 - var(--mouth-round) * 0.22 + var(--mouth-flat) * 0.45)) scaleY(calc(0.38 + var(--creature-mouth-open) * 1.35 + var(--mouth-round) * 0.4 - var(--mouth-flat) * 0.24));
+}
+
+.eve-mouth-bar {
+    fill: color-mix(in srgb, var(--creature-secondary) 82%, white 16%);
+    opacity: calc(0.22 + var(--creature-mouth-open) * 0.72);
+}
+
+.eve-mouth-bar.left {
+    transform: translateX(calc(var(--mouth-wide) * -5px + var(--mouth-round) * 4px)) scaleY(calc(0.55 + var(--creature-mouth-open) * 1.2));
+}
+
+.eve-mouth-bar.mid {
+    transform: scale(calc(0.6 + var(--mouth-round) * 0.8 + var(--creature-mouth-open) * 0.25), calc(0.55 + var(--creature-mouth-open) * 1.45));
+}
+
+.eve-mouth-bar.right {
+    transform: translateX(calc(var(--mouth-wide) * 5px + var(--mouth-round) * -4px)) scaleY(calc(0.55 + var(--creature-mouth-open) * 1.2));
+}
+
+.axel-panel-line {
+    stroke: rgba(255, 240, 174, 0.3);
+    stroke-width: 2;
 }
 
 .axel-mouth {
-    transform: scaleX(calc(1 + var(--creature-mouth-round) * -0.25)) scaleY(calc(1 + var(--creature-mouth-open) * 1.55));
+    fill: none;
+    stroke: rgba(153, 251, 255, 0.88);
+    stroke-width: calc(3.2px + var(--creature-mouth-open) * 8px);
+    stroke-linecap: round;
+    opacity: calc(0.42 + var(--creature-mouth-open) * 0.58);
+    filter: drop-shadow(0 0 8px rgba(46, 234, 255, 0.78));
+}
+
+@keyframes axelGroundPulse {
+    0%, 100% { transform: scale(1); opacity: 0.66; }
+    50% { transform: scale(1.05); opacity: 1; }
+}
+
+.avatar-layer.avatar-wisp .creature-float {
+    animation-duration: 6.4s;
+}
+
+.avatar-layer.avatar-wisp[data-state="listening"] .creature-float {
+    animation: wispAttentiveRise 3.8s ease-in-out infinite;
+}
+
+.avatar-layer.avatar-wisp[data-state="thinking"] .creature-float,
+.avatar-layer.avatar-wisp[data-action="slow-swirl"] .creature-float {
+    animation: wispThinkingDrift 4.6s ease-in-out infinite;
 }
 
 .wisp-body {
     stroke-width: 3.4;
-    opacity: 0.94;
+    opacity: calc(0.9 + var(--avatar-speech-energy) * 0.08);
+    filter: drop-shadow(0 0 calc(7px + var(--avatar-spark) * 12px) var(--creature-secondary));
 }
 
 .wisp-hem-glow {
@@ -988,19 +1200,41 @@ body {
 }
 
 .wisp-hem-glow {
-    stroke-width: 2.6;
-    opacity: 0.42;
+    stroke-width: calc(2.6px + var(--avatar-speech-energy) * 1.4px);
+    opacity: calc(0.42 + var(--avatar-spark) * 0.28);
+    animation: wispHemRipple 4.2s ease-in-out infinite;
+}
+
+.avatar-layer.avatar-wisp[data-action="hem-wave"] .wisp-hem-glow,
+.avatar-layer.avatar-wisp[data-state="speaking"] .wisp-hem-glow {
+    animation-duration: 1.5s;
 }
 
 .wisp-sparks {
     fill: rgba(255, 255, 255, 0.7);
-    opacity: 0.55;
-    filter: drop-shadow(0 0 5px var(--creature-secondary));
+    opacity: calc(0.5 + var(--avatar-spark) * 0.35);
+    filter: drop-shadow(0 0 calc(5px + var(--avatar-spark) * 10px) var(--creature-secondary));
     animation: wispSparkle 3.6s ease-in-out infinite;
+}
+
+.avatar-layer.avatar-wisp[data-action="spark-burst"] .wisp-sparks,
+.avatar-layer.avatar-wisp[data-state="speaking"] .wisp-sparks {
+    animation: wispSparkBurst 1.4s ease-in-out infinite;
+}
+
+.avatar-layer.avatar-wisp[data-action="glow-pulse"] .creature-core {
+    animation: wispAuraBreath 1.5s ease-in-out;
 }
 
 .wisp-arm {
     opacity: 0.76;
+    transform-box: fill-box;
+    transform-origin: center;
+}
+
+.avatar-layer.avatar-wisp[data-state="listening"] .wisp-arm,
+.avatar-layer.avatar-wisp[data-action="shy-blink"] .wisp-arm {
+    animation: wispArmGather 2.2s ease-in-out infinite;
 }
 
 .wisp-svg .cheek {
@@ -1026,6 +1260,50 @@ body {
     50% { transform: translateY(-13px) scale(1.018, 0.992); }
 }
 
+@keyframes avatarSpeechBob {
+    0%, 100% { transform: translateY(0) scale(1); }
+    35% { transform: translateY(calc(-7px - var(--avatar-speech-energy) * 9px)) scale(calc(1 + var(--avatar-speech-energy) * 0.035), calc(1 - var(--avatar-speech-energy) * 0.02)); }
+    70% { transform: translateY(calc(3px + var(--avatar-speech-energy) * 3px)) scale(calc(1 - var(--avatar-speech-energy) * 0.018), calc(1 + var(--avatar-speech-energy) * 0.025)); }
+}
+
+@keyframes novaAttentiveLean {
+    0%, 100% { transform: translateY(-4px) rotate(0deg) scale(1.01); }
+    50% { transform: translateY(-14px) rotate(-1.4deg) scale(1.025, 0.99); }
+}
+
+@keyframes novaThinkingTilt {
+    0%, 100% { transform: translateY(-3px) rotate(-1.4deg); }
+    50% { transform: translateY(-9px) rotate(1.8deg) scale(1.012); }
+}
+
+@keyframes novaEarPerk {
+    0%, 100% { transform: translateY(0) rotate(0deg); }
+    34% { transform: translateY(-18px) rotate(-3deg) scale(1.06); }
+    68% { transform: translateY(-7px) rotate(2deg) scale(1.02); }
+}
+
+@keyframes novaCuriousTilt {
+    0%, 100% { transform: translateY(0) rotate(0deg); }
+    45% { transform: translateY(-8px) rotate(-4deg); }
+}
+
+@keyframes novaBounce {
+    0%, 100% { transform: translateY(0) scale(1); }
+    35% { transform: translateY(-28px) scale(1.04, 0.97); }
+    68% { transform: translateY(5px) scale(0.98, 1.04); }
+}
+
+@keyframes novaCheekPulse {
+    0%, 100% { opacity: 0.34; filter: blur(0.4px); }
+    50% { opacity: calc(0.58 + var(--avatar-speech-energy) * 0.28); filter: blur(0.7px) drop-shadow(0 0 8px var(--creature-secondary)); }
+}
+
+@keyframes novaArmWiggle {
+    0%, 100% { transform: translateY(0) rotate(0deg); }
+    28% { transform: translateY(-5px) rotate(-3deg); }
+    58% { transform: translateY(3px) rotate(3deg); }
+}
+
 @keyframes creatureShadow {
     0%, 100% { transform: scaleX(1); opacity: 0.28; }
     50% { transform: scaleX(0.82); opacity: 0.42; }
@@ -1042,8 +1320,61 @@ body {
 }
 
 @keyframes wispSparkle {
-    0%, 100% { opacity: 0.36; }
-    50% { opacity: 0.72; }
+    0%, 100% { opacity: 0.36; transform: translateY(0) scale(1); }
+    50% { opacity: 0.72; transform: translateY(-2px) scale(1.08); }
+}
+
+@keyframes wispAttentiveRise {
+    0%, 100% { transform: translateY(-7px) scale(1.01); }
+    50% { transform: translateY(-22px) scale(1.025, 0.99); }
+}
+
+@keyframes wispThinkingDrift {
+    0%, 100% { transform: translate(0, -4px) rotate(0deg) scale(1); }
+    25% { transform: translate(7px, -17px) rotate(1.4deg) scale(1.012); }
+    50% { transform: translate(0, -10px) rotate(0deg) scale(1.02, 0.99); }
+    75% { transform: translate(-7px, -18px) rotate(-1.4deg) scale(1.012); }
+}
+
+@keyframes wispHemRipple {
+    0%, 100% { transform: translateY(0) scaleX(1); opacity: calc(0.36 + var(--avatar-spark) * 0.24); }
+    50% { transform: translateY(4px) scaleX(1.07); opacity: calc(0.58 + var(--avatar-spark) * 0.28); }
+}
+
+@keyframes wispSparkBurst {
+    0%, 100% { transform: translateY(0) scale(1); opacity: 0.5; }
+    50% { transform: translateY(-9px) scale(calc(1.18 + var(--avatar-spark) * 0.35)); opacity: 0.95; }
+}
+
+@keyframes wispAuraBreath {
+    0%, 100% { transform: scale(1); opacity: 0.95; }
+    45% { transform: scale(1.34); opacity: 1; }
+}
+
+@keyframes wispArmGather {
+    0%, 100% { transform: translateY(0) scale(1); }
+    50% { transform: translateY(-6px) scale(0.96, 1.04); }
+}
+
+@keyframes eveHeadTilt {
+    0%, 100% { transform: translateY(-2px) rotate(-2.2deg); }
+    50% { transform: translateY(-7px) rotate(2.4deg); }
+}
+
+@keyframes eveScanSweep {
+    0%, 100% { transform: translateX(calc(var(--creature-eye-x) - 4px)) translateY(var(--creature-eye-y)); opacity: 0.82; }
+    50% { transform: translateX(calc(var(--creature-eye-x) + 4px)) translateY(var(--creature-eye-y)); opacity: 1; }
+}
+
+@keyframes eveRingCalibrate {
+    0%, 100% { transform: scale(1); opacity: 0.74; }
+    30% { transform: scaleX(1.08) scaleY(0.92); opacity: 1; }
+    62% { transform: scaleX(0.94) scaleY(1.08); opacity: 0.86; }
+}
+
+@keyframes eveArmAdjust {
+    0%, 100% { transform: translateY(0) rotate(0deg); }
+    50% { transform: translateY(-4px) rotate(1.6deg); }
 }
 
 .hud-orb-label {

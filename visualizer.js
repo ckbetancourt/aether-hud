@@ -73,12 +73,77 @@ class JarvisHUD {
         this._audioReactive = null;
         this.avatarForm = 'classic-blob';
         this.speechCue = null;
-        this.novaBlinkTimer = 40 + Math.random() * 120;
-        this.novaBlinkAmount = 0;
-        this.novaEyeDrift = { x: 0, y: 0 };
-        this.novaMouthShape = 'closed';
-        this.novaMouthOpen = 0;
-        this.novaMouthRound = 0;
+        this.avatarBehaviorProfiles = {
+            nova: {
+                blinkRange: [70, 165],
+                doubleBlinkChance: 0.22,
+                eyeAttention: { idle: 0.38, listening: 1.08, thinking: 0.82, speaking: 0.74 },
+                eyeRange: { x: 6.2, y: 3.2 },
+                mouthScale: 1.15,
+                roundScale: 1,
+                speechGlowScale: 1,
+                idleActionRange: [5200, 10800],
+                actions: [
+                    ['glance', 1.8],
+                    ['ear-perk', 1.6],
+                    ['bounce', 1.25],
+                    ['cheek-pulse', 1.25],
+                    ['arm-wiggle', 1],
+                    ['double-blink', 1.2],
+                ],
+            },
+            wisp: {
+                blinkRange: [95, 220],
+                doubleBlinkChance: 0.12,
+                eyeAttention: { idle: 0.24, listening: 0.68, thinking: 0.55, speaking: 0.45 },
+                eyeRange: { x: 3.6, y: 2.1 },
+                mouthScale: 0.88,
+                roundScale: 0.82,
+                speechGlowScale: 1.25,
+                idleActionRange: [6500, 12500],
+                actions: [
+                    ['spark-burst', 2.1],
+                    ['slow-swirl', 1.4],
+                    ['hem-wave', 1.35],
+                    ['shy-blink', 1.25],
+                    ['glow-pulse', 1.5],
+                ],
+            },
+            eve: {
+                blinkRange: [110, 240],
+                doubleBlinkChance: 0.08,
+                eyeAttention: { idle: 0.3, listening: 0.78, thinking: 0.92, speaking: 0.55 },
+                eyeRange: { x: 4.2, y: 1.5 },
+                mouthScale: 0.78,
+                roundScale: 0.35,
+                speechGlowScale: 1.45,
+                idleActionRange: [5600, 11800],
+                actions: [
+                    ['head-tilt', 1.8],
+                    ['visor-scan', 1.8],
+                    ['ring-calibrate', 1.4],
+                    ['arm-adjust', 1],
+                    ['focus-squint', 1.1],
+                ],
+            },
+        };
+        this.avatarBehavior = this.createAvatarBehavior('nova');
+        this.creatureBlinkTimer = this.randomInRange(40, 120);
+        this.creatureBlinkAmount = 0;
+        this.creatureEyeDrift = { x: 0, y: 0 };
+        this.creatureMouthShape = 'closed';
+        this.creatureMouthOpen = 0;
+        this.creatureMouthRound = 0;
+        this.creatureSpeechEnergy = 0;
+        this.creatureExpression = 'neutral';
+        this.creatureAction = 'none';
+        this.creatureActionIntensity = 0;
+        this.novaBlinkTimer = this.creatureBlinkTimer;
+        this.novaBlinkAmount = this.creatureBlinkAmount;
+        this.novaEyeDrift = this.creatureEyeDrift;
+        this.novaMouthShape = this.creatureMouthShape;
+        this.novaMouthOpen = this.creatureMouthOpen;
+        this.novaMouthRound = this.creatureMouthRound;
 
         // Canvas scaling and bindings
         this.resize();
@@ -124,11 +189,71 @@ class JarvisHUD {
     }
 
     setAvatarForm(formId) {
-        const allowedForms = ['classic-blob', 'nova', 'axel', 'wisp'];
-        this.avatarForm = allowedForms.includes(formId) ? formId : 'classic-blob';
+        const allowedForms = ['classic-blob', 'nova', 'wisp', 'eve'];
+        const nextForm = allowedForms.includes(formId) ? formId : 'classic-blob';
+        const formChanged = this.avatarForm !== nextForm;
+        this.avatarForm = nextForm;
+        if (formChanged) {
+            this.resetAvatarBehavior();
+        }
         this.syncCreatureAvatarShell();
         this.syncAvatarLabelPlacement(document.getElementById('hudOrbLabel'));
         this.setState(this.state);
+    }
+
+    randomInRange(min, max) {
+        return min + Math.random() * (max - min);
+    }
+
+    getAvatarBehaviorProfile(form = this.avatarForm) {
+        return this.avatarBehaviorProfiles?.[form] || this.avatarBehaviorProfiles?.nova || null;
+    }
+
+    createAvatarBehavior(form = this.avatarForm) {
+        const profile = this.getAvatarBehaviorProfile(form);
+        const idleRange = profile?.idleActionRange || [5200, 10800];
+        return {
+            form,
+            state: this.state,
+            stateStartedAt: performance.now(),
+            idleStartedAt: performance.now(),
+            nextIdleActionAt: performance.now() + this.randomInRange(idleRange[0], idleRange[1]),
+            action: 'none',
+            actionStartedAt: 0,
+            actionDuration: 0,
+            actionIntensity: 0,
+            expression: 'neutral',
+            eyeTarget: { x: 0, y: 0 },
+            eyeTargetChangedAt: 0,
+            nextEyeTargetAt: performance.now() + this.randomInRange(1200, 3500),
+            doubleBlinkPending: 0,
+        };
+    }
+
+    resetAvatarBehavior() {
+        this.avatarBehavior = this.createAvatarBehavior(this.avatarForm);
+        const profile = this.getAvatarBehaviorProfile();
+        const blinkRange = profile?.blinkRange || [70, 165];
+        this.creatureBlinkTimer = this.randomInRange(blinkRange[0], blinkRange[1]);
+        this.creatureBlinkAmount = 0;
+        this.creatureEyeDrift = { x: 0, y: 0 };
+        this.creatureMouthShape = 'closed';
+        this.creatureMouthOpen = 0;
+        this.creatureMouthRound = 0;
+        this.creatureSpeechEnergy = 0;
+        this.creatureExpression = 'neutral';
+        this.creatureAction = 'none';
+        this.creatureActionIntensity = 0;
+        this.syncLegacyCreatureFields();
+    }
+
+    syncLegacyCreatureFields() {
+        this.novaBlinkTimer = this.creatureBlinkTimer;
+        this.novaBlinkAmount = this.creatureBlinkAmount;
+        this.novaEyeDrift = this.creatureEyeDrift;
+        this.novaMouthShape = this.creatureMouthShape;
+        this.novaMouthOpen = this.creatureMouthOpen;
+        this.novaMouthRound = this.creatureMouthRound;
     }
 
     isCreatureAvatar() {
@@ -150,28 +275,38 @@ class JarvisHUD {
         const names = {
             'classic-blob': 'Aether',
             nova: 'Nova',
-            axel: 'Axel',
             wisp: 'Wisp',
+            eve: 'EVE',
         };
         return names[this.avatarForm] || 'Aether';
     }
 
     startSpeechMouthCue(text) {
         const cleanText = String(text || '').trim();
+        const words = cleanText ? cleanText.split(/\s+/).filter(Boolean) : [];
         this.speechCue = {
             text: cleanText,
-            words: cleanText ? cleanText.split(/\s+/).filter(Boolean) : [],
+            words,
+            syllables: words.map(word => this.estimateSyllableCount(word)),
             startTime: performance.now(),
             boundaryTime: 0,
             wordIndex: 0,
-            shape: 'small',
+            shape: words.length ? this.pickCreatureMouthShape(words[0], 0) : 'small',
+            boundaryShape: words.length ? this.pickCreatureMouthShape(words[0], 0) : 'small',
             lastShapeAt: 0,
+            lastBoundaryAt: 0,
+            shapeIndex: 0,
+            shapeHoldUntil: 0,
         };
     }
 
     stopSpeechMouthCue() {
         this.speechCue = null;
-        this.novaMouthShape = 'closed';
+        this.creatureMouthShape = 'closed';
+        this.creatureMouthOpen = 0;
+        this.creatureMouthRound = 0;
+        this.creatureSpeechEnergy = 0;
+        this.syncLegacyCreatureFields();
         this.syncCreatureAvatarShell();
     }
 
@@ -179,21 +314,26 @@ class JarvisHUD {
         if (!this.speechCue || !this.isCreatureAvatar()) return;
         const now = performance.now();
         const elapsed = now - this.speechCue.startTime;
-        this.speechCue.boundaryTime = elapsed;
-        this.speechCue.wordIndex += 1;
-        this.speechCue.shape = this.pickNovaMouthShape(
-            this.speechCue.words[this.speechCue.wordIndex] || '',
-            this.speechCue.wordIndex
-        );
-        this.speechCue.lastShapeAt = elapsed;
-        this.syncCreatureAvatarShell();
+        let wordIndex = this.speechCue.wordIndex;
+
         if (Number.isFinite(event?.charIndex)) {
             const spokenPrefix = this.speechCue.text.slice(0, event.charIndex);
-            this.speechCue.wordIndex = Math.max(
-                this.speechCue.wordIndex,
-                spokenPrefix.split(/\s+/).filter(Boolean).length
-            );
+            wordIndex = Math.max(0, spokenPrefix.split(/\s+/).filter(Boolean).length - 1);
+        } else {
+            wordIndex += 1;
         }
+
+        wordIndex = Math.min(Math.max(0, wordIndex), Math.max(0, this.speechCue.words.length - 1));
+        const shape = this.pickCreatureMouthShape(this.speechCue.words[wordIndex] || '', wordIndex);
+        this.speechCue.boundaryTime = elapsed;
+        this.speechCue.wordIndex = wordIndex;
+        this.speechCue.shape = shape;
+        this.speechCue.boundaryShape = shape;
+        this.speechCue.lastShapeAt = elapsed;
+        this.speechCue.lastBoundaryAt = elapsed;
+        this.speechCue.shapeIndex = 0;
+        this.speechCue.shapeHoldUntil = elapsed + 120;
+        this.syncCreatureAvatarShell();
     }
 
     /**
@@ -206,6 +346,22 @@ class JarvisHUD {
             }
             if (state !== 'speaking') {
                 this.stopSpeechMouthCue();
+            }
+            if (this.avatarBehavior) {
+                const now = performance.now();
+                const profile = this.getAvatarBehaviorProfile();
+                const idleRange = profile?.idleActionRange || [5200, 10800];
+                this.avatarBehavior.state = state;
+                this.avatarBehavior.stateStartedAt = now;
+                this.avatarBehavior.expression = this.getExpressionForState(state);
+                this.avatarBehavior.action = 'none';
+                this.avatarBehavior.actionStartedAt = 0;
+                this.avatarBehavior.actionDuration = 0;
+                this.avatarBehavior.actionIntensity = 0;
+                if (state === 'idle') {
+                    this.avatarBehavior.idleStartedAt = now;
+                    this.avatarBehavior.nextIdleActionAt = now + this.randomInRange(idleRange[0], idleRange[1]);
+                }
             }
             // Trigger transition energy shockwaves
             this.shockwaves.push({
@@ -650,8 +806,9 @@ class JarvisHUD {
 
         // RENDER STEP 5: Central avatar form
         if (isCreature) {
-            this.updateNovaBlinkAndEyes();
-            this.updateNovaMouth();
+            this.updateAvatarBehavior();
+            this.updateCreatureBlinkAndEyes();
+            this.updateCreatureMouth();
             this.syncCreatureAvatarShell();
         } else {
             // Multi-layered liquid plasma orb. We layer 3 separate undulating paths to simulate a 3D gas sphere.
@@ -935,15 +1092,163 @@ class JarvisHUD {
         this.ctx.shadowBlur = 0; // Reset
     }
 
-    pickNovaMouthShape(word = '', index = 0) {
-        const clean = String(word).toLowerCase();
-        if (/[ou]/.test(clean)) return 'round';
-        if (/[a]/.test(clean) || clean.length > 7) return 'wide';
-        if (/[ei]/.test(clean)) return 'smile';
+    getExpressionForState(state = this.state) {
+        switch (state) {
+            case 'listening':
+                return 'attentive';
+            case 'thinking':
+                return 'thinking';
+            case 'speaking':
+                return this.avatarForm === 'eve' ? 'focused' : this.avatarForm === 'wisp' ? 'soft' : 'happy';
+            case 'idle':
+            default:
+                return 'neutral';
+        }
+    }
+
+    pickWeightedAvatarAction(actions = []) {
+        const total = actions.reduce((sum, [, weight]) => sum + weight, 0);
+        if (!total) return 'glance';
+        let cursor = Math.random() * total;
+        for (const [action, weight] of actions) {
+            cursor -= weight;
+            if (cursor <= 0) return action;
+        }
+        return actions[0]?.[0] || 'glance';
+    }
+
+    getIdleActionDuration(action) {
+        const durations = {
+            glance: 1350,
+            'ear-perk': 1500,
+            bounce: 1250,
+            'cheek-pulse': 1400,
+            'arm-wiggle': 1500,
+            'double-blink': 700,
+            'spark-burst': 1700,
+            'slow-swirl': 2400,
+            'hem-wave': 1800,
+            'shy-blink': 850,
+            'glow-pulse': 1500,
+            'head-tilt': 1700,
+            'visor-scan': 1600,
+            'ring-calibrate': 1600,
+            'arm-adjust': 1500,
+            'focus-squint': 1200,
+        };
+        return durations[action] || 1400;
+    }
+
+    triggerIdleAvatarAction(now = performance.now()) {
+        if (!this.avatarBehavior || !this.isCreatureAvatar()) return;
+        const profile = this.getAvatarBehaviorProfile();
+        const action = this.pickWeightedAvatarAction(profile?.actions || []);
+        this.avatarBehavior.action = action;
+        this.avatarBehavior.actionStartedAt = now;
+        this.avatarBehavior.actionDuration = this.getIdleActionDuration(action);
+        this.avatarBehavior.actionIntensity = 1;
+        if (action === 'double-blink' || action === 'shy-blink' || action === 'focus-squint') {
+            this.creatureBlinkAmount = 1;
+            this.avatarBehavior.doubleBlinkPending = action === 'double-blink' ? 14 : 0;
+        }
+    }
+
+    updateAvatarBehavior() {
+        if (!this.isCreatureAvatar()) return;
+        if (!this.avatarBehavior || this.avatarBehavior.form !== this.avatarForm) {
+            this.resetAvatarBehavior();
+        }
+
+        const now = performance.now();
+        const behavior = this.avatarBehavior;
+        const profile = this.getAvatarBehaviorProfile();
+        const idleRange = profile?.idleActionRange || [5200, 10800];
+        behavior.expression = this.getExpressionForState(this.state);
+
+        if (this.state === 'idle' && now >= behavior.nextIdleActionAt && behavior.action === 'none') {
+            this.triggerIdleAvatarAction(now);
+        }
+
+        if (behavior.action !== 'none') {
+            const progress = Math.min(1, (now - behavior.actionStartedAt) / Math.max(1, behavior.actionDuration));
+            behavior.actionIntensity = Math.sin(progress * Math.PI);
+            if (progress >= 1) {
+                behavior.action = 'none';
+                behavior.actionIntensity = 0;
+                behavior.nextIdleActionAt = now + this.randomInRange(idleRange[0], idleRange[1]);
+            }
+        }
+
+        if (this.state !== 'idle' && behavior.action === 'none') {
+            behavior.nextIdleActionAt = now + this.randomInRange(idleRange[0], idleRange[1]);
+        }
+
+        this.creatureExpression = behavior.expression;
+        this.creatureAction = behavior.action;
+        this.creatureActionIntensity = behavior.actionIntensity;
+    }
+
+    estimateSyllableCount(word = '') {
+        const clean = String(word).toLowerCase().replace(/[^a-z]/g, '');
+        if (!clean) return 1;
+        const groups = clean.match(/[aeiouy]+/g) || [];
+        const silentE = clean.length > 3 && clean.endsWith('e') ? 1 : 0;
+        return Math.max(1, groups.length - silentE);
+    }
+
+    pickCreatureMouthShape(word = '', index = 0) {
+        const clean = String(word).toLowerCase().replace(/[^a-z!?]/g, '');
+        if (!clean) return index % 2 === 0 ? 'small' : 'flat';
+        if (/[bpm]$/.test(clean) || /^[bpm]/.test(clean)) return 'closed';
+        if (/[fv]/.test(clean)) return 'flat';
+        if (/[wq]|oo|ou|ow|oh|au/.test(clean)) return 'round';
+        if (/[a]|ah|ha|aw/.test(clean) || clean.length > 7 || /[!?]$/.test(clean)) return 'wide';
+        if (/[ei]|ee|y$/.test(clean)) return this.avatarForm === 'eve' ? 'flat' : 'smile';
         return index % 3 === 0 ? 'small' : 'flat';
     }
 
-    updateNovaMouth() {
+    pickNovaMouthShape(word = '', index = 0) {
+        return this.pickCreatureMouthShape(word, index);
+    }
+
+    getSpeechVisemeForBeat(word = '', wordIndex = 0, beatIndex = 0) {
+        const primary = this.pickCreatureMouthShape(word, wordIndex);
+        if (primary === 'closed') return beatIndex % 2 === 0 ? 'closed' : 'small';
+        if (primary === 'round') return ['round', 'small', 'round'][beatIndex % 3];
+        if (primary === 'wide') return ['wide', 'small', 'smile'][beatIndex % 3];
+        if (primary === 'smile') return ['smile', 'small'][beatIndex % 2];
+        if (primary === 'flat') return ['flat', 'small'][beatIndex % 2];
+        return ['small', 'flat', 'round'][beatIndex % 3];
+    }
+
+    getWordShapeSequence(word = '', wordIndex = 0) {
+        const primary = this.pickCreatureMouthShape(word, wordIndex);
+        if (primary === 'round') return ['round', 'small', 'round'];
+        if (primary === 'wide') return ['wide', 'small', 'smile'];
+        if (primary === 'smile') return ['smile', 'small'];
+        if (primary === 'flat') return ['flat', 'small'];
+        if (primary === 'closed') return ['closed', 'small'];
+        return ['small', 'flat'];
+    }
+
+    getTimedSpeechShape(cue, elapsed, hasLiveAudio) {
+        if (!cue?.words.length) {
+            const fallbackShapes = ['small', 'round', 'wide', 'flat', 'smile'];
+            return fallbackShapes[Math.floor(elapsed / 220) % fallbackShapes.length];
+        }
+
+        const cueIndex = Math.min(Math.max(0, cue.wordIndex), cue.words.length - 1);
+        const word = cue.words[cueIndex] || '';
+        const sequence = this.getWordShapeSequence(word, cueIndex);
+        const holdMs = hasLiveAudio ? 145 : 190;
+        if (!Number.isFinite(cue.shapeHoldUntil) || elapsed >= cue.shapeHoldUntil) {
+            cue.shapeIndex = (cue.shapeIndex + 1) % sequence.length;
+            cue.shapeHoldUntil = elapsed + holdMs;
+        }
+        return sequence[cue.shapeIndex] || cue.boundaryShape || this.pickCreatureMouthShape(word, cueIndex);
+    }
+
+    updateCreatureMouth() {
         let targetOpen = 0;
         let targetRound = 0;
         let shape = 'closed';
@@ -953,20 +1258,33 @@ class JarvisHUD {
             const cue = this.speechCue;
             const elapsed = cue ? now - cue.startTime : this.time * 1000;
             const audioEnvelope = this._audioReactive?.envelope ?? 0;
-            const hasLiveAudio = Boolean(this._audioReactive?.frequency);
+            const mouthEnvelope = this._audioReactive?.mouthEnvelope ?? 0;
+            const hasLiveAudio = Boolean(this._audioReactive?.hasLiveMouthAudio || this._audioReactive?.frequency);
 
+            let activeWord = '';
+            let syllables = 1;
             if (cue?.words.length) {
-                const approxWordMs = 210;
-                const scheduledIndex = Math.floor(elapsed / approxWordMs) % cue.words.length;
-                const cueIndex = Math.max(cue.wordIndex, scheduledIndex);
-                shape = this.pickNovaMouthShape(cue.words[cueIndex] || '', cueIndex);
+                if (!hasLiveAudio) {
+                    const currentWord = cue.words[Math.min(cue.wordIndex, cue.words.length - 1)] || '';
+                    const currentSyllables = this.estimateSyllableCount(currentWord);
+                    const approxWordMs = Math.max(240, 220 + currentSyllables * 92 + Math.min(currentWord.length, 12) * 10);
+                    cue.wordIndex = Math.min(cue.words.length - 1, Math.floor(elapsed / approxWordMs));
+                }
+                activeWord = cue.words[Math.min(cue.wordIndex, cue.words.length - 1)] || '';
+                syllables = this.estimateSyllableCount(activeWord);
+                shape = this.getTimedSpeechShape(cue, elapsed, hasLiveAudio);
             } else {
-                const fallbackShapes = ['small', 'round', 'wide', 'flat', 'smile'];
-                shape = fallbackShapes[Math.floor(elapsed / 170) % fallbackShapes.length];
+                shape = this.getTimedSpeechShape(cue, elapsed, hasLiveAudio);
             }
 
-            const syllablePulse = 0.5 + 0.5 * Math.sin(elapsed / 48);
-            const liveBoost = hasLiveAudio ? Math.min(1, audioEnvelope * 7) : 0.45 + syllablePulse * 0.45;
+            if (!activeWord) {
+                activeWord = cue?.words?.[Math.min(cue.wordIndex, Math.max(0, (cue?.words?.length || 1) - 1))] || '';
+                syllables = this.estimateSyllableCount(activeWord);
+            }
+            const syllablePulse = 0.5 + 0.5 * Math.sin(elapsed / Math.max(70, 150 - syllables * 8));
+            const liveBoost = hasLiveAudio
+                ? Math.min(1, Math.max(mouthEnvelope * 1.25, audioEnvelope * 0.75))
+                : 0.32 + syllablePulse * 0.46;
             const openness = {
                 closed: 0,
                 flat: 0.24,
@@ -980,24 +1298,91 @@ class JarvisHUD {
             targetRound = shape === 'round' ? 1 : shape === 'small' ? 0.35 : 0;
         }
 
-        this.novaMouthShape = shape;
-        this.novaMouthOpen += (targetOpen - this.novaMouthOpen) * 0.32;
-        this.novaMouthRound += (targetRound - this.novaMouthRound) * 0.28;
+        const profile = this.getAvatarBehaviorProfile();
+        const audioEnvelope = this._audioReactive?.envelope ?? 0;
+        const mouthScale = profile?.mouthScale ?? 1;
+        const roundScale = profile?.roundScale ?? 1;
+        const speechGlowScale = profile?.speechGlowScale ?? 1;
+        targetOpen = Math.min(1, targetOpen * mouthScale);
+        targetRound = Math.min(1, targetRound * roundScale);
+
+        if (shape !== this.creatureMouthShape) {
+            this.creatureMouthShape = shape;
+        }
+        const opening = targetOpen > this.creatureMouthOpen;
+        const openEase = this.state === 'speaking'
+            ? (opening ? (this.avatarForm === 'eve' ? 0.42 : 0.38) : (this.avatarForm === 'eve' ? 0.24 : 0.2))
+            : 0.28;
+        const roundEase = this.state === 'speaking' ? 0.24 : 0.18;
+        if (Math.abs(targetOpen - this.creatureMouthOpen) > 0.012) {
+            this.creatureMouthOpen += (targetOpen - this.creatureMouthOpen) * openEase;
+        } else {
+            this.creatureMouthOpen = targetOpen;
+        }
+        if (Math.abs(targetRound - this.creatureMouthRound) > 0.018) {
+            this.creatureMouthRound += (targetRound - this.creatureMouthRound) * roundEase;
+        } else {
+            this.creatureMouthRound = targetRound;
+        }
+        const targetEnergy = this.state === 'speaking'
+            ? Math.min(1, Math.max(this.creatureMouthOpen, audioEnvelope * speechGlowScale))
+            : 0;
+        this.creatureSpeechEnergy += (targetEnergy - this.creatureSpeechEnergy) * 0.24;
+        this.syncLegacyCreatureFields();
+    }
+
+    updateNovaMouth() {
+        this.updateCreatureMouth();
+    }
+
+    updateCreatureBlinkAndEyes() {
+        const profile = this.getAvatarBehaviorProfile();
+        const behavior = this.avatarBehavior || this.createAvatarBehavior(this.avatarForm);
+        const blinkRange = profile?.blinkRange || [85, 235];
+        this.creatureBlinkTimer -= 1;
+        if (behavior.doubleBlinkPending > 0) {
+            behavior.doubleBlinkPending -= 1;
+            if (behavior.doubleBlinkPending === 1) {
+                this.creatureBlinkAmount = 1;
+            }
+        }
+        if (this.creatureBlinkTimer <= 0) {
+            this.creatureBlinkAmount = 1;
+            this.creatureBlinkTimer = this.randomInRange(blinkRange[0], blinkRange[1]);
+            if (Math.random() < (profile?.doubleBlinkChance || 0.12)) {
+                behavior.doubleBlinkPending = 14;
+            }
+        }
+        this.creatureBlinkAmount *= this.avatarForm === 'eve' ? 0.66 : 0.72;
+
+        const now = performance.now();
+        if (now >= behavior.nextEyeTargetAt) {
+            const range = profile?.eyeRange || { x: 5, y: 2.5 };
+            behavior.eyeTarget.x = this.randomInRange(-range.x, range.x);
+            behavior.eyeTarget.y = this.randomInRange(-range.y, range.y);
+            behavior.nextEyeTargetAt = now + this.randomInRange(1200, this.state === 'thinking' ? 2300 : 3600);
+        }
+
+        const attentionMap = profile?.eyeAttention || {};
+        const attention = attentionMap[this.state] ?? 0.35;
+        const actionPush = behavior.action === 'glance'
+            ? behavior.actionIntensity * (this.avatarForm === 'wisp' ? -2.5 : 4.2)
+            : behavior.action === 'visor-scan'
+                ? Math.sin((now - behavior.actionStartedAt) / 90) * 3.6 * behavior.actionIntensity
+                : 0;
+        const thinkingScan = this.state === 'thinking'
+            ? Math.sin(this.time * (this.avatarForm === 'eve' ? 3.6 : 2.4)) * (this.avatarForm === 'eve' ? 3.2 : 2.4)
+            : 0;
+        const speakingFocus = this.state === 'speaking' ? Math.sin(this.time * 3.4) * 1.2 : 0;
+        const driftX = (behavior.eyeTarget.x + thinkingScan + speakingFocus) * attention + actionPush + this.parallaxX * 5;
+        const driftY = (behavior.eyeTarget.y + Math.cos(this.time * 0.7) * 2.2) * attention + this.parallaxY * 3;
+        this.creatureEyeDrift.x += (driftX - this.creatureEyeDrift.x) * 0.07;
+        this.creatureEyeDrift.y += (driftY - this.creatureEyeDrift.y) * 0.07;
+        this.syncLegacyCreatureFields();
     }
 
     updateNovaBlinkAndEyes() {
-        this.novaBlinkTimer -= 1;
-        if (this.novaBlinkTimer <= 0) {
-            this.novaBlinkAmount = 1;
-            this.novaBlinkTimer = 85 + Math.random() * 150;
-        }
-        this.novaBlinkAmount *= 0.72;
-
-        const attention = this.state === 'listening' ? 1 : this.state === 'thinking' ? 0.65 : 0.35;
-        const driftX = Math.sin(this.time * 0.9) * 5 * attention + this.parallaxX * 5;
-        const driftY = Math.cos(this.time * 0.7) * 2.5 * attention + this.parallaxY * 3;
-        this.novaEyeDrift.x += (driftX - this.novaEyeDrift.x) * 0.06;
-        this.novaEyeDrift.y += (driftY - this.novaEyeDrift.y) * 0.06;
+        this.updateCreatureBlinkAndEyes();
     }
 
     syncCreatureAvatarShell() {
@@ -1016,12 +1401,17 @@ class JarvisHUD {
         }
 
         const audioEnvelope = this._audioReactive?.envelope ?? 0;
+        const mouthEnvelope = this._audioReactive?.mouthEnvelope ?? 0;
+        const profile = this.getAvatarBehaviorProfile();
+        const behavior = this.avatarBehavior || this.createAvatarBehavior(this.avatarForm);
         const stateBoost = this.state === 'listening' ? 0.55 : this.state === 'thinking' ? 0.72 : this.state === 'speaking' ? 0.95 : 0.2;
-        const mouthOpen = Math.max(this.novaMouthOpen, this.state === 'speaking' ? audioEnvelope * 0.85 : 0);
-        const mouthRound = this.novaMouthRound;
-        const blinkScale = Math.max(0.08, 1 - this.novaBlinkAmount * 0.9);
-        const eyeX = this.novaEyeDrift.x.toFixed(2);
-        const eyeY = this.novaEyeDrift.y.toFixed(2);
+        const mouthOpen = Math.max(this.creatureMouthOpen, this.state === 'speaking' ? mouthEnvelope * 0.18 * (profile?.mouthScale ?? 1) : 0);
+        const mouthRound = this.creatureMouthRound;
+        const blinkScale = Math.max(0.08, 1 - this.creatureBlinkAmount * 0.9);
+        const eyeX = this.creatureEyeDrift.x.toFixed(2);
+        const eyeY = this.creatureEyeDrift.y.toFixed(2);
+        const actionIntensity = behavior.actionIntensity || 0;
+        const speechEnergy = Math.max(this.creatureSpeechEnergy, this.state === 'speaking' ? audioEnvelope * (profile?.speechGlowScale ?? 1) : 0);
         const primary = this.accentTheme.primary || '#ff4436';
         const secondary = this.accentTheme.secondary || '#ff6e40';
         const glow = this.accentTheme.glow || 'rgba(255, 68, 54, 0.4)';
@@ -1032,15 +1422,36 @@ class JarvisHUD {
         this.avatarLayer.style.setProperty('--creature-blink', blinkScale.toFixed(3));
         this.avatarLayer.style.setProperty('--creature-eye-x', `${eyeX}px`);
         this.avatarLayer.style.setProperty('--creature-eye-y', `${eyeY}px`);
+        const pose = mouthOpen < 0.04 ? 'closed' : this.creatureMouthShape;
         this.avatarLayer.style.setProperty('--creature-mouth-open', mouthOpen.toFixed(3));
         this.avatarLayer.style.setProperty('--creature-mouth-round', mouthRound.toFixed(3));
+        this.avatarLayer.style.setProperty('--mouth-wide', (pose === 'wide' ? 1 : 0).toFixed(3));
+        this.avatarLayer.style.setProperty('--mouth-round', (pose === 'round' ? 1 : 0).toFixed(3));
+        this.avatarLayer.style.setProperty('--mouth-smile', (pose === 'smile' ? 1 : 0).toFixed(3));
+        this.avatarLayer.style.setProperty('--mouth-flat', (pose === 'flat' ? 1 : 0).toFixed(3));
+        this.avatarLayer.style.setProperty('--mouth-closed', (pose === 'closed' ? 1 : 0).toFixed(3));
         this.avatarLayer.style.setProperty('--creature-state-boost', stateBoost.toFixed(3));
+        this.avatarLayer.style.setProperty('--avatar-action-intensity', actionIntensity.toFixed(3));
+        this.avatarLayer.style.setProperty('--avatar-speech-energy', Math.min(1, speechEnergy).toFixed(3));
+        this.avatarLayer.style.setProperty('--avatar-ear-perk', (this.avatarForm === 'nova' ? actionIntensity : 0).toFixed(3));
+        this.avatarLayer.style.setProperty('--avatar-spark', (this.avatarForm === 'wisp' ? Math.max(actionIntensity, speechEnergy * 0.7) : 0).toFixed(3));
+        this.avatarLayer.style.setProperty('--avatar-scan', (this.avatarForm === 'eve' ? Math.max(actionIntensity, this.state === 'thinking' ? 0.7 : 0) : 0).toFixed(3));
         this.avatarLayer.dataset.state = this.state;
+        this.avatarLayer.dataset.action = behavior.action || 'none';
+        this.avatarLayer.dataset.expression = behavior.expression || this.getExpressionForState(this.state);
+        this.syncCreatureMouthRig(pose);
+    }
+
+    syncCreatureMouthRig(pose = this.creatureMouthShape) {
+        if (!this.avatarLayer || !this.isCreatureAvatar()) return;
+        const rig = this.avatarLayer.querySelector('.mouth-rig');
+        if (!rig) return;
+        rig.dataset.mouthPose = pose || 'closed';
     }
 
     getCreatureAvatarMarkup(form) {
-        if (form === 'axel') return this.getAxelAvatarMarkup();
         if (form === 'wisp') return this.getWispAvatarMarkup();
+        if (form === 'eve') return this.getEveAvatarMarkup();
         return this.getNovaAvatarMarkup();
     }
 
@@ -1084,7 +1495,19 @@ class JarvisHUD {
                     <circle class="eye-gloss big" cx="39" cy="-42" r="6"/>
                     <circle class="eye-gloss small" cx="52" cy="-23" r="3"/>
                 </g>
-                <path class="creature-mouth" d="M-14 17 Q0 31 14 17"/>
+                ${this.getOrganicMouthRigMarkup()}
+            </g>`;
+    }
+
+    getOrganicMouthRigMarkup() {
+        return `
+            <g class="mouth-rig organic-mouth" data-mouth-pose="closed">
+                <ellipse class="mouth-shadow" cx="0" cy="22" rx="26" ry="6.5"/>
+                <ellipse class="mouth-cavity" cx="0" cy="22" rx="20" ry="8"/>
+                <path class="mouth-tongue" d="M-12 26 C-5 32 8 32 14 26 C8 23 -7 23 -12 26Z"/>
+                <path class="mouth-upper-lip" d="M-22 18 C-10 12 10 12 22 18"/>
+                <path class="mouth-lower-lip" d="M-22 19 C-10 31 10 31 22 19"/>
+                <path class="mouth-closed-line" d="M-20 18 C-8 23 8 23 20 18"/>
             </g>`;
     }
 
@@ -1128,48 +1551,127 @@ class JarvisHUD {
             </svg>`;
     }
 
+    getEveAvatarMarkup() {
+        return `
+            <svg class="creature-svg eve-svg" viewBox="-230 -245 460 500" role="img" aria-label="EVE avatar">
+                <defs>
+                    <filter id="eve-glow" x="-80%" y="-80%" width="260%" height="260%">
+                        <feGaussianBlur stdDeviation="6" result="blur"/>
+                        <feColorMatrix in="blur" type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 1.5 0" result="glow"/>
+                        <feMerge><feMergeNode in="glow"/><feMergeNode in="SourceGraphic"/></feMerge>
+                    </filter>
+                    <radialGradient id="eve-body" cx="38%" cy="28%" r="80%">
+                        <stop offset="0%" stop-color="#ffffff" stop-opacity="0.99"/>
+                        <stop offset="52%" stop-color="#eef3ff" stop-opacity="0.95"/>
+                        <stop offset="100%" stop-color="var(--creature-secondary)" stop-opacity="0.40"/>
+                    </radialGradient>
+                </defs>
+                <g class="creature-shadow"><ellipse cx="0" cy="248" rx="92" ry="13"/></g>
+                <g class="eve-ground">
+                    <ellipse class="eve-ring" cx="0" cy="246" rx="120" ry="17"/>
+                    <ellipse class="eve-ring" cx="0" cy="249" rx="74" ry="10"/>
+                </g>
+                <g class="creature-float">
+                    <g class="eve-arms" filter="url(#eve-glow)">
+                        <ellipse class="creature-body eve-arm" cx="-112" cy="80" rx="17" ry="47" transform="rotate(-12 -112 80)"/>
+                        <ellipse class="creature-body eve-arm" cx="112" cy="80" rx="17" ry="47" transform="rotate(12 112 80)"/>
+                    </g>
+                    <path class="creature-body eve-body" filter="url(#eve-glow)" d="M0,-50 C46,-50 72,2 76,68 C80,142 50,222 0,222 C-50,222 -80,142 -76,68 C-72,2 -46,-50 0,-50 Z"/>
+                    <ellipse class="eve-sheen" cx="-30" cy="22" rx="30" ry="48" transform="rotate(-18 -30 22)"/>
+                    <path class="eve-seam" d="M-58,152 Q0,172 58,152"/>
+                    <g class="eve-head-grp">
+                        <ellipse class="creature-body eve-head" filter="url(#eve-glow)" cx="0" cy="-138" rx="90" ry="64"/>
+                        <ellipse class="eve-sheen" cx="-36" cy="-168" rx="26" ry="14" transform="rotate(-22 -36 -168)"/>
+                        <ellipse class="eve-face" cx="0" cy="-136" rx="78" ry="52"/>
+                        <g class="eve-eyes">
+                            <g class="eve-eye-blink">
+                                <ellipse class="eve-eye" cx="-31" cy="-138" rx="14" ry="18" transform="rotate(11 -31 -138)"/>
+                                <ellipse class="eve-eye" cx="31" cy="-138" rx="14" ry="18" transform="rotate(-11 31 -138)"/>
+                                <circle class="eve-eye-shine" cx="-33" cy="-146" r="5"/>
+                                <circle class="eve-eye-shine" cx="33" cy="-146" r="5"/>
+                                <circle class="eve-eye-shine sm" cx="-24" cy="-130" r="2.6"/>
+                                <circle class="eve-eye-shine sm" cx="24" cy="-130" r="2.6"/>
+                            </g>
+                        </g>
+                        <g class="mouth-rig eve-mouth-rig" data-mouth-pose="closed">
+                            <rect class="eve-mouth-back" x="-32" y="-109" width="64" height="13" rx="6"/>
+                            <rect class="eve-mouth-core" x="-21" y="-106" width="42" height="8" rx="4"/>
+                            <rect class="eve-mouth-bar left" x="-29" y="-104" width="10" height="5" rx="2.5"/>
+                            <rect class="eve-mouth-bar mid" x="-6" y="-104" width="12" height="5" rx="2.5"/>
+                            <rect class="eve-mouth-bar right" x="19" y="-104" width="10" height="5" rx="2.5"/>
+                        </g>
+                    </g>
+                </g>
+            </svg>`;
+    }
+
     getAxelAvatarMarkup() {
         return `
-            <svg class="creature-svg axel-svg" viewBox="-230 -245 460 500" role="img" aria-label="Axel avatar">
+            <svg class="creature-svg axel-svg" viewBox="-330 -300 660 620" role="img" aria-label="Axel avatar">
                 ${this.getCreatureDefs('axel')}
-                <g class="creature-shadow"><ellipse cx="0" cy="190" rx="118" ry="18"/></g>
+                <defs>
+                    <linearGradient id="axel-red-armor" x1="15%" y1="0%" x2="85%" y2="100%">
+                        <stop offset="0%" stop-color="#ff6547"/>
+                        <stop offset="42%" stop-color="#b91925"/>
+                        <stop offset="100%" stop-color="#470812"/>
+                    </linearGradient>
+                    <linearGradient id="axel-gold-plate" x1="18%" y1="0%" x2="82%" y2="100%">
+                        <stop offset="0%" stop-color="#fff0a4"/>
+                        <stop offset="36%" stop-color="#f0b13e"/>
+                        <stop offset="72%" stop-color="#9b5416"/>
+                        <stop offset="100%" stop-color="#4b2107"/>
+                    </linearGradient>
+                    <linearGradient id="axel-dark-glass" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stop-color="#091523"/>
+                        <stop offset="55%" stop-color="#02050b"/>
+                        <stop offset="100%" stop-color="#0b1726"/>
+                    </linearGradient>
+                    <radialGradient id="axel-reactor-glow" cx="50%" cy="50%" r="58%">
+                        <stop offset="0%" stop-color="#ffffff"/>
+                        <stop offset="30%" stop-color="#a8fbff"/>
+                        <stop offset="72%" stop-color="#13ccff" stop-opacity="0.52"/>
+                        <stop offset="100%" stop-color="#13ccff" stop-opacity="0"/>
+                    </radialGradient>
+                    <filter id="axel-cyan-glow" x="-80%" y="-80%" width="260%" height="260%">
+                        <feGaussianBlur stdDeviation="8" result="blur"/>
+                        <feColorMatrix in="blur" type="matrix" values="0 0 0 0 0.03  0 0 0 0 0.84  0 0 0 0 1  0 0 0 1.55 0" result="glow"/>
+                        <feMerge><feMergeNode in="glow"/><feMergeNode in="SourceGraphic"/></feMerge>
+                    </filter>
+                </defs>
+                <g class="creature-shadow"><ellipse cx="0" cy="286" rx="218" ry="28"/></g>
+                <g class="axel-ground">
+                    <ellipse class="axel-hover-ring" cx="0" cy="286" rx="158" ry="13"/>
+                    <ellipse class="axel-hover-ring wide" cx="0" cy="286" rx="218" ry="28"/>
+                </g>
                 <g class="creature-float">
-                    <g class="axel-ears" filter="url(#axel-glow)">
-                        <path class="glass-part axel-v-fin left" d="M-28 -112 L-116 -196 L-82 -118 Z"/>
-                        <path class="glass-part axel-v-fin right" d="M28 -112 L116 -196 L82 -118 Z"/>
-                        <path class="glass-part axel-v-fin outer-left" d="M-70 -105 L-176 -154 L-103 -101 Z"/>
-                        <path class="glass-part axel-v-fin outer-right" d="M70 -105 L176 -154 L103 -101 Z"/>
-                        <path class="axel-fin-cut left" d="M-38 -121 L-95 -174 L-70 -121 Z"/>
-                        <path class="axel-fin-cut right" d="M38 -121 L95 -174 L70 -121 Z"/>
-                        <path class="axel-fin-edge left" d="M-34 -116 L-103 -184"/>
-                        <path class="axel-fin-edge right" d="M34 -116 L103 -184"/>
-                        <path class="axel-crest" d="M0 -128 L18 -92 L0 -78 L-18 -92 Z"/>
+                    <g class="axel-mech-head" filter="url(#axel-glow)">
+                        <path class="axel-red-shell" d="M-263 -78 L-214 -184 L-118 -240 L-62 -256 L-26 -218 L26 -218 L62 -256 L118 -240 L214 -184 L263 -78 L235 126 L150 241 L43 279 L0 252 L-43 279 L-150 241 L-235 126Z"/>
+                        <path class="axel-under-shell" d="M-219 -62 L-165 -156 L-78 -205 L-24 -214 L0 -185 L24 -214 L78 -205 L165 -156 L219 -62 L203 93 L129 196 L40 229 L0 204 L-40 229 L-129 196 L-203 93Z"/>
+                        <path class="axel-gold-plate axel-brow-plate" d="M-136 -196 L-53 -230 L-18 -190 L18 -190 L53 -230 L136 -196 L96 -118 L36 -90 L0 -106 L-36 -90 L-96 -118Z"/>
+                        <path class="axel-visor" d="M-202 -57 L-132 -123 L-49 -139 L0 -124 L49 -139 L132 -123 L202 -57 L177 8 L86 43 L0 29 L-86 43 L-177 8Z"/>
                     </g>
-                    <g class="axel-limbs" filter="url(#axel-glow)">
-                        <ellipse class="glass-part axel-arm left" cx="-86" cy="93" rx="26" ry="52" transform="rotate(24 -86 93)"/>
-                        <ellipse class="glass-part axel-arm right" cx="86" cy="93" rx="26" ry="52" transform="rotate(-24 86 93)"/>
-                        <ellipse class="glass-part axel-leg left" cx="-45" cy="159" rx="32" ry="47" transform="rotate(10 -45 159)"/>
-                        <ellipse class="glass-part axel-leg right" cx="45" cy="159" rx="32" ry="47" transform="rotate(-10 45 159)"/>
+                    <g class="axel-eyes">
+                        <g class="axel-eye-blink">
+                            <path class="axel-eye" d="M-177 -44 L-102 -82 L-43 -79 L-67 -43 L-157 -20Z"/>
+                            <path class="axel-eye" d="M177 -44 L102 -82 L43 -79 L67 -43 L157 -20Z"/>
+                            <path class="axel-eye-shine" d="M-165 -42 L-99 -68 L-58 -65M165 -42 L99 -68 L58 -65"/>
+                        </g>
                     </g>
-                    <path class="creature-body axel-torso" filter="url(#axel-glow)" d="M-70 61 C-55 23 55 23 70 61 C84 113 55 161 0 170 C-55 161 -84 113 -70 61Z"/>
-                    <path class="creature-body axel-head" filter="url(#axel-glow)" d="M-104 -82 C-75 -128 75 -128 104 -82 L117 -30 C112 29 70 62 0 66 C-70 62 -112 29 -117 -30Z"/>
-                    <path class="axel-helmet-rim" d="M-107 -78 L-66 -111 L0 -119 L66 -111 L107 -78"/>
-                    <path class="axel-forehead-plate" d="M-47 -91 L0 -112 L47 -91 L31 -69 L0 -78 L-31 -69Z"/>
-                    <path class="axel-face-plate" d="M-96 -58 C-68 -88 68 -88 96 -58 C78 -22 45 -6 0 -5 C-45 -6 -78 -22 -96 -58Z"/>
-                    <path class="axel-cheek-plate left" d="M-98 -10 L-55 16 L-24 7 L-54 42 L-88 29Z"/>
-                    <path class="axel-cheek-plate right" d="M98 -10 L55 16 L24 7 L54 42 L88 29Z"/>
-                    <path class="axel-vent left" d="M-70 18 L-51 27 M-82 29 L-61 39"/>
-                    <path class="axel-vent right" d="M70 18 L51 27 M82 29 L61 39"/>
-                    <g class="axel-dash-eyes">
-                        <path class="axel-eye-dash left" d="M-74 -44 C-60 -50 -38 -48 -23 -39 C-21 -35 -24 -31 -31 -31 L-69 -27 C-79 -28 -83 -39 -74 -44Z"/>
-                        <path class="axel-eye-dash right" d="M74 -44 C60 -50 38 -48 23 -39 C21 -35 24 -31 31 -31 L69 -27 C79 -28 83 -39 74 -44Z"/>
+                    <path class="axel-gold-plate axel-cheek left" d="M-168 21 L-95 64 L-49 58 L-73 126 L-150 107Z"/>
+                    <path class="axel-gold-plate axel-cheek right" d="M168 21 L95 64 L49 58 L73 126 L150 107Z"/>
+                    <path class="axel-gold-plate axel-jaw" d="M-91 54 L-38 80 L38 80 L91 54 L67 154 L28 190 L0 175 L-28 190 L-67 154Z"/>
+                    <path class="axel-jaw-lines" d="M-49 114H49M-38 146H38M0 80V174"/>
+                    <path class="creature-mouth axel-mouth" d="M-43 118 H43"/>
+                    <g class="creature-core axel-reactor" filter="url(#axel-cyan-glow)">
+                        <circle class="axel-reactor-aura" cx="0" cy="216" r="82"/>
+                        <circle class="axel-reactor-ring" cx="0" cy="216" r="38"/>
+                        <circle class="axel-reactor-light" cx="0" cy="216" r="24"/>
+                        <path class="axel-reactor-bracket" d="M-74 202 L-41 178M74 202 L41 178M-68 235 L-34 248M68 235 L34 248"/>
                     </g>
-                    <path class="creature-mouth axel-mouth" d="M-15 18 Q0 31 15 18"/>
-                    <path class="axel-chest-plate left" d="M-63 63 L-13 76 L-31 105 L-73 94Z"/>
-                    <path class="axel-chest-plate right" d="M63 63 L13 76 L31 105 L73 94Z"/>
-                    <path class="armor-line" d="M-58 72 C-29 52 29 52 58 72"/>
-                    <path class="armor-line" d="M-46 120 C-22 106 22 106 46 120"/>
-                    ${this.getCreatureCoreMarkup('axel', 71, 29)}
+                    <path class="axel-side-trace" d="M-242 -65 L-307 -28 L-281 51 L-229 73M242 -65 L307 -28 L281 51 L229 73"/>
+                    <path class="axel-top-trace" d="M-228 -119 L-297 -162M228 -119 L297 -162"/>
+                    <path class="axel-crown-trace" d="M-137 -223 L-162 -267M137 -223 L162 -267"/>
+                    <path class="axel-panel-line" d="M-226 93 L-260 161 L-201 139M226 93 L260 161 L201 139M-118 -174 L-195 -94M118 -174 L195 -94M-140 210 L-91 170M140 210 L91 170"/>
                 </g>
             </svg>`;
     }
