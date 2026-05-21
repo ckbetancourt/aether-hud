@@ -736,8 +736,7 @@ body {
 }
 
 .creature-body,
-.glass-part,
-.wisp-tail {
+.glass-part {
     fill: url(#nova-body);
     stroke: color-mix(in srgb, var(--creature-secondary) 72%, white 8%);
     stroke-width: 2.4;
@@ -750,8 +749,7 @@ body {
 }
 
 .wisp-svg .creature-body,
-.wisp-svg .glass-part,
-.wisp-svg .wisp-tail {
+.wisp-svg .glass-part {
     fill: url(#wisp-body);
 }
 
@@ -979,22 +977,6 @@ body {
     opacity: 0.94;
 }
 
-.wisp-tuft {
-    fill: url(#wisp-glass);
-    stroke: rgba(255, 255, 255, 0.62);
-    stroke-width: 2;
-    vector-effect: non-scaling-stroke;
-}
-
-.wisp-tail {
-    opacity: 0.88;
-    animation: wispTail 4.8s ease-in-out infinite;
-    transform-box: fill-box;
-    transform-origin: 20% 10%;
-}
-
-.wisp-ribbon,
-.wisp-tail-stream,
 .wisp-hem-glow {
     fill: none;
     stroke: color-mix(in srgb, var(--creature-secondary) 72%, white 18%);
@@ -1010,14 +992,6 @@ body {
     opacity: 0.42;
 }
 
-.wisp-tail-stream {
-    stroke-width: 2.2;
-    opacity: 0.48;
-    animation: wispTailStream 5.6s ease-in-out infinite;
-    transform-box: fill-box;
-    transform-origin: left center;
-}
-
 .wisp-sparks {
     fill: rgba(255, 255, 255, 0.7);
     opacity: 0.55;
@@ -1027,6 +1001,10 @@ body {
 
 .wisp-arm {
     opacity: 0.76;
+}
+
+.wisp-svg .cheek {
+    opacity: 0.55;
 }
 
 .wisp-svg .eye-shell {
@@ -1061,16 +1039,6 @@ body {
 @keyframes creatureEars {
     0%, 100% { transform: translateY(0) rotate(0deg); }
     50% { transform: translateY(calc(-4px - var(--creature-state-boost) * 8px)) rotate(1deg); }
-}
-
-@keyframes wispTail {
-    0%, 100% { transform: translate(0, 0) rotate(0deg); opacity: 0.72; }
-    50% { transform: translate(9px, -7px) rotate(-5deg); opacity: 0.92; }
-}
-
-@keyframes wispTailStream {
-    0%, 100% { transform: translate(0, 0) rotate(0deg); opacity: 0.32; }
-    50% { transform: translate(12px, -6px) rotate(-4deg); opacity: 0.62; }
 }
 
 @keyframes wispSparkle {

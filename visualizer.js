@@ -1180,13 +1180,9 @@ class JarvisHUD {
                 ${this.getCreatureDefs('wisp')}
                 <g class="creature-shadow"><ellipse cx="0" cy="235" rx="126" ry="19"/></g>
                 <g class="creature-float">
-                    <path class="wisp-tail" filter="url(#wisp-glow)" d="M-8 137 C23 171 10 213 -42 235 C8 245 55 226 63 185 C72 145 103 140 140 117 C93 132 44 129 -8 137Z"/>
-                    <path class="wisp-tail-stream" d="M-7 153 C31 191 20 227 -29 248 C28 242 43 209 58 181 C77 146 111 147 140 123"/>
-                    <path class="wisp-ribbon" d="M74 151 C100 169 133 159 164 132"/>
                     <path class="glass-part wisp-arm left" filter="url(#wisp-glow)" d="M-113 12 C-186 42 -177 115 -98 109 C-72 83 -77 35 -113 12Z"/>
                     <path class="glass-part wisp-arm right" filter="url(#wisp-glow)" d="M113 12 C186 42 177 115 98 109 C72 83 77 35 113 12Z"/>
                     <path class="creature-body wisp-body" filter="url(#wisp-glow)" d="M0 -151 C79 -151 132 -94 136 -18 C142 55 123 121 100 155 C76 144 56 154 39 176 C18 151 -7 151 -29 176 C-48 154 -70 144 -97 158 C-121 124 -139 57 -134 -18 C-128 -95 -79 -151 0 -151Z"/>
-                    <path class="wisp-tuft" d="M5 -151 C53 -216 96 -165 48 -97 C36 -119 22 -137 5 -151Z"/>
                     <path class="body-highlight" d="M-75 -91 C-32 -133 62 -126 91 -56"/>
                     <path class="wisp-hem-glow" d="M-96 145 C-74 132 -51 151 -29 176 C-8 152 18 152 39 176 C59 151 77 132 99 149"/>
                     <g class="wisp-sparks">
@@ -1198,8 +1194,8 @@ class JarvisHUD {
                         <circle cx="-33" cy="73" r="1.2"/>
                         <circle cx="36" cy="88" r="1.1"/>
                     </g>
-                    <ellipse class="cheek left" cx="-66" cy="46" rx="21" ry="13"/>
-                    <ellipse class="cheek right" cx="66" cy="46" rx="21" ry="13"/>
+                    <ellipse class="cheek left" cx="-68" cy="10" rx="22" ry="14"/>
+                    <ellipse class="cheek right" cx="68" cy="10" rx="22" ry="14"/>
                     ${this.getCreatureEyesMarkup()}
                     ${this.getCreatureCoreMarkup('wisp', 73, 31)}
                 </g>
