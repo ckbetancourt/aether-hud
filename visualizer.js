@@ -59,6 +59,82 @@ class JarvisHUD {
         this.stretchY = 1.0;
         this.morphPhase = 0;
         this.activationTick = 0;
+        this.blobCoreShimmer = 0;
+        this.blobRingPulse = 0;
+        this.blobLaserBoost = 0;
+        this._speechPlaybackActive = false;
+        this._lastThinkingSweepAt = 0;
+        this.stageMotion = { x: 0, y: 0, rotate: 0, scale: 1 };
+        this._stageRoamSeed = Math.random() * Math.PI * 2;
+
+        this.postTalkVariants = [
+            { id: 'pt-stage-soft-return', layer: 'stage', intensity: 'subtle', weight: 1.5, durationScale: 0.88 },
+            { id: 'pt-stage-glide', layer: 'stage', intensity: 'subtle', weight: 1.3, durationScale: 0.92 },
+            { id: 'pt-stage-drift-up', layer: 'stage', intensity: 'subtle', weight: 1.2, durationScale: 0.9 },
+            { id: 'pt-stage-hop', layer: 'stage', intensity: 'dynamic', weight: 1.1, durationScale: 1.05 },
+            { id: 'pt-stage-spiral', layer: 'stage', intensity: 'dynamic', weight: 1.0, durationScale: 1.08 },
+            { id: 'pt-stage-slide', layer: 'stage', intensity: 'dynamic', weight: 1.0, durationScale: 1.06 },
+            { id: 'pt-stage-orbit', layer: 'stage', intensity: 'dynamic', weight: 1.0, durationScale: 1.1 },
+            { id: 'pt-stage-arc', layer: 'stage', intensity: 'dynamic', weight: 0.95, durationScale: 1.12 },
+            { id: 'pt-stage-bounce', layer: 'stage', intensity: 'dynamic', weight: 0.9, durationScale: 1.04 },
+            { id: 'pt-body-soft-settle', layer: 'body', target: 'float', intensity: 'subtle', weight: 1.6, forms: ['nova', 'wisp', 'eve'], durationScale: 0.9 },
+            { id: 'pt-body-gentle-sway', layer: 'body', target: 'float', intensity: 'subtle', weight: 1.4, forms: ['nova', 'wisp', 'eve'], durationScale: 0.92 },
+            { id: 'pt-body-exhale', layer: 'body', target: 'float', intensity: 'subtle', weight: 1.3, forms: ['nova', 'wisp', 'eve'], durationScale: 0.88 },
+            { id: 'pt-body-bounce-roam', layer: 'body', target: 'float', intensity: 'dynamic', weight: 1.2, forms: ['nova', 'wisp', 'eve'], durationScale: 1.05 },
+            { id: 'pt-body-spiral-lift', layer: 'body', target: 'float', intensity: 'dynamic', weight: 1.1, forms: ['wisp', 'nova'], durationScale: 1.08 },
+            { id: 'pt-body-sway-wide', layer: 'body', target: 'float', intensity: 'dynamic', weight: 1.0, forms: ['nova', 'eve'], durationScale: 1.06 },
+            { id: 'pt-body-power-dip', layer: 'body', target: 'float', intensity: 'dynamic', weight: 1.0, forms: ['eve'], durationScale: 1.04 },
+            { id: 'pt-body-triple-bob', layer: 'body', target: 'float', intensity: 'dynamic', weight: 0.95, forms: ['nova', 'wisp'], durationScale: 1.02 },
+            { id: 'pt-accent-cheek-fade', layer: 'accent', target: 'cheeks', intensity: 'subtle', weight: 1.2, forms: ['nova'], durationScale: 0.9 },
+            { id: 'pt-accent-ear-droop', layer: 'accent', target: 'ears', intensity: 'subtle', weight: 1.1, forms: ['nova'], durationScale: 0.92 },
+            { id: 'pt-accent-glow-fade', layer: 'accent', target: 'core', intensity: 'subtle', weight: 1.3, forms: ['nova', 'wisp', 'eve'], durationScale: 0.88 },
+            { id: 'pt-accent-limb-loosen', layer: 'accent', target: 'limbs', intensity: 'subtle', weight: 1.0, forms: ['nova'], durationScale: 0.9 },
+            { id: 'pt-accent-spark-trail', layer: 'accent', target: 'sparks', intensity: 'dynamic', weight: 1.2, forms: ['wisp'], durationScale: 1.05 },
+            { id: 'pt-accent-spark-burst', layer: 'accent', target: 'sparks', intensity: 'dynamic', weight: 0.9, forms: ['wisp'], durationScale: 1.0 },
+            { id: 'pt-accent-visor-dim', layer: 'accent', target: 'eyes', intensity: 'subtle', weight: 1.2, forms: ['eve'], durationScale: 0.9 },
+            { id: 'pt-accent-head-lower', layer: 'accent', target: 'head', intensity: 'dynamic', weight: 1.1, forms: ['eve'], durationScale: 1.04 },
+            { id: 'pt-accent-ring-collapse', layer: 'accent', target: 'ground', intensity: 'dynamic', weight: 1.0, forms: ['eve'], durationScale: 1.02 },
+            { id: 'pt-accent-arm-tuck', layer: 'accent', target: 'arms', intensity: 'subtle', weight: 1.0, forms: ['eve'], durationScale: 0.92 },
+            { id: 'pt-blob-soft-sigh', layer: 'blob', target: 'blob', intensity: 'subtle', weight: 1.4, forms: ['classic-blob'], durationScale: 0.9 },
+            { id: 'pt-blob-web-fade', layer: 'blob', target: 'blob', intensity: 'subtle', weight: 1.2, forms: ['classic-blob'], durationScale: 0.92 },
+            { id: 'pt-blob-ring-pulse', layer: 'blob', target: 'blob', intensity: 'dynamic', weight: 1.1, forms: ['classic-blob'], durationScale: 1.05 },
+            { id: 'pt-blob-orbit-compress', layer: 'blob', target: 'blob', intensity: 'dynamic', weight: 1.0, forms: ['classic-blob'], durationScale: 1.08 },
+        ];
+
+        this.thinkingVariants = [
+            { id: 'th-stage-orbit', layer: 'stage', intensity: 'subtle', weight: 1.4 },
+            { id: 'th-stage-figure-eight', layer: 'stage', intensity: 'subtle', weight: 1.2 },
+            { id: 'th-stage-pendulum', layer: 'stage', intensity: 'subtle', weight: 1.15 },
+            { id: 'th-stage-slow-scan', layer: 'stage', intensity: 'subtle', weight: 1.1 },
+            { id: 'th-stage-spiral-drift', layer: 'stage', intensity: 'dynamic', weight: 1.05 },
+            { id: 'th-stage-bob-weave', layer: 'stage', intensity: 'dynamic', weight: 1.0 },
+            { id: 'th-stage-wide-sweep', layer: 'stage', intensity: 'dynamic', weight: 0.95 },
+            { id: 'th-stage-orbit-fast', layer: 'stage', intensity: 'dynamic', weight: 0.9 },
+            { id: 'th-body-soft-drift', layer: 'body', target: 'float', intensity: 'subtle', weight: 1.5, forms: ['nova', 'wisp', 'eve'] },
+            { id: 'th-body-gentle-pulse', layer: 'body', target: 'float', intensity: 'subtle', weight: 1.3, forms: ['nova', 'wisp', 'eve'] },
+            { id: 'th-body-compute-rock', layer: 'body', target: 'float', intensity: 'subtle', weight: 1.2, forms: ['nova', 'eve'] },
+            { id: 'th-body-wide-orbit', layer: 'body', target: 'float', intensity: 'dynamic', weight: 1.2, forms: ['nova', 'wisp', 'eve'] },
+            { id: 'th-body-agitated-bob', layer: 'body', target: 'float', intensity: 'dynamic', weight: 1.1, forms: ['nova', 'wisp'] },
+            { id: 'th-body-nova-roam', layer: 'body', target: 'float', intensity: 'dynamic', weight: 1.0, forms: ['nova'] },
+            { id: 'th-body-wisp-swirl', layer: 'body', target: 'float', intensity: 'dynamic', weight: 1.0, forms: ['wisp'] },
+            { id: 'th-body-eve-hover', layer: 'body', target: 'float', intensity: 'subtle', weight: 1.0, forms: ['eve'] },
+            { id: 'th-accent-nova-hum', layer: 'accent', target: 'nova-hum', intensity: 'subtle', weight: 1.2, forms: ['nova'] },
+            { id: 'th-accent-ear-scan', layer: 'accent', target: 'ears', intensity: 'dynamic', weight: 1.1, forms: ['nova'] },
+            { id: 'th-accent-limb-twitch', layer: 'accent', target: 'limbs', intensity: 'dynamic', weight: 0.95, forms: ['nova'] },
+            { id: 'th-accent-cheek-glow', layer: 'accent', target: 'cheeks', intensity: 'subtle', weight: 1.0, forms: ['nova'] },
+            { id: 'th-accent-spark-hum', layer: 'accent', target: 'sparks', intensity: 'subtle', weight: 1.2, forms: ['wisp'] },
+            { id: 'th-accent-spark-orbit', layer: 'accent', target: 'sparks', intensity: 'dynamic', weight: 1.0, forms: ['wisp'] },
+            { id: 'th-accent-hem-ripple', layer: 'accent', target: 'hem', intensity: 'subtle', weight: 1.0, forms: ['wisp'] },
+            { id: 'th-accent-eve-hum', layer: 'accent', target: 'eve-hum', intensity: 'subtle', weight: 1.2, forms: ['eve'] },
+            { id: 'th-accent-visor-sweep', layer: 'accent', target: 'eyes', intensity: 'dynamic', weight: 1.1, forms: ['eve'] },
+            { id: 'th-accent-ring-spin', layer: 'accent', target: 'ground', intensity: 'dynamic', weight: 1.0, forms: ['eve'] },
+            { id: 'th-accent-arm-fold-pulse', layer: 'accent', target: 'arms', intensity: 'subtle', weight: 0.95, forms: ['eve'] },
+            { id: 'th-accent-core-flare', layer: 'accent', target: 'core', intensity: 'subtle', weight: 1.1, forms: ['nova', 'wisp', 'eve'] },
+            { id: 'th-blob-web-pulse', layer: 'blob', target: 'blob', intensity: 'subtle', weight: 1.3, forms: ['classic-blob'] },
+            { id: 'th-blob-lobe-surge', layer: 'blob', target: 'blob', intensity: 'dynamic', weight: 1.1, forms: ['classic-blob'] },
+            { id: 'th-blob-scan-sweep', layer: 'blob', target: 'blob', intensity: 'dynamic', weight: 1.0, forms: ['classic-blob'] },
+            { id: 'th-blob-node-dance', layer: 'blob', target: 'blob', intensity: 'dynamic', weight: 0.95, forms: ['classic-blob'] },
+        ];
 
         this.accentTheme = {
             primary: '#ff4436',
@@ -74,6 +150,37 @@ class JarvisHUD {
         this.avatarForm = 'classic-blob';
         this.speechCue = null;
         this.avatarBehaviorProfiles = {
+            'classic-blob': {
+                idleActionRange: [3500, 7500],
+                thinkingActionRange: [800, 1800],
+                speakingActionRange: [500, 1200],
+                postTalkAction: 'settle-sigh',
+                postTalkDuration: 4200,
+                stageRoam: { thinkAmp: 1.15, thinkSpeed: 0.92, thinkRotate: 0.6 },
+                idleActions: [
+                    ['soft-pulse', 1.6],
+                    ['lobe-drift', 1.4],
+                    ['web-flicker', 1.2],
+                    ['core-shimmer', 1.0],
+                    ['ring-tick', 0.8],
+                    ['settle-sigh', 1.1],
+                    ['orbit-wobble', 1.3],
+                    ['node-cluster', 1.1],
+                    ['halo-breathe', 1.4],
+                ],
+                thinkingActions: [
+                    ['web-surge', 1.8],
+                    ['scan-sweep', 1.5],
+                    ['lobe-compute', 1.6],
+                    ['soft-pulse', 1.4],
+                    ['node-cluster', 1.3],
+                    ['halo-breathe', 1.2],
+                ],
+                speakingActions: [
+                    ['rim-flare', 1.6],
+                    ['micro-pulse', 1.2],
+                ],
+            },
             nova: {
                 blinkRange: [70, 165],
                 doubleBlinkChance: 0.22,
@@ -82,14 +189,34 @@ class JarvisHUD {
                 mouthScale: 1.15,
                 roundScale: 1,
                 speechGlowScale: 1,
-                idleActionRange: [5200, 10800],
-                actions: [
+                idleActionRange: [3500, 7500],
+                thinkingActionRange: [800, 1800],
+                speakingActionRange: [500, 1200],
+                postTalkAction: 'exhale-settle',
+                postTalkDuration: 3200,
+                stageRoam: { thinkAmp: 1.05, thinkSpeed: 1.08, thinkRotate: 1.15 },
+                idleActions: [
                     ['glance', 1.8],
                     ['ear-perk', 1.6],
                     ['bounce', 1.25],
                     ['cheek-pulse', 1.25],
                     ['arm-wiggle', 1],
                     ['double-blink', 1.2],
+                    ['tail-swish', 1.3],
+                    ['stretch-yawn', 1.1],
+                    ['look-around', 1.4],
+                ],
+                thinkingActions: [
+                    ['ear-flick', 1.7],
+                    ['weight-shift', 1.5],
+                    ['paw-tap', 1.3],
+                    ['look-around', 1.4],
+                    ['ear-perk', 1.2],
+                    ['glance', 1.1],
+                ],
+                speakingActions: [
+                    ['nod-beat', 1.5],
+                    ['ear-twitch', 1.2],
                 ],
             },
             wisp: {
@@ -100,13 +227,32 @@ class JarvisHUD {
                 mouthScale: 0.88,
                 roundScale: 0.82,
                 speechGlowScale: 1.25,
-                idleActionRange: [6500, 12500],
-                actions: [
+                idleActionRange: [3500, 7500],
+                thinkingActionRange: [800, 1800],
+                speakingActionRange: [500, 1200],
+                postTalkAction: 'spark-fade',
+                postTalkDuration: 3400,
+                stageRoam: { thinkAmp: 1.2, thinkSpeed: 1.18, thinkRotate: 1.35 },
+                idleActions: [
                     ['spark-burst', 2.1],
                     ['slow-swirl', 1.4],
                     ['hem-wave', 1.35],
                     ['shy-blink', 1.25],
                     ['glow-pulse', 1.5],
+                    ['float-drift', 1.3],
+                    ['spark-trail', 1.2],
+                    ['hem-flutter', 1.15],
+                ],
+                thinkingActions: [
+                    ['swirl-think', 1.7],
+                    ['dim-gather', 1.4],
+                    ['spark-orbit', 1.5],
+                    ['hem-flutter', 1.2],
+                    ['glow-pulse', 1.3],
+                    ['float-drift', 1.1],
+                ],
+                speakingActions: [
+                    ['spark-accent', 1.6],
                 ],
             },
             eve: {
@@ -117,17 +263,44 @@ class JarvisHUD {
                 mouthScale: 0.78,
                 roundScale: 0.35,
                 speechGlowScale: 1.45,
-                idleActionRange: [5600, 11800],
-                actions: [
+                idleActionRange: [3500, 7500],
+                thinkingActionRange: [800, 1800],
+                speakingActionRange: [500, 1200],
+                postTalkAction: 'power-down',
+                postTalkDuration: 3600,
+                stageRoam: { thinkAmp: 0.95, thinkSpeed: 0.88, thinkRotate: 0.75 },
+                idleActions: [
                     ['head-tilt', 1.8],
                     ['visor-scan', 1.8],
                     ['ring-calibrate', 1.4],
                     ['arm-adjust', 1],
                     ['focus-squint', 1.1],
+                    ['shoulder-roll', 1.3],
+                    ['visor-blink', 1.2],
+                    ['ring-spin', 1.15],
+                    ['gyro-wobble', 1.5],
+                    ['pedestal-hum', 1.4],
+                    ['stabilizer-kick', 1.2],
+                    ['visor-flare', 1.3],
+                    ['sync-tick', 1.1],
+                ],
+                thinkingActions: [
+                    ['calibrate', 1.7],
+                    ['scan-pulse', 1.6],
+                    ['arm-fold', 1.3],
+                    ['gyro-spin', 1.8],
+                    ['data-stream', 1.6],
+                    ['head-tilt', 1.4],
+                    ['visor-scan', 1.3],
+                    ['ring-calibrate', 1.2],
+                ],
+                speakingActions: [
+                    ['bar-flash', 1.5],
+                    ['ring-echo', 1.2],
                 ],
             },
         };
-        this.avatarBehavior = this.createAvatarBehavior('nova');
+        this.avatarBehavior = this.createAvatarBehavior(this.avatarForm);
         this.creatureBlinkTimer = this.randomInRange(40, 120);
         this.creatureBlinkAmount = 0;
         this.creatureEyeDrift = { x: 0, y: 0 };
@@ -209,23 +382,413 @@ class JarvisHUD {
         return this.avatarBehaviorProfiles?.[form] || this.avatarBehaviorProfiles?.nova || null;
     }
 
+    getProfileActionsForState(state = this.state, profile = this.getAvatarBehaviorProfile()) {
+        if (state === 'thinking') return profile?.thinkingActions || [];
+        if (state === 'speaking') return profile?.speakingActions || [];
+        return profile?.idleActions || profile?.actions || [];
+    }
+
+    getActionRangeForState(state = this.state, profile = this.getAvatarBehaviorProfile()) {
+        if (state === 'thinking') return profile?.thinkingActionRange || [800, 1800];
+        if (state === 'speaking') return profile?.speakingActionRange || [500, 1200];
+        return profile?.idleActionRange || [3500, 7500];
+    }
+
+    markSpeechPlaybackStarted() {
+        this._speechPlaybackActive = true;
+    }
+
+    enterPostTalk() {
+        if (this.state === 'post-talk') return;
+        if (!this._speechPlaybackActive && this.state !== 'speaking') return;
+        this._speechPlaybackActive = false;
+        this.setState('post-talk');
+    }
+
+    getStageRoamScale(w, h) {
+        return Math.min(w, h) * 0.24;
+    }
+
+    getThinkingStageTarget(form = this.avatarForm, stageId = null) {
+        const profile = this.getAvatarBehaviorProfile(form);
+        const roam = profile?.stageRoam || { thinkAmp: 1, thinkSpeed: 1, thinkRotate: 1 };
+        const seed = this._stageRoamSeed;
+        const t = this.time;
+        const amp = roam.thinkAmp || 1;
+        const speed = roam.thinkSpeed || 1;
+        const rot = roam.thinkRotate || 1;
+        const id = stageId || this.avatarBehavior?.thinkingLayers?.stage || 'th-stage-orbit';
+
+        switch (id) {
+            case 'th-stage-figure-eight':
+                return {
+                    x: (Math.sin(t * 0.48 * speed + seed) * 0.95 + Math.cos(t * 0.24 * speed) * 0.18) * amp,
+                    y: (Math.sin(t * 0.96 * speed + seed * 0.8) * 0.58) * amp,
+                    rotate: Math.sin(t * 0.35 * speed) * 8 * rot,
+                    scale: 1 + Math.sin(t * 0.6 * speed) * 0.04 * amp,
+                };
+            case 'th-stage-pendulum':
+                return {
+                    x: Math.sin(t * 0.38 * speed + seed) * 1.12 * amp,
+                    y: Math.cos(t * 0.22 * speed + seed * 0.5) * 0.18 * amp,
+                    rotate: Math.sin(t * 0.38 * speed + seed) * 5 * rot,
+                    scale: 1 + Math.cos(t * 0.45 * speed) * 0.025,
+                };
+            case 'th-stage-slow-scan':
+                return {
+                    x: (Math.sin(t * 0.28 * speed + seed) * 1.05 + Math.sin(t * 0.09 * speed) * 0.35) * amp,
+                    y: Math.cos(t * 0.18 * speed) * 0.22 * amp,
+                    rotate: Math.sin(t * 0.2 * speed) * 4 * rot,
+                    scale: 1 + Math.sin(t * 0.35 * speed) * 0.02,
+                };
+            case 'th-stage-spiral-drift':
+                return {
+                    x: Math.sin(t * 0.62 * speed + seed) * (0.72 + Math.sin(t * 0.15 * speed) * 0.28) * amp,
+                    y: Math.cos(t * 0.58 * speed + seed * 1.1) * (0.68 + Math.cos(t * 0.12 * speed) * 0.24) * amp,
+                    rotate: (Math.sin(t * 0.5 * speed) * 12 + t * 2.8 * rot) ,
+                    scale: 1 + Math.sin(t * 0.85 * speed) * 0.05 * amp,
+                };
+            case 'th-stage-bob-weave':
+                return {
+                    x: (Math.sin(t * 0.44 * speed + seed) * 0.82 + Math.sin(t * 1.6 * speed) * 0.22) * amp,
+                    y: (Math.sin(t * 0.88 * speed + seed) * 0.62 + Math.cos(t * 1.3 * speed) * 0.28) * amp,
+                    rotate: Math.sin(t * 0.52 * speed) * 12 * rot,
+                    scale: 1 + Math.abs(Math.sin(t * 1.1 * speed)) * 0.055 * amp,
+                };
+            case 'th-stage-wide-sweep':
+                return {
+                    x: (Math.sin(t * 0.35 * speed + seed) * 1.18 + Math.sin(t * 0.72 * speed + seed * 1.3) * 0.48) * amp,
+                    y: (Math.cos(t * 0.41 * speed + seed * 0.7) * 0.88 + Math.sin(t * 0.29 * speed) * 0.32) * amp,
+                    rotate: (Math.sin(t * 0.34 * speed) * 10 + Math.cos(t * 0.61 * speed + seed) * 8) * rot,
+                    scale: 1 + Math.sin(t * 0.74 * speed) * 0.055 * amp,
+                };
+            case 'th-stage-orbit-fast':
+                return {
+                    x: (Math.sin(t * 0.78 * speed + seed) * 0.92 + Math.sin(t * 1.85 * speed + seed * 1.4) * 0.38) * amp,
+                    y: (Math.cos(t * 0.68 * speed + seed * 0.65) * 0.82 + Math.cos(t * 1.42 * speed + seed * 1.1) * 0.34) * amp,
+                    rotate: (Math.sin(t * 0.55 * speed) * 14 + Math.cos(t * 0.92 * speed + seed) * 9) * rot,
+                    scale: 1 + Math.sin(t * 1.05 * speed) * 0.05 * amp,
+                };
+            case 'th-stage-orbit':
+            default:
+                return {
+                    x: (Math.sin(t * 0.52 * speed + seed) * 1.05 + Math.sin(t * 1.24 * speed + seed * 1.4) * 0.42 + Math.cos(t * 0.31 * speed) * 0.28) * amp,
+                    y: (Math.cos(t * 0.46 * speed + seed * 0.65) * 0.95 + Math.cos(t * 1.08 * speed + seed * 1.1) * 0.38 + Math.sin(t * 0.27 * speed) * 0.24) * amp,
+                    rotate: (Math.sin(t * 0.34 * speed) * 10 + Math.cos(t * 0.61 * speed + seed) * 6) * rot,
+                    scale: 1 + Math.sin(t * 0.74 * speed) * 0.045 * amp,
+                };
+        }
+    }
+
+    getThinkingVariants(form = this.avatarForm) {
+        return (this.thinkingVariants || []).filter((variant) => {
+            if (!variant.forms) return true;
+            return variant.forms.includes(form);
+        });
+    }
+
+    pickThinkingLayers(form = this.avatarForm) {
+        const variants = this.getThinkingVariants(form);
+        const stages = variants.filter((v) => v.layer === 'stage');
+        const parts = variants.filter((v) => v.layer !== 'stage');
+        const selected = [];
+        const usedTargets = new Set();
+
+        const stage = this.pickWeightedPostTalkVariant(stages) || { id: 'th-stage-orbit' };
+        selected.push(stage);
+        usedTargets.add('stage');
+
+        const pickPart = (pool) => {
+            const available = pool.filter((v) => !usedTargets.has(v.target));
+            if (!available.length) return null;
+            const variant = this.pickWeightedPostTalkVariant(available);
+            if (variant) {
+                selected.push(variant);
+                usedTargets.add(variant.target);
+            }
+            return variant;
+        };
+
+        pickPart(parts.filter((v) => v.intensity === 'subtle'));
+        pickPart(parts.filter((v) => v.intensity === 'dynamic'));
+        if (Math.random() < 0.42) {
+            pickPart(parts.filter((v) => !selected.includes(v)));
+        }
+
+        let partIds = selected.filter((v) => v.layer !== 'stage').map((v) => v.id);
+        if (form === 'classic-blob' && !partIds.some((id) => id.startsWith('th-blob'))) {
+            partIds.push(Math.random() < 0.5 ? 'th-blob-web-pulse' : 'th-blob-lobe-surge');
+        } else if (form !== 'classic-blob' && !partIds.length) {
+            partIds.push('th-body-soft-drift');
+        }
+
+        return {
+            stage: stage.id,
+            parts: partIds,
+            cycleMs: Math.round(this.randomInRange(3200, 5200)),
+        };
+    }
+
+    startThinkingLayers(now = performance.now()) {
+        if (!this.avatarBehavior) return;
+        this.avatarBehavior.thinkingLayers = this.pickThinkingLayers(this.avatarForm);
+        this.avatarBehavior.nextThinkingLayerRefreshAt = now + this.randomInRange(5500, 9500);
+        if (this.isCreatureAvatar()) {
+            this.syncCreatureAvatarShell();
+        }
+    }
+
+    refreshThinkingLayersIfDue(now = performance.now()) {
+        if (this.state !== 'thinking' || !this.avatarBehavior) return;
+        if (now < (this.avatarBehavior.nextThinkingLayerRefreshAt || 0)) return;
+        this.avatarBehavior.thinkingLayers = this.pickThinkingLayers(this.avatarForm);
+        this.avatarBehavior.nextThinkingLayerRefreshAt = now + this.randomInRange(5500, 9500);
+        if (this.isCreatureAvatar()) {
+            this.syncCreatureAvatarShell();
+        }
+    }
+
+    applyBlobThinkingLayerOverlay(targets) {
+        const parts = this.avatarBehavior?.thinkingLayers?.parts || [];
+        if (!parts.length) return;
+        const pulse = 0.5 + 0.5 * Math.sin(this.time * 4.2);
+        const surge = 0.5 + 0.5 * Math.sin(this.time * 6.8);
+
+        if (parts.includes('th-blob-web-pulse')) {
+            targets.targetWebOp += 0.08 * pulse;
+            targets.targetWebExp += 0.06 * pulse;
+        }
+        if (parts.includes('th-blob-lobe-surge')) {
+            targets.targetLobe1 += 1.8 * surge;
+            targets.targetLobe3 += 1.4 * surge;
+            targets.targetWeight1 += 0.04 * surge;
+        }
+        if (parts.includes('th-blob-scan-sweep')) {
+            this.blobLaserBoost = Math.max(this.blobLaserBoost, surge * 0.85);
+            targets.targetWebOp += 0.1 * surge;
+        }
+        if (parts.includes('th-blob-node-dance')) {
+            targets.targetWebOp += 0.14 * pulse;
+            targets.targetScale += 0.03 * surge;
+            this.blobCoreShimmer = Math.max(this.blobCoreShimmer, pulse * 0.45);
+        }
+    }
+
+    getPostTalkStageTarget(progress, stageId = null, form = this.avatarForm) {
+        const id = stageId || this.getDefaultPostTalkStage(form);
+        const p = Math.min(1, Math.max(0, progress));
+        const ease = (t) => 1 - Math.pow(1 - t, 2.4);
+        const soft = (v) => v * 0.34;
+
+        switch (id) {
+            case 'pt-stage-glide': {
+                const t = Math.sin(p * Math.PI);
+                return { x: t * 0.62, y: Math.sin(p * Math.PI * 2) * 0.08, rotate: t * 4, scale: 1 - t * 0.02 };
+            }
+            case 'pt-stage-drift-up': {
+                const t = Math.sin(p * Math.PI);
+                return { x: Math.sin(p * Math.PI * 1.5) * 0.22, y: -0.42 * t, rotate: t * 3, scale: 1 - t * 0.03 };
+            }
+            case 'pt-stage-soft-return': {
+                const base = this.getPostTalkStageTarget(p, this.getDefaultPostTalkStage(form), form);
+                return { x: soft(base.x), y: soft(base.y), rotate: base.rotate * 0.35, scale: 1 - (1 - base.scale) * 0.4 };
+            }
+            case 'pt-stage-hop': {
+                if (p < 0.42) {
+                    const t = ease(p / 0.42);
+                    return { x: t * 0.82, y: t * 0.58 - t * t * 0.12, rotate: t * 14, scale: 1 + t * 0.07 };
+                }
+                if (p < 0.68) {
+                    const t = (p - 0.42) / 0.26;
+                    return { x: 0.82 - t * 0.18, y: 0.46 + Math.sin(t * Math.PI) * 0.22, rotate: 14 - t * 6, scale: 1.07 - t * 0.03 };
+                }
+                const t = ease((p - 0.68) / 0.32);
+                return { x: 0.64 * (1 - t), y: 0.46 * (1 - t), rotate: 8 * (1 - t), scale: 1.04 - t * 0.04 };
+            }
+            case 'pt-stage-spiral': {
+                const loop = p * Math.PI * 2.4;
+                const lift = Math.sin(p * Math.PI);
+                return {
+                    x: Math.sin(loop) * 0.62 * (1 - p * 0.25),
+                    y: -0.72 * lift + 0.28 * p,
+                    rotate: Math.sin(loop * 1.2) * 16,
+                    scale: 1.04 - p * 0.06,
+                };
+            }
+            case 'pt-stage-slide': {
+                if (p < 0.55) {
+                    const t = ease(p / 0.55);
+                    return { x: -0.78 * t, y: 0.12 * t + Math.sin(t * Math.PI) * 0.08, rotate: -10 * t, scale: 1 - 0.05 * t };
+                }
+                const t = ease((p - 0.55) / 0.45);
+                return { x: -0.78 * (1 - t), y: 0.12 * (1 - t), rotate: -10 * (1 - t), scale: 1 - 0.05 * (1 - t) };
+            }
+            case 'pt-stage-arc': {
+                const t = Math.sin(p * Math.PI);
+                return {
+                    x: Math.sin(p * Math.PI * 1.2) * 0.88,
+                    y: (1 - Math.cos(p * Math.PI)) * 0.52 - 0.18,
+                    rotate: Math.sin(p * Math.PI * 2) * 12,
+                    scale: 1 + t * 0.05,
+                };
+            }
+            case 'pt-stage-bounce': {
+                const bounce = Math.abs(Math.sin(p * Math.PI * 2.2)) * (1 - p * 0.35);
+                return {
+                    x: Math.sin(p * Math.PI) * 0.38,
+                    y: -0.78 * bounce + 0.22 * p,
+                    rotate: Math.sin(p * Math.PI * 3) * 8,
+                    scale: 1 + bounce * 0.06,
+                };
+            }
+            case 'pt-stage-orbit':
+            default: {
+                const angle = p * Math.PI * 1.65;
+                const fade = Math.sin(p * Math.PI);
+                return {
+                    x: Math.cos(angle) * 0.72 * fade,
+                    y: Math.sin(angle) * 0.56 * fade,
+                    rotate: Math.sin(angle) * 8,
+                    scale: 1 - p * 0.1,
+                };
+            }
+        }
+    }
+
+    getDefaultPostTalkStage(form = this.avatarForm) {
+        const defaults = {
+            nova: 'pt-stage-hop',
+            wisp: 'pt-stage-spiral',
+            eve: 'pt-stage-slide',
+            'classic-blob': 'pt-stage-orbit',
+        };
+        return defaults[form] || 'pt-stage-orbit';
+    }
+
+    getPostTalkVariants(form = this.avatarForm) {
+        return (this.postTalkVariants || []).filter((variant) => {
+            if (!variant.forms) return true;
+            return variant.forms.includes(form);
+        });
+    }
+
+    pickWeightedPostTalkVariant(variants = []) {
+        if (!variants.length) return null;
+        const total = variants.reduce((sum, variant) => sum + (variant.weight || 1), 0);
+        let cursor = Math.random() * total;
+        for (const variant of variants) {
+            cursor -= variant.weight || 1;
+            if (cursor <= 0) return variant;
+        }
+        return variants[variants.length - 1];
+    }
+
+    pickPostTalkLayers(form = this.avatarForm) {
+        const variants = this.getPostTalkVariants(form);
+        const stages = variants.filter((v) => v.layer === 'stage');
+        const parts = variants.filter((v) => v.layer !== 'stage');
+        const selected = [];
+        const usedTargets = new Set();
+
+        const stage = this.pickWeightedPostTalkVariant(stages) || { id: this.getDefaultPostTalkStage(form), durationScale: 1 };
+        selected.push(stage);
+        usedTargets.add('stage');
+
+        const pickPart = (pool) => {
+            const available = pool.filter((v) => !usedTargets.has(v.target));
+            if (!available.length) return null;
+            const variant = this.pickWeightedPostTalkVariant(available);
+            if (variant) {
+                selected.push(variant);
+                usedTargets.add(variant.target);
+            }
+            return variant;
+        };
+
+        pickPart(parts.filter((v) => v.intensity === 'subtle'));
+        pickPart(parts.filter((v) => v.intensity === 'dynamic'));
+
+        if (Math.random() < 0.38) {
+            pickPart(parts.filter((v) => !selected.includes(v)));
+        }
+
+        const profile = this.getAvatarBehaviorProfile(form);
+        const baseDuration = profile?.postTalkDuration || 3200;
+        const durationScale = selected.reduce((max, variant) => Math.max(max, variant.durationScale || 1), 1);
+        let partIds = selected.filter((v) => v.layer !== 'stage').map((v) => v.id);
+
+        if (form === 'classic-blob' && !partIds.some((id) => id.startsWith('pt-blob'))) {
+            partIds.push(Math.random() < 0.5 ? 'pt-blob-soft-sigh' : 'pt-blob-web-fade');
+        } else if (form !== 'classic-blob' && !partIds.length) {
+            partIds.push('pt-body-soft-settle');
+        }
+
+        return {
+            stage: stage.id,
+            parts: partIds,
+            duration: Math.round(baseDuration * durationScale),
+        };
+    }
+
+    updateAvatarStageMotion(w, h) {
+        const roamScale = this.getStageRoamScale(w, h);
+        let target = { x: 0, y: 0, rotate: 0, scale: 1 };
+        const behavior = this.avatarBehavior;
+
+        if (this.state === 'thinking') {
+            const stageId = behavior?.thinkingLayers?.stage || 'th-stage-orbit';
+            target = this.getThinkingStageTarget(this.avatarForm, stageId);
+        } else if (this.state === 'post-talk' && behavior?.actionStartedAt) {
+            const duration = Math.max(1, behavior.actionDuration || this.getAvatarBehaviorProfile()?.postTalkDuration || 3000);
+            const progress = Math.min(1, (performance.now() - behavior.actionStartedAt) / duration);
+            const stageId = behavior.postTalkLayers?.stage || this.getDefaultPostTalkStage();
+            target = this.getPostTalkStageTarget(progress, stageId);
+        }
+
+        const ease = this.state === 'post-talk' ? 0.16 : this.state === 'thinking' ? 0.1 : 0.12;
+        target.x *= roamScale;
+        target.y *= roamScale;
+
+        this.stageMotion.x += (target.x - this.stageMotion.x) * ease;
+        this.stageMotion.y += (target.y - this.stageMotion.y) * ease;
+        this.stageMotion.rotate += (target.rotate - this.stageMotion.rotate) * ease;
+        this.stageMotion.scale += (target.scale - this.stageMotion.scale) * ease;
+    }
+
+    applyAvatarStageToLabel() {
+        const statusLabel = document.getElementById('hudOrbLabel');
+        if (!statusLabel) return;
+        const stage = this.stageMotion || { x: 0, y: 0 };
+        if (this.isCreatureAvatar()) {
+            statusLabel.style.transform = `translate(-50%, -50%) translateY(190px) translate(${stage.x.toFixed(1)}px, ${stage.y.toFixed(1)}px)`;
+        } else {
+            statusLabel.style.transform = `translate(-50%, -50%) translate(${stage.x.toFixed(1)}px, ${stage.y.toFixed(1)}px)`;
+        }
+    }
+
     createAvatarBehavior(form = this.avatarForm) {
         const profile = this.getAvatarBehaviorProfile(form);
-        const idleRange = profile?.idleActionRange || [5200, 10800];
+        const idleRange = this.getActionRangeForState('idle', profile);
+        const now = performance.now();
         return {
             form,
             state: this.state,
-            stateStartedAt: performance.now(),
-            idleStartedAt: performance.now(),
-            nextIdleActionAt: performance.now() + this.randomInRange(idleRange[0], idleRange[1]),
+            stateStartedAt: now,
+            idleStartedAt: now,
+            nextPhaseActionAt: now + this.randomInRange(idleRange[0], idleRange[1]),
+            nextIdleActionAt: now + this.randomInRange(idleRange[0], idleRange[1]),
             action: 'none',
             actionStartedAt: 0,
             actionDuration: 0,
             actionIntensity: 0,
+            postTalkEndsAt: 0,
+            postTalkLayers: null,
+            thinkingLayers: null,
+            nextThinkingLayerRefreshAt: 0,
             expression: 'neutral',
             eyeTarget: { x: 0, y: 0 },
             eyeTargetChangedAt: 0,
-            nextEyeTargetAt: performance.now() + this.randomInRange(1200, 3500),
+            nextEyeTargetAt: now + this.randomInRange(1200, 3500),
             doubleBlinkPending: 0,
         };
     }
@@ -350,7 +913,6 @@ class JarvisHUD {
             if (this.avatarBehavior) {
                 const now = performance.now();
                 const profile = this.getAvatarBehaviorProfile();
-                const idleRange = profile?.idleActionRange || [5200, 10800];
                 this.avatarBehavior.state = state;
                 this.avatarBehavior.stateStartedAt = now;
                 this.avatarBehavior.expression = this.getExpressionForState(state);
@@ -358,9 +920,24 @@ class JarvisHUD {
                 this.avatarBehavior.actionStartedAt = 0;
                 this.avatarBehavior.actionDuration = 0;
                 this.avatarBehavior.actionIntensity = 0;
+                this.avatarBehavior.postTalkEndsAt = 0;
+                this.avatarBehavior.postTalkLayers = null;
+                this.avatarBehavior.thinkingLayers = null;
+                this.avatarBehavior.nextThinkingLayerRefreshAt = 0;
                 if (state === 'idle') {
                     this.avatarBehavior.idleStartedAt = now;
-                    this.avatarBehavior.nextIdleActionAt = now + this.randomInRange(idleRange[0], idleRange[1]);
+                    const idleRange = this.getActionRangeForState('idle', profile);
+                    this.avatarBehavior.nextPhaseActionAt = now + this.randomInRange(idleRange[0], idleRange[1]);
+                    this.avatarBehavior.nextIdleActionAt = this.avatarBehavior.nextPhaseActionAt;
+                } else if (state === 'thinking' || state === 'speaking') {
+                    const phaseRange = this.getActionRangeForState(state, profile);
+                    this.avatarBehavior.nextPhaseActionAt = now + this.randomInRange(phaseRange[0], phaseRange[1]);
+                    this.avatarBehavior.nextIdleActionAt = this.avatarBehavior.nextPhaseActionAt;
+                    if (state === 'thinking') {
+                        this.startThinkingLayers(now);
+                    }
+                } else if (state === 'post-talk') {
+                    this.startPostTalkAction(now);
                 }
             }
             // Trigger transition energy shockwaves
@@ -417,6 +994,10 @@ class JarvisHUD {
                 case 'speaking':
                     statusLabel.textContent = `${avatarName} speaking...`;
                     statusLabel.style.color = '#ffffff';
+                    break;
+                case 'post-talk':
+                    statusLabel.textContent = `${avatarName} ...`;
+                    statusLabel.style.color = 'var(--text-muted)';
                     break;
                 case 'idle':
                 default:
@@ -617,17 +1198,82 @@ class JarvisHUD {
     }
 
     /**
-     * Simulated pseudo-noise using multiple dynamic sine/cosine overlays
+     * Simulated pseudo-noise using multiple dynamic sine/cosine overlays.
+     * Integer harmonic multipliers keep the shape seamless at angle 0 / 2π.
      */
     harmonicNoise(angle, time, speedModifier, frequencyModifier) {
         const t = time * speedModifier;
         const a = angle * frequencyModifier;
         const mp = this.morphPhase;
-        
-        return Math.sin(a * this.harmonicLobe1 + t + mp) * this.harmonicWeight1 +
-               Math.cos(a * this.harmonicLobe2 - t * 1.4 + mp * 0.7) * this.harmonicWeight2 +
-               Math.sin(a * this.harmonicLobe3 + t * 0.8 - mp * 0.5) * this.harmonicWeight3 +
-               Math.cos(a * this.harmonicLobe4 - t * 1.1 + mp * 1.2) * this.harmonicWeight4;
+
+        const sinTerm = (lobe, weight, timeScale, phaseScale) => {
+            const n = Math.max(1, Math.round(lobe));
+            const phase = (lobe - n) * 4.2 + mp * phaseScale;
+            return Math.sin(a * n + t * timeScale + phase) * weight;
+        };
+
+        const cosTerm = (lobe, weight, timeScale, phaseScale) => {
+            const n = Math.max(1, Math.round(lobe));
+            const phase = (lobe - n) * 4.2 + mp * phaseScale;
+            return Math.cos(a * n - t * timeScale + phase) * weight;
+        };
+
+        return sinTerm(this.harmonicLobe1, this.harmonicWeight1, 1, 1)
+            + cosTerm(this.harmonicLobe2, this.harmonicWeight2, 1.4, 0.7)
+            + sinTerm(this.harmonicLobe3, this.harmonicWeight3, 0.8, -0.5)
+            + cosTerm(this.harmonicLobe4, this.harmonicWeight4, 1.1, 1.2);
+    }
+
+    sampleBlobRadius(angle, stepIndex, stepCount, time, speed, noiseAmplitude, frequency) {
+        let offset = this.harmonicNoise(angle, time, speed, frequency) * noiseAmplitude;
+        const audio = this._audioReactive;
+        if (this.state === 'speaking' && audio?.frequency) {
+            const freq = audio.frequency;
+            const voiceBins = Math.min(56, freq.length);
+            if (voiceBins > 0) {
+                const binPos = (stepIndex / stepCount) * voiceBins;
+                const binIdx = Math.floor(binPos) % voiceBins;
+                const nextIdx = (binIdx + 1) % voiceBins;
+                const blend = binPos - Math.floor(binPos);
+                const band = freq[binIdx] * (1 - blend) + freq[nextIdx] * blend;
+                const envelope = audio.envelope ?? 0;
+                const audioOffset = (band / 255) * noiseAmplitude * (0.85 + envelope * 1.6);
+                offset = audioOffset + offset * 0.18;
+            }
+        }
+        return offset;
+    }
+
+    traceSmoothBlobPath(cx, cy, baseRadius, time, speed, noiseAmplitude, frequency) {
+        const steps = 200;
+        const points = [];
+
+        for (let i = 0; i < steps; i++) {
+            const angle = (i / steps) * Math.PI * 2;
+            const offset = this.sampleBlobRadius(angle, i, steps, time, speed, noiseAmplitude, frequency);
+            const radius = baseRadius + offset;
+            points.push({
+                x: cx + Math.cos(angle) * radius * this.stretchX,
+                y: cy + Math.sin(angle) * radius * this.stretchY,
+            });
+        }
+
+        this.ctx.moveTo(points[0].x, points[0].y);
+        for (let i = 0; i < steps; i++) {
+            const p0 = points[(i - 1 + steps) % steps];
+            const p1 = points[i];
+            const p2 = points[(i + 1) % steps];
+            const p3 = points[(i + 2) % steps];
+            this.ctx.bezierCurveTo(
+                p1.x + (p2.x - p0.x) / 6,
+                p1.y + (p2.y - p0.y) / 6,
+                p2.x - (p3.x - p1.x) / 6,
+                p2.y - (p3.y - p1.y) / 6,
+                p2.x,
+                p2.y
+            );
+        }
+        this.ctx.closePath();
     }
 
     /**
@@ -643,8 +1289,15 @@ class JarvisHUD {
         this.parallaxX = this.parallaxX * 0.92 + this.mouseX * 0.08;
         this.parallaxY = this.parallaxY * 0.92 + this.mouseY * 0.08;
 
-        const centerX = w / 2 + this.parallaxX * 25; // Parallax center shift
-        const centerY = h / 2 + this.parallaxY * 25;
+        let centerX = w / 2 + this.parallaxX * 25; // Parallax center shift
+        let centerY = h / 2 + this.parallaxY * 25;
+
+        this.updateAvatarStageMotion(w, h);
+        if (!this.isCreatureAvatar()) {
+            centerX += this.stageMotion.x;
+            centerY += this.stageMotion.y;
+        }
+        this.applyAvatarStageToLabel();
 
         // Clear canvas
         this.ctx.clearRect(0, 0, w, h);
@@ -656,6 +1309,8 @@ class JarvisHUD {
         if (this.state === 'speaking' && this.speechEngine?.voiceAudioActive) {
             this._audioReactive = this.speechEngine.updateVoiceAudioAnalysis();
         }
+
+        this.updateAvatarBehavior();
         
         const primaryColor = this.accentTheme.primary;
         const secondaryColor = this.accentTheme.secondary;
@@ -663,9 +1318,6 @@ class JarvisHUD {
         
         // RENDER STEP 1: Drawing 3D Parallax Constellation Lattice
         this.drawBackgroundWeb(w, h, primaryColor);
-
-        // RENDER STEP 2: Subtle Laser Sweep (background scanner layer)
-        this.drawLaserSweep(w, h, primaryColor);
 
         // Calculate dynamic orb sizes & undulation metrics based on state with smooth interpolation
         let targetScale = 1.0;
@@ -706,16 +1358,23 @@ class JarvisHUD {
                 scaleSpeed = 0.14;
                 noiseAmp = 22;
 
-                targetLobe1 = 11.0 + Math.sin(mp * 0.55) * 2.5;
-                targetLobe2 = 9.0 + Math.cos(mp * 0.48) * 2.0;
-                targetLobe3 = 14.0 + Math.sin(mp * 0.62) * 2.8;
-                targetLobe4 = 16.0 + Math.cos(mp * 0.5) * 3.0;
+                targetLobe1 = 11.0 + Math.sin(mp * 0.55) * 2.5 + Math.sin(mp * 1.8) * 1.4;
+                targetLobe2 = 9.0 + Math.cos(mp * 0.48) * 2.0 + Math.cos(mp * 1.6) * 1.2;
+                targetLobe3 = 14.0 + Math.sin(mp * 0.62) * 2.8 + Math.sin(mp * 2.1) * 1.0;
+                targetLobe4 = 16.0 + Math.cos(mp * 0.5) * 3.0 + Math.cos(mp * 1.9) * 1.1;
                 targetWeight1 = 0.55;
                 targetWeight2 = 0.42;
                 targetWeight3 = 0.38;
                 targetWeight4 = 0.32;
-                targetStretchX = 1.02;
-                targetStretchY = 0.99;
+                targetStretchX = 1.02 + Math.sin(mp * 1.4) * 0.04;
+                targetStretchY = 0.99 + Math.cos(mp * 1.3) * 0.03;
+                if (this.avatarForm === 'classic-blob') {
+                    const sweepNow = performance.now();
+                    if (sweepNow - this._lastThinkingSweepAt > 2000) {
+                        this.triggerLayerSweep();
+                        this._lastThinkingSweepAt = sweepNow;
+                    }
+                }
                 break;
             case 'speaking': {
                 const voiceEnvelope = this._audioReactive?.envelope ?? 0;
@@ -740,6 +1399,24 @@ class JarvisHUD {
                 targetStretchY = 0.92;
                 break;
             }
+            case 'post-talk':
+                targetScale = 0.98;
+                targetWebExp = 0.92;
+                targetWebOp = 0.14;
+                scaleSpeed = 0.04;
+                noiseAmp = 12;
+
+                targetLobe1 = 3.0 + Math.sin(mp * 0.2) * 0.4;
+                targetLobe2 = 5.0 + Math.cos(mp * 0.18) * 0.35;
+                targetLobe3 = 2.0 + Math.sin(mp * 0.22) * 0.3;
+                targetLobe4 = 6.8 + Math.cos(mp * 0.2) * 0.45;
+                targetWeight1 = 0.34;
+                targetWeight2 = 0.28;
+                targetWeight3 = 0.24;
+                targetWeight4 = 0.22;
+                targetStretchX = 1.0;
+                targetStretchY = 1.0;
+                break;
             case 'idle':
             default:
                 targetScale = 1.0;
@@ -760,6 +1437,44 @@ class JarvisHUD {
                 targetStretchY = 1.0;
                 break;
         }
+
+        const blobTargets = {
+            targetScale,
+            targetWebExp,
+            targetWebOp,
+            targetLobe1,
+            targetLobe2,
+            targetLobe3,
+            targetLobe4,
+            targetWeight1,
+            targetWeight2,
+            targetWeight3,
+            targetWeight4,
+            targetStretchX,
+            targetStretchY,
+            noiseAmpBoost: 0,
+        };
+        this.applyBlobActionOverlay(blobTargets);
+        if (this.state === 'thinking') {
+            this.applyBlobThinkingLayerOverlay(blobTargets);
+        }
+        targetScale = blobTargets.targetScale;
+        targetWebExp = blobTargets.targetWebExp;
+        targetWebOp = blobTargets.targetWebOp;
+        targetLobe1 = blobTargets.targetLobe1;
+        targetLobe2 = blobTargets.targetLobe2;
+        targetLobe3 = blobTargets.targetLobe3;
+        targetLobe4 = blobTargets.targetLobe4;
+        targetWeight1 = blobTargets.targetWeight1;
+        targetWeight2 = blobTargets.targetWeight2;
+        targetWeight3 = blobTargets.targetWeight3;
+        targetWeight4 = blobTargets.targetWeight4;
+        targetStretchX = blobTargets.targetStretchX;
+        targetStretchY = blobTargets.targetStretchY;
+        noiseAmp += blobTargets.noiseAmpBoost || 0;
+
+        // RENDER STEP 2: Subtle Laser Sweep (background scanner layer)
+        this.drawLaserSweep(w, h, primaryColor);
 
         // Smooth state transitions (no scale bounce — steady orb size per state)
         this.orbPulseScale += (targetScale - this.orbPulseScale) * 0.06;
@@ -787,7 +1502,7 @@ class JarvisHUD {
         const isCreature = this.isCreatureAvatar();
         const activeRadius = this.coreBaseRadius * this.orbPulseScale;
         const avatarRadius = isCreature ? activeRadius * 1.38 : activeRadius;
-        const showNeuralWeb = this.state !== 'speaking' && this.webOpacity > 0.04;
+        const showNeuralWeb = this.state !== 'speaking' && this.state !== 'post-talk' && this.webOpacity > 0.04;
 
         // RENDER STEP 3: Concentric HUD Rings and Rotating Hex Data Dials (hidden while speaking)
         if (this.state !== 'speaking' || isCreature) {
@@ -806,39 +1521,39 @@ class JarvisHUD {
 
         // RENDER STEP 5: Central avatar form
         if (isCreature) {
-            this.updateAvatarBehavior();
             this.updateCreatureBlinkAndEyes();
             this.updateCreatureMouth();
             this.syncCreatureAvatarShell();
         } else {
+            const shimmer = this.blobCoreShimmer || 0;
             // Multi-layered liquid plasma orb. We layer 3 separate undulating paths to simulate a 3D gas sphere.
             this.drawLiquidBlob(
                 centerX, centerY,
                 activeRadius * 1.28,
                 this.time, scaleSpeed * 0.75, noiseAmp * 1.45, 0.75,
-                `rgba(${this.hexToRgb(primaryColor)}, 0.15)`,
-                glowColor, 20
+                `rgba(${this.hexToRgb(primaryColor)}, ${0.15 + shimmer * 0.08})`,
+                glowColor, 20 + shimmer * 10
             );
 
             this.drawLiquidBlob(
                 centerX, centerY,
                 activeRadius,
                 this.time + 12, scaleSpeed * 1.05, noiseAmp * 1.1, 1.05,
-                `rgba(${this.hexToRgb(primaryColor)}, 0.5)`,
+                `rgba(${this.hexToRgb(primaryColor)}, ${0.5 + shimmer * 0.15})`,
                 'rgba(0,0,0,0)', 0
             );
 
             const coreGrad = this.ctx.createRadialGradient(centerX, centerY, 5, centerX, centerY, activeRadius * 0.6);
             coreGrad.addColorStop(0, '#ffffff');
             coreGrad.addColorStop(0.5, secondaryColor);
-            coreGrad.addColorStop(1, `rgba(${this.hexToRgb(primaryColor)}, 0.1)`);
+            coreGrad.addColorStop(1, `rgba(${this.hexToRgb(primaryColor)}, ${0.1 + shimmer * 0.12})`);
 
             this.drawLiquidBlob(
                 centerX, centerY,
                 activeRadius * 0.62,
                 this.time - 8, scaleSpeed * 1.35, noiseAmp * 0.65, 1.35,
                 coreGrad,
-                'rgba(255,255,255,0.4)', 8
+                `rgba(255,255,255,${0.4 + shimmer * 0.25})`, 8 + shimmer * 12
             );
         }
 
@@ -974,24 +1689,28 @@ class JarvisHUD {
      */
     drawHUDRings(cx, cy, baseRadius, themeColor, glowColor) {
         this.ctx.shadowBlur = 0;
+
+        const ringPulse = (this.state === 'idle' ? this.blobRingPulse : 0) || 0;
+        const ringOpacityBoost = 1 + ringPulse * 0.5;
         
         // Ring Rotation Accumulator
         let speed = 0.005;
         if (this.state === 'listening') speed = 0.03;
         else if (this.state === 'thinking') speed = 0.015;
         else if (this.state === 'speaking') speed = 0.01;
+        if (ringPulse > 0) speed += ringPulse * 0.02;
         
         this.ringRotationAngle += speed;
 
         // HUD Ring 1: Thin outer dashed guide track
-        this.ctx.strokeStyle = `rgba(${this.hexToRgb(themeColor)}, 0.15)`;
+        this.ctx.strokeStyle = `rgba(${this.hexToRgb(themeColor)}, ${0.15 * ringOpacityBoost})`;
         this.ctx.lineWidth = 1;
         this.ctx.beginPath();
         this.ctx.arc(cx, cy, baseRadius * 1.5, 0, Math.PI * 2);
         this.ctx.stroke();
 
         // HUD Ring 2: Core border thin rotating dashes
-        this.ctx.strokeStyle = `rgba(${this.hexToRgb(themeColor)}, 0.4)`;
+        this.ctx.strokeStyle = `rgba(${this.hexToRgb(themeColor)}, ${0.4 * ringOpacityBoost})`;
         this.ctx.lineWidth = 1.5;
         this.ctx.setLineDash([12, 18, 4, 18]);
         this.ctx.beginPath();
@@ -1000,7 +1719,7 @@ class JarvisHUD {
         this.ctx.setLineDash([]); // Reset
 
         // HUD Ring 3: Counter-rotating outer tick marks & subdivisions
-        this.ctx.strokeStyle = `rgba(${this.hexToRgb(themeColor)}, 0.25)`;
+        this.ctx.strokeStyle = `rgba(${this.hexToRgb(themeColor)}, ${0.25 * ringOpacityBoost})`;
         this.ctx.lineWidth = 1;
         const tickRadius = baseRadius * 1.45;
         const angleStep = Math.PI / 18; // 10 degrees
@@ -1024,7 +1743,7 @@ class JarvisHUD {
         }
 
         // HUD Ring 4: Thin coordinate tracking crosshairs
-        this.ctx.strokeStyle = `rgba(${this.hexToRgb(themeColor)}, 0.08)`;
+        this.ctx.strokeStyle = `rgba(${this.hexToRgb(themeColor)}, ${0.08 * ringOpacityBoost})`;
         this.ctx.lineWidth = 1;
         this.ctx.beginPath();
         // horizontal crosshair line
@@ -1046,7 +1765,6 @@ class JarvisHUD {
     drawLiquidBlob(cx, cy, baseRadius, time, speed, noiseAmplitude, frequency, fillStyle, shadowColor, shadowBlur) {
         this.ctx.beginPath();
 
-        // Apply glow shadow attributes
         if (shadowBlur > 0) {
             this.ctx.shadowBlur = shadowBlur;
             this.ctx.shadowColor = shadowColor;
@@ -1054,42 +1772,12 @@ class JarvisHUD {
             this.ctx.shadowBlur = 0;
         }
 
-        // Walk angles from 0 to 2*PI in small steps for liquid continuity
-        const steps = 120;
-        const angleStep = (Math.PI * 2) / steps;
+        this.traceSmoothBlobPath(cx, cy, baseRadius, time, speed, noiseAmplitude, frequency);
 
-        for (let i = 0; i <= steps; i++) {
-            const angle = i * angleStep;
-            
-            let offset = this.harmonicNoise(angle, time, speed, frequency) * noiseAmplitude;
-            const audio = this._audioReactive;
-            if (this.state === 'speaking' && audio?.frequency) {
-                const freq = audio.frequency;
-                const voiceBins = Math.min(56, freq.length);
-                const binIdx = Math.floor((i / steps) * voiceBins);
-                const band = freq[binIdx] / 255;
-                const envelope = audio.envelope ?? 0;
-                const audioOffset = band * noiseAmplitude * (0.85 + envelope * 1.6);
-                offset = audioOffset + offset * 0.18;
-            }
-            const radius = baseRadius + offset;
-
-            // Apply dynamic visual squash and stretch (squash along X and Y axes)
-            const x = cx + Math.cos(angle) * radius * this.stretchX;
-            const y = cy + Math.sin(angle) * radius * this.stretchY;
-
-            if (i === 0) {
-                this.ctx.moveTo(x, y);
-            } else {
-                this.ctx.lineTo(x, y);
-            }
-        }
-
-        this.ctx.closePath();
         this.ctx.fillStyle = fillStyle;
         this.ctx.fill();
 
-        this.ctx.shadowBlur = 0; // Reset
+        this.ctx.shadowBlur = 0;
     }
 
     getExpressionForState(state = this.state) {
@@ -1100,6 +1788,8 @@ class JarvisHUD {
                 return 'thinking';
             case 'speaking':
                 return this.avatarForm === 'eve' ? 'focused' : this.avatarForm === 'wisp' ? 'soft' : 'happy';
+            case 'post-talk':
+                return 'neutral';
             case 'idle':
             default:
                 return 'neutral';
@@ -1117,7 +1807,7 @@ class JarvisHUD {
         return actions[0]?.[0] || 'glance';
     }
 
-    getIdleActionDuration(action) {
+    getActionDuration(action) {
         const durations = {
             glance: 1350,
             'ear-perk': 1500,
@@ -1135,26 +1825,243 @@ class JarvisHUD {
             'ring-calibrate': 1600,
             'arm-adjust': 1500,
             'focus-squint': 1200,
+            'soft-pulse': 1800,
+            'lobe-drift': 2200,
+            'web-flicker': 1400,
+            'core-shimmer': 1200,
+            'ring-tick': 900,
+            'settle-sigh': 4200,
+            'orbit-wobble': 2000,
+            'node-cluster': 1500,
+            'halo-breathe': 1800,
+            'web-surge': 1600,
+            'scan-sweep': 1400,
+            'lobe-compute': 1700,
+            'rim-flare': 1100,
+            'micro-pulse': 900,
+            'tail-swish': 1400,
+            'stretch-yawn': 2200,
+            'look-around': 1600,
+            'ear-flick': 900,
+            'weight-shift': 1500,
+            'paw-tap': 1200,
+            'nod-beat': 1000,
+            'ear-twitch': 850,
+            'exhale-settle': 3200,
+            'float-drift': 2400,
+            'spark-trail': 1500,
+            'hem-flutter': 1300,
+            'swirl-think': 2200,
+            'dim-gather': 1800,
+            'spark-orbit': 1600,
+            'spark-accent': 1000,
+            'spark-fade': 3400,
+            'shoulder-roll': 1500,
+            'visor-blink': 900,
+            'ring-spin': 1400,
+            calibrate: 1600,
+            'scan-pulse': 1400,
+            'arm-fold': 1500,
+            'bar-flash': 950,
+            'ring-echo': 1100,
+            'power-down': 3600,
+            'gyro-wobble': 1500,
+            'pedestal-hum': 1600,
+            'stabilizer-kick': 1100,
+            'visor-flare': 1200,
+            'sync-tick': 900,
+            'gyro-spin': 1500,
+            'data-stream': 1400,
         };
         return durations[action] || 1400;
     }
 
-    triggerIdleAvatarAction(now = performance.now()) {
-        if (!this.avatarBehavior || !this.isCreatureAvatar()) return;
+    getIdleActionDuration(action) {
+        return this.getActionDuration(action);
+    }
+
+    startPostTalkAction(now = performance.now()) {
+        if (!this.avatarBehavior) return;
         const profile = this.getAvatarBehaviorProfile();
-        const action = this.pickWeightedAvatarAction(profile?.actions || []);
-        this.avatarBehavior.action = action;
+        const layers = this.pickPostTalkLayers(this.avatarForm);
+        const duration = layers.duration || profile?.postTalkDuration || 3200;
+        this.avatarBehavior.postTalkLayers = layers;
+        this.avatarBehavior.action = layers.parts[0] || profile?.postTalkAction || 'exhale-settle';
         this.avatarBehavior.actionStartedAt = now;
-        this.avatarBehavior.actionDuration = this.getIdleActionDuration(action);
+        this.avatarBehavior.actionDuration = duration;
         this.avatarBehavior.actionIntensity = 1;
-        if (action === 'double-blink' || action === 'shy-blink' || action === 'focus-squint') {
-            this.creatureBlinkAmount = 1;
-            this.avatarBehavior.doubleBlinkPending = action === 'double-blink' ? 14 : 0;
+        this.avatarBehavior.postTalkEndsAt = now + duration;
+        if (!this.isCreatureAvatar()) {
+            this.triggerBlobActionEffects(this.avatarBehavior.action);
+        } else {
+            this.syncCreatureAvatarShell();
         }
     }
 
+    triggerBlobActionEffects(action) {
+        if (action === 'web-flicker' || action === 'web-surge' || action === 'node-cluster') {
+            if (!this.webNodes?.length) return;
+            const burstCount = action === 'node-cluster' ? 5 + Math.floor(Math.random() * 4) : 3 + Math.floor(Math.random() * 3);
+            for (let i = 0; i < burstCount; i++) {
+                const node = this.webNodes[Math.floor(Math.random() * this.webNodes.length)];
+                node.targetActivation = 0.55 + Math.random() * 0.4;
+            }
+        }
+        if (action === 'scan-sweep' || action === 'lobe-compute') {
+            this.triggerLayerSweep();
+        }
+    }
+
+    triggerThinkingToolBurst(toolName = '') {
+        if (this.state !== 'thinking') return;
+        const name = String(toolName || '').toLowerCase();
+        let burstAction = 'scan-pulse';
+        if (/search|find|grep|web/.test(name)) burstAction = 'visor-scan';
+        else if (/shell|exec|run|command/.test(name)) burstAction = 'ring-calibrate';
+        else if (/read|file|write|edit/.test(name)) burstAction = 'web-surge';
+        else if (this.avatarForm === 'nova') burstAction = 'ear-flick';
+        else if (this.avatarForm === 'wisp') burstAction = 'spark-orbit';
+        else if (this.avatarForm === 'classic-blob') burstAction = 'web-surge';
+
+        if (this.avatarBehavior) {
+            const now = performance.now();
+            this.avatarBehavior.action = burstAction;
+            this.avatarBehavior.actionStartedAt = now;
+            this.avatarBehavior.actionDuration = this.getActionDuration(burstAction) * 0.85;
+            this.avatarBehavior.actionIntensity = 1;
+            if (this.isCreatureAvatar()) {
+                this.syncCreatureAvatarShell();
+            }
+        }
+        if (!this.isCreatureAvatar()) {
+            this.triggerLayerSweep();
+            this.triggerBlobActionEffects(burstAction);
+        }
+    }
+
+    applyBlobActionOverlay(targets) {
+        this.blobCoreShimmer = 0;
+        this.blobRingPulse = 0;
+        this.blobLaserBoost = 0;
+        if (this.avatarForm !== 'classic-blob') return;
+
+        const behavior = this.avatarBehavior;
+        const action = behavior?.action;
+        const intensity = behavior?.actionIntensity || 0;
+        const state = this.state;
+
+        if (state === 'post-talk' && action && action !== 'none') {
+            const i = intensity;
+            const parts = behavior?.postTalkLayers?.parts || [];
+            targets.targetScale -= 0.1 * i;
+            targets.targetWebOp -= 0.2 * i;
+            targets.targetWebExp -= 0.15 * i;
+            targets.targetStretchY += 0.1 * i;
+            this.blobCoreShimmer = i * 0.55;
+            this.blobRingPulse = i * 0.75;
+            if (parts.includes('pt-blob-soft-sigh') || action === 'settle-sigh') {
+                targets.targetStretchY -= 0.12 * i;
+                targets.targetLobe2 += 0.8 * i;
+                targets.targetWeight2 += 0.05 * i;
+            }
+            if (parts.includes('pt-blob-web-fade')) {
+                targets.targetWebOp -= 0.12 * i;
+                targets.targetWebExp -= 0.1 * i;
+            }
+            if (parts.includes('pt-blob-ring-pulse')) {
+                this.blobRingPulse = i * 1.1;
+                targets.targetScale += 0.05 * i;
+            }
+            if (parts.includes('pt-blob-orbit-compress')) {
+                targets.targetScale -= 0.14 * i;
+                targets.targetStretchX = 0.94 + (1 - i) * 0.06;
+                targets.targetStretchY = 1.06 - i * 0.08;
+                this.blobCoreShimmer = i * 0.8;
+            }
+            return;
+        }
+
+        if (!action || action === 'none' || intensity <= 0) return;
+        if (state !== 'idle' && state !== 'thinking' && state !== 'speaking') return;
+
+        if (action === 'core-shimmer' || action === 'halo-breathe') this.blobCoreShimmer = intensity;
+        if (action === 'ring-tick' || action === 'rim-flare' || action === 'ring-echo') this.blobRingPulse = intensity;
+        if (action === 'scan-sweep') this.blobLaserBoost = intensity;
+
+        switch (action) {
+            case 'soft-pulse':
+            case 'micro-pulse':
+            case 'halo-breathe':
+                targets.targetScale += 0.06 * intensity;
+                targets.targetWeight1 += 0.04 * intensity;
+                targets.targetWeight2 += 0.035 * intensity;
+                targets.targetWeight3 += 0.03 * intensity;
+                targets.targetWeight4 += 0.025 * intensity;
+                break;
+            case 'lobe-drift':
+            case 'orbit-wobble':
+                targets.targetLobe1 += 1.2 * intensity;
+                targets.targetLobe3 -= 0.8 * intensity;
+                targets.targetStretchX += 0.04 * intensity;
+                break;
+            case 'web-flicker':
+            case 'web-surge':
+            case 'node-cluster':
+                targets.targetWebOp += 0.18 * intensity;
+                targets.targetWebExp += 0.12 * intensity;
+                break;
+            case 'settle-sigh':
+                targets.targetStretchY -= 0.06 * intensity;
+                targets.targetLobe2 += 0.5 * intensity;
+                targets.targetWeight2 += 0.03 * intensity;
+                break;
+            case 'lobe-compute':
+                targets.targetLobe1 += 2.0 * intensity;
+                targets.targetLobe2 += 1.5 * intensity;
+                targets.targetLobe3 += 1.8 * intensity;
+                targets.targetWeight1 += 0.08 * intensity;
+                break;
+            case 'rim-flare':
+                targets.targetScale += 0.04 * intensity;
+                targets.noiseAmpBoost = (targets.noiseAmpBoost || 0) + 8 * intensity;
+                break;
+            case 'scan-sweep':
+                targets.targetWebOp += 0.12 * intensity;
+                break;
+            default:
+                break;
+        }
+    }
+
+    applyBlobIdleActionOverlay(targets) {
+        this.applyBlobActionOverlay(targets);
+    }
+
+    triggerPhaseAvatarAction(now = performance.now()) {
+        if (!this.avatarBehavior) return;
+        const profile = this.getAvatarBehaviorProfile();
+        const actions = this.getProfileActionsForState(this.state, profile);
+        const action = this.pickWeightedAvatarAction(actions);
+        this.avatarBehavior.action = action;
+        this.avatarBehavior.actionStartedAt = now;
+        this.avatarBehavior.actionDuration = this.getActionDuration(action);
+        this.avatarBehavior.actionIntensity = 1;
+        if (this.isCreatureAvatar()) {
+            if (action === 'double-blink' || action === 'shy-blink' || action === 'focus-squint' || action === 'visor-blink') {
+                this.creatureBlinkAmount = 1;
+                this.avatarBehavior.doubleBlinkPending = action === 'double-blink' ? 14 : 0;
+            }
+            this.syncCreatureAvatarShell();
+        } else {
+            this.triggerBlobActionEffects(action);
+        }
+    }
+
+    triggerIdleAvatarAction(now = performance.now()) {
+        this.triggerPhaseAvatarAction(now);
+    }
+
     updateAvatarBehavior() {
-        if (!this.isCreatureAvatar()) return;
         if (!this.avatarBehavior || this.avatarBehavior.form !== this.avatarForm) {
             this.resetAvatarBehavior();
         }
@@ -1162,25 +2069,39 @@ class JarvisHUD {
         const now = performance.now();
         const behavior = this.avatarBehavior;
         const profile = this.getAvatarBehaviorProfile();
-        const idleRange = profile?.idleActionRange || [5200, 10800];
         behavior.expression = this.getExpressionForState(this.state);
 
-        if (this.state === 'idle' && now >= behavior.nextIdleActionAt && behavior.action === 'none') {
-            this.triggerIdleAvatarAction(now);
-        }
-
-        if (behavior.action !== 'none') {
-            const progress = Math.min(1, (now - behavior.actionStartedAt) / Math.max(1, behavior.actionDuration));
-            behavior.actionIntensity = Math.sin(progress * Math.PI);
-            if (progress >= 1) {
-                behavior.action = 'none';
-                behavior.actionIntensity = 0;
-                behavior.nextIdleActionAt = now + this.randomInRange(idleRange[0], idleRange[1]);
+        if (this.state === 'post-talk') {
+            if (behavior.action !== 'none') {
+                const progress = Math.min(1, (now - behavior.actionStartedAt) / Math.max(1, behavior.actionDuration));
+                behavior.actionIntensity = Math.sin(progress * Math.PI);
+                if (progress >= 1 || now >= behavior.postTalkEndsAt) {
+                    behavior.action = 'none';
+                    behavior.actionIntensity = 0;
+                    this.setState('idle');
+                }
+            } else if (now >= behavior.postTalkEndsAt) {
+                this.setState('idle');
             }
-        }
+        } else if (['idle', 'thinking', 'speaking'].includes(this.state)) {
+            if (this.state === 'thinking') {
+                this.refreshThinkingLayersIfDue(now);
+            }
+            const phaseRange = this.getActionRangeForState(this.state, profile);
+            if (now >= behavior.nextPhaseActionAt && behavior.action === 'none') {
+                this.triggerPhaseAvatarAction(now);
+            }
 
-        if (this.state !== 'idle' && behavior.action === 'none') {
-            behavior.nextIdleActionAt = now + this.randomInRange(idleRange[0], idleRange[1]);
+            if (behavior.action !== 'none') {
+                const progress = Math.min(1, (now - behavior.actionStartedAt) / Math.max(1, behavior.actionDuration));
+                behavior.actionIntensity = Math.sin(progress * Math.PI);
+                if (progress >= 1) {
+                    behavior.action = 'none';
+                    behavior.actionIntensity = 0;
+                    behavior.nextPhaseActionAt = now + this.randomInRange(phaseRange[0], phaseRange[1]);
+                    behavior.nextIdleActionAt = behavior.nextPhaseActionAt;
+                }
+            }
         }
 
         this.creatureExpression = behavior.expression;
@@ -1404,7 +2325,8 @@ class JarvisHUD {
         const mouthEnvelope = this._audioReactive?.mouthEnvelope ?? 0;
         const profile = this.getAvatarBehaviorProfile();
         const behavior = this.avatarBehavior || this.createAvatarBehavior(this.avatarForm);
-        const stateBoost = this.state === 'listening' ? 0.55 : this.state === 'thinking' ? 0.72 : this.state === 'speaking' ? 0.95 : 0.2;
+        const thinkingPulse = this.state === 'thinking' ? 0.5 + 0.5 * Math.sin(this.time * 5.4) : 0;
+        const stateBoost = (this.state === 'listening' ? 0.55 : this.state === 'thinking' ? 0.72 + thinkingPulse * 0.28 : this.state === 'speaking' ? 0.95 : this.state === 'post-talk' ? 0.12 : 0.2);
         const mouthOpen = Math.max(this.creatureMouthOpen, this.state === 'speaking' ? mouthEnvelope * 0.18 * (profile?.mouthScale ?? 1) : 0);
         const mouthRound = this.creatureMouthRound;
         const blinkScale = Math.max(0.08, 1 - this.creatureBlinkAmount * 0.9);
@@ -1433,9 +2355,34 @@ class JarvisHUD {
         this.avatarLayer.style.setProperty('--creature-state-boost', stateBoost.toFixed(3));
         this.avatarLayer.style.setProperty('--avatar-action-intensity', actionIntensity.toFixed(3));
         this.avatarLayer.style.setProperty('--avatar-speech-energy', Math.min(1, speechEnergy).toFixed(3));
-        this.avatarLayer.style.setProperty('--avatar-ear-perk', (this.avatarForm === 'nova' ? actionIntensity : 0).toFixed(3));
-        this.avatarLayer.style.setProperty('--avatar-spark', (this.avatarForm === 'wisp' ? Math.max(actionIntensity, speechEnergy * 0.7) : 0).toFixed(3));
-        this.avatarLayer.style.setProperty('--avatar-scan', (this.avatarForm === 'eve' ? Math.max(actionIntensity, this.state === 'thinking' ? 0.7 : 0) : 0).toFixed(3));
+        this.avatarLayer.style.setProperty('--avatar-ear-perk', (this.avatarForm === 'nova' ? Math.max(actionIntensity, this.state === 'thinking' ? thinkingPulse * 0.5 : 0) : 0).toFixed(3));
+        this.avatarLayer.style.setProperty('--avatar-spark', (this.avatarForm === 'wisp' ? Math.max(actionIntensity, speechEnergy * 0.7, this.state === 'thinking' ? thinkingPulse * 0.75 : 0) : 0).toFixed(3));
+        this.avatarLayer.style.setProperty('--avatar-scan', (this.avatarForm === 'eve' ? Math.max(actionIntensity, this.state === 'thinking' ? 0.5 + thinkingPulse * 0.5 : 0) : 0).toFixed(3));
+        const stage = this.stageMotion || { x: 0, y: 0, rotate: 0, scale: 1 };
+        this.avatarLayer.style.setProperty('--avatar-stage-x', `${stage.x.toFixed(2)}px`);
+        this.avatarLayer.style.setProperty('--avatar-stage-y', `${stage.y.toFixed(2)}px`);
+        this.avatarLayer.style.setProperty('--avatar-stage-rotate', `${stage.rotate.toFixed(2)}deg`);
+        this.avatarLayer.style.setProperty('--avatar-stage-scale', stage.scale.toFixed(3));
+        if (this.state === 'post-talk' && behavior.postTalkLayers) {
+            const durSec = ((behavior.actionDuration || 3200) / 1000).toFixed(2);
+            this.avatarLayer.style.setProperty('--post-talk-duration', `${durSec}s`);
+            this.avatarLayer.dataset.postTalkStage = behavior.postTalkLayers.stage || '';
+            this.avatarLayer.dataset.postTalkParts = (behavior.postTalkLayers.parts || []).join(' ');
+        } else {
+            this.avatarLayer.style.removeProperty('--post-talk-duration');
+            delete this.avatarLayer.dataset.postTalkStage;
+            delete this.avatarLayer.dataset.postTalkParts;
+        }
+        if (this.state === 'thinking' && behavior.thinkingLayers) {
+            const cycleSec = ((behavior.thinkingLayers.cycleMs || 4000) / 1000).toFixed(2);
+            this.avatarLayer.style.setProperty('--thinking-cycle-duration', `${cycleSec}s`);
+            this.avatarLayer.dataset.thinkingStage = behavior.thinkingLayers.stage || '';
+            this.avatarLayer.dataset.thinkingParts = (behavior.thinkingLayers.parts || []).join(' ');
+        } else {
+            this.avatarLayer.style.removeProperty('--thinking-cycle-duration');
+            delete this.avatarLayer.dataset.thinkingStage;
+            delete this.avatarLayer.dataset.thinkingParts;
+        }
         this.avatarLayer.dataset.state = this.state;
         this.avatarLayer.dataset.action = behavior.action || 'none';
         this.avatarLayer.dataset.expression = behavior.expression || this.getExpressionForState(this.state);
@@ -2455,10 +3402,11 @@ class JarvisHUD {
      * Renders a floating, holographic laser scanner bar
      */
     drawLaserSweep(w, h, themeColor) {
-        if (this.state !== 'thinking' && this.state !== 'listening') return;
+        const scanBoost = this.blobLaserBoost
+            || (this.avatarBehavior?.action === 'scan-sweep' ? this.avatarBehavior.actionIntensity : 0);
+        if (this.state !== 'thinking' && this.state !== 'listening' && scanBoost <= 0.01) return;
 
-        // Speed depends on state
-        const speed = this.state === 'thinking' ? 4.5 : 1.8;
+        const speed = (this.state === 'thinking' ? 4.5 : 1.8) + scanBoost * 6;
         
         this.sweepY += speed * this.sweepDirection;
         if (this.sweepY > h) {
@@ -2469,9 +3417,9 @@ class JarvisHUD {
             this.sweepDirection = 1;
         }
 
-        // Draw horizontal scanline
+        const lineAlpha = 0.35 + scanBoost * 0.45;
         this.ctx.lineWidth = 1.0;
-        this.ctx.strokeStyle = `rgba(${this.hexToRgb(themeColor)}, 0.35)`;
+        this.ctx.strokeStyle = `rgba(${this.hexToRgb(themeColor)}, ${lineAlpha})`;
         this.ctx.beginPath();
         this.ctx.moveTo(0, this.sweepY);
         this.ctx.lineTo(w, this.sweepY);

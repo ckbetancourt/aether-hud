@@ -531,6 +531,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     onToolProgress: (toolName) => {
                         setAssistantBubbleToolPreview(bubbleNode, toolName);
                         visualizer.setThinkingCaption(`Running ${toolName}…`);
+                        visualizer.triggerThinkingToolBurst(toolName);
                     },
                 }
             );
@@ -718,15 +719,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         btn.dataset.replayId = replayId;
         btn.dataset.fallbackText = fallbackText || '';
-        btn.onclick = (e) => {
+            btn.onclick = (e) => {
             e.stopPropagation();
             visualizer.setState('speaking');
             visualizer.startSpeechMouthCue(btn.dataset.fallbackText || '');
+            visualizer.markSpeechPlaybackStarted();
             speech.replayById(btn.dataset.replayId, btn.dataset.fallbackText || null, () => {
                 visualizer.stopSpeechMouthCue();
-                if (visualizer.state === 'speaking') {
-                    visualizer.setState('idle');
-                }
+                visualizer.enterPostTalk();
             });
         };
 
@@ -770,9 +770,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                   }
                 : null;
 
-            if (speech.speechEnabled) {
+            if (speech.speechEnabled && speakableText.length > 0) {
                 visualizer.setState('speaking');
                 visualizer.startSpeechMouthCue(speakableText);
+                visualizer.markSpeechPlaybackStarted();
             }
             speech.speak(
                 speakableText,
@@ -780,9 +781,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 (event) => visualizer.handleSpeechBoundary(event),
                 () => {
                     visualizer.stopSpeechMouthCue();
-                    if (visualizer.state === 'speaking') {
-                        visualizer.setState('idle');
-                    }
+                    visualizer.enterPostTalk();
                 },
                 { onReplayId }
             );
@@ -814,6 +813,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                     lucide.createIcons();
                     scrollConsoleBottom();
                     elements.deckChatScroller.scrollTop = elements.deckChatScroller.scrollHeight;
+                    if (visualizer.state === 'thinking') {
+                        visualizer.setState('idle');
+                    }
                     resolve();
                 }
             }, intervalTime);
@@ -914,6 +916,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             elements.speechSynthesisToggle.querySelector('i').setAttribute('data-lucide', 'volume-x');
             speech.stopSpeaking();
             visualizer.stopSpeechMouthCue();
+            if (visualizer.state === 'speaking') {
+                visualizer.setState('idle');
+            }
             appendSystemConsoleLine("[SYSTEM] Voice synthesis muted.");
         }
         lucide.createIcons();
