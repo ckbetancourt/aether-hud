@@ -314,6 +314,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     expandChatColumn();
                     elements.deckChatInputField.value += e.key;
                     elements.deckChatInputField.focus();
+                    resizeChatComposerInput();
                 }
             } else if (!typingInComposer && e.key === 'Escape' && !collapsed) {
                 collapseChatColumn();
@@ -356,6 +357,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                 submitDeckMessage();
             }
         });
+        elements.deckChatInputField.addEventListener('input', resizeChatComposerInput);
+        resizeChatComposerInput();
         elements.deckSendMessageBtn.addEventListener('click', submitDeckMessage);
 
         // Sliders updates
@@ -879,6 +882,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                         elements.deckChatInputField.value = transcript;
                     }
                     elements.deckChatInputField.focus();
+                    resizeChatComposerInput();
                     appendSystemConsoleLine("[SYSTEM] Transcribed text inserted into chat composer.");
                 }
             },
@@ -1700,10 +1704,22 @@ document.addEventListener('DOMContentLoaded', async () => {
         const text = elements.deckChatInputField.value.trim();
         if (!text) return;
         elements.deckChatInputField.value = '';
+        resizeChatComposerInput();
         if (elements.hudShell?.classList.contains('chat-collapsed')) {
             expandChatColumn(false);
         }
         await submitDirectTextCommand(text);
+    }
+
+    function resizeChatComposerInput() {
+        const field = elements.deckChatInputField;
+        if (!field) return;
+
+        const maxHeight = 120;
+        field.style.height = 'auto';
+        const nextHeight = Math.max(24, Math.min(field.scrollHeight, maxHeight));
+        field.style.height = `${nextHeight}px`;
+        field.style.overflowY = field.scrollHeight > maxHeight ? 'auto' : 'hidden';
     }
 
     function getTtsProvider() {

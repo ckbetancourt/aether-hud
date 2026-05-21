@@ -745,7 +745,7 @@ class JarvisHUD {
             target = this.getPostTalkStageTarget(progress, stageId);
         }
 
-        const ease = this.state === 'post-talk' ? 0.16 : this.state === 'thinking' ? 0.1 : 0.12;
+        const ease = this.state === 'post-talk' ? 0.16 : this.state === 'thinking' ? 0.1 : this.state === 'idle' ? 0.05 : 0.08;
         target.x *= roamScale;
         target.y *= roamScale;
 
@@ -753,17 +753,6 @@ class JarvisHUD {
         this.stageMotion.y += (target.y - this.stageMotion.y) * ease;
         this.stageMotion.rotate += (target.rotate - this.stageMotion.rotate) * ease;
         this.stageMotion.scale += (target.scale - this.stageMotion.scale) * ease;
-    }
-
-    applyAvatarStageToLabel() {
-        const statusLabel = document.getElementById('hudOrbLabel');
-        if (!statusLabel) return;
-        const stage = this.stageMotion || { x: 0, y: 0 };
-        if (this.isCreatureAvatar()) {
-            statusLabel.style.transform = `translate(-50%, -50%) translateY(190px) translate(${stage.x.toFixed(1)}px, ${stage.y.toFixed(1)}px)`;
-        } else {
-            statusLabel.style.transform = `translate(-50%, -50%) translate(${stage.x.toFixed(1)}px, ${stage.y.toFixed(1)}px)`;
-        }
     }
 
     createAvatarBehavior(form = this.avatarForm) {
@@ -825,13 +814,7 @@ class JarvisHUD {
 
     syncAvatarLabelPlacement(statusLabel) {
         if (!statusLabel) return;
-        const isCreature = this.isCreatureAvatar();
-        statusLabel.classList.toggle('nova-label', isCreature);
-        statusLabel.style.top = '50%';
-        statusLabel.style.left = '50%';
-        statusLabel.style.transform = isCreature
-            ? 'translate(-50%, -50%) translateY(190px)'
-            : 'translate(-50%, -50%)';
+        statusLabel.classList.toggle('nova-label', this.isCreatureAvatar());
     }
 
     getAvatarName() {
@@ -1199,29 +1182,40 @@ class JarvisHUD {
 
     /**
      * Simulated pseudo-noise using multiple dynamic sine/cosine overlays.
-     * Integer harmonic multipliers keep the shape seamless at angle 0 / 2π.
+     * Blends between integer harmonics so the shape stays seamless and morphs smoothly.
      */
     harmonicNoise(angle, time, speedModifier, frequencyModifier) {
         const t = time * speedModifier;
         const a = angle * frequencyModifier;
         const mp = this.morphPhase;
 
-        const sinTerm = (lobe, weight, timeScale, phaseScale) => {
-            const n = Math.max(1, Math.round(lobe));
-            const phase = (lobe - n) * 4.2 + mp * phaseScale;
-            return Math.sin(a * n + t * timeScale + phase) * weight;
+        const waveAt = (lobe, weight, timeScale, phaseScale, useCos = false) => {
+            const lo = Math.floor(lobe);
+            const hi = lo + 1;
+            const blend = lobe - lo;
+            const phase = mp * phaseScale;
+            const sample = (n) => (
+                useCos
+                    ? Math.cos(a * n - t * timeScale + phase)
+                    : Math.sin(a * n + t * timeScale + phase)
+            );
+            return (sample(lo) * (1 - blend) + sample(hi) * blend) * weight;
         };
 
-        const cosTerm = (lobe, weight, timeScale, phaseScale) => {
-            const n = Math.max(1, Math.round(lobe));
-            const phase = (lobe - n) * 4.2 + mp * phaseScale;
-            return Math.cos(a * n - t * timeScale + phase) * weight;
-        };
+        return waveAt(this.harmonicLobe1, this.harmonicWeight1, 1, 1)
+            + waveAt(this.harmonicLobe2, this.harmonicWeight2, 1.4, 0.7, true)
+            + waveAt(this.harmonicLobe3, this.harmonicWeight3, 0.8, -0.5)
+            + waveAt(this.harmonicLobe4, this.harmonicWeight4, 1.1, 1.2, true);
+    }
 
-        return sinTerm(this.harmonicLobe1, this.harmonicWeight1, 1, 1)
-            + cosTerm(this.harmonicLobe2, this.harmonicWeight2, 1.4, 0.7)
-            + sinTerm(this.harmonicLobe3, this.harmonicWeight3, 0.8, -0.5)
-            + cosTerm(this.harmonicLobe4, this.harmonicWeight4, 1.1, 1.2);
+    getBlobMorphEase() {
+        if (this.state === 'idle' || this.state === 'post-talk') {
+            return { lobe: 0.032, weight: 0.038, stretch: 0.038 };
+        }
+        if (this.state === 'listening') {
+            return { lobe: 0.048, weight: 0.05, stretch: 0.044 };
+        }
+        return { lobe: 0.055, weight: 0.06, stretch: 0.05 };
     }
 
     sampleBlobRadius(angle, stepIndex, stepCount, time, speed, noiseAmplitude, frequency) {
@@ -1245,7 +1239,8 @@ class JarvisHUD {
     }
 
     traceSmoothBlobPath(cx, cy, baseRadius, time, speed, noiseAmplitude, frequency) {
-        const steps = 200;
+        const steps = this.state === 'idle' || this.state === 'post-talk' ? 168 : 200;
+        const tension = this.state === 'idle' || this.state === 'post-talk' ? 9 : 6;
         const points = [];
 
         for (let i = 0; i < steps; i++) {
@@ -1265,10 +1260,10 @@ class JarvisHUD {
             const p2 = points[(i + 1) % steps];
             const p3 = points[(i + 2) % steps];
             this.ctx.bezierCurveTo(
-                p1.x + (p2.x - p0.x) / 6,
-                p1.y + (p2.y - p0.y) / 6,
-                p2.x - (p3.x - p1.x) / 6,
-                p2.y - (p3.y - p1.y) / 6,
+                p1.x + (p2.x - p0.x) / tension,
+                p1.y + (p2.y - p0.y) / tension,
+                p2.x - (p3.x - p1.x) / tension,
+                p2.y - (p3.y - p1.y) / tension,
                 p2.x,
                 p2.y
             );
@@ -1289,15 +1284,17 @@ class JarvisHUD {
         this.parallaxX = this.parallaxX * 0.92 + this.mouseX * 0.08;
         this.parallaxY = this.parallaxY * 0.92 + this.mouseY * 0.08;
 
-        let centerX = w / 2 + this.parallaxX * 25; // Parallax center shift
-        let centerY = h / 2 + this.parallaxY * 25;
+        const sceneCenterX = w / 2 + this.parallaxX * 25;
+        const sceneCenterY = h / 2 + this.parallaxY * 25;
 
         this.updateAvatarStageMotion(w, h);
+
+        let avatarCenterX = sceneCenterX;
+        let avatarCenterY = sceneCenterY;
         if (!this.isCreatureAvatar()) {
-            centerX += this.stageMotion.x;
-            centerY += this.stageMotion.y;
+            avatarCenterX += this.stageMotion.x;
+            avatarCenterY += this.stageMotion.y;
         }
-        this.applyAvatarStageToLabel();
 
         // Clear canvas
         this.ctx.clearRect(0, 0, w, h);
@@ -1422,13 +1419,13 @@ class JarvisHUD {
                 targetScale = 1.0;
                 targetWebExp = 1.0;
                 targetWebOp = 0.22;
-                scaleSpeed = 0.05;
-                noiseAmp = 16;
+                scaleSpeed = 0.04;
+                noiseAmp = 14;
 
-                targetLobe1 = 3.2 + Math.sin(mp * 0.25) * 0.6;
-                targetLobe2 = 5.2 + Math.cos(mp * 0.22) * 0.5;
-                targetLobe3 = 2.2 + Math.sin(mp * 0.28) * 0.4;
-                targetLobe4 = 7.2 + Math.cos(mp * 0.26) * 0.7;
+                targetLobe1 = 3.0 + Math.sin(mp * 0.22) * 0.35;
+                targetLobe2 = 5.0 + Math.cos(mp * 0.2) * 0.3;
+                targetLobe3 = 2.0 + Math.sin(mp * 0.24) * 0.25;
+                targetLobe4 = 7.0 + Math.cos(mp * 0.21) * 0.4;
                 targetWeight1 = 0.38;
                 targetWeight2 = 0.3;
                 targetWeight3 = 0.26;
@@ -1482,18 +1479,19 @@ class JarvisHUD {
         this.webOpacity += (targetWebOp * this.colorModeOpacityScale - this.webOpacity) * 0.1;
 
         // Smoothly interpolate morphing parameters
-        this.harmonicLobe1 += (targetLobe1 - this.harmonicLobe1) * 0.06;
-        this.harmonicLobe2 += (targetLobe2 - this.harmonicLobe2) * 0.06;
-        this.harmonicLobe3 += (targetLobe3 - this.harmonicLobe3) * 0.06;
-        this.harmonicLobe4 += (targetLobe4 - this.harmonicLobe4) * 0.06;
+        const morphEase = this.getBlobMorphEase();
+        this.harmonicLobe1 += (targetLobe1 - this.harmonicLobe1) * morphEase.lobe;
+        this.harmonicLobe2 += (targetLobe2 - this.harmonicLobe2) * morphEase.lobe;
+        this.harmonicLobe3 += (targetLobe3 - this.harmonicLobe3) * morphEase.lobe;
+        this.harmonicLobe4 += (targetLobe4 - this.harmonicLobe4) * morphEase.lobe;
 
-        this.harmonicWeight1 += (targetWeight1 - this.harmonicWeight1) * 0.06;
-        this.harmonicWeight2 += (targetWeight2 - this.harmonicWeight2) * 0.06;
-        this.harmonicWeight3 += (targetWeight3 - this.harmonicWeight3) * 0.06;
-        this.harmonicWeight4 += (targetWeight4 - this.harmonicWeight4) * 0.06;
+        this.harmonicWeight1 += (targetWeight1 - this.harmonicWeight1) * morphEase.weight;
+        this.harmonicWeight2 += (targetWeight2 - this.harmonicWeight2) * morphEase.weight;
+        this.harmonicWeight3 += (targetWeight3 - this.harmonicWeight3) * morphEase.weight;
+        this.harmonicWeight4 += (targetWeight4 - this.harmonicWeight4) * morphEase.weight;
 
-        this.stretchX += (targetStretchX - this.stretchX) * 0.05;
-        this.stretchY += (targetStretchY - this.stretchY) * 0.05;
+        this.stretchX += (targetStretchX - this.stretchX) * morphEase.stretch;
+        this.stretchY += (targetStretchY - this.stretchY) * morphEase.stretch;
 
         if (this.state !== 'speaking') {
             this.updateNodeActivations();
@@ -1506,17 +1504,17 @@ class JarvisHUD {
 
         // RENDER STEP 3: Concentric HUD Rings and Rotating Hex Data Dials (hidden while speaking)
         if (this.state !== 'speaking' || isCreature) {
-            this.drawHUDRings(centerX, centerY, avatarRadius, primaryColor, glowColor);
-            this.drawDataRing(centerX, centerY, avatarRadius, primaryColor);
+            this.drawHUDRings(avatarCenterX, avatarCenterY, avatarRadius, primaryColor, glowColor);
+            this.drawDataRing(avatarCenterX, avatarCenterY, avatarRadius, primaryColor);
         }
 
         if (this.state === 'thinking' && Math.random() < 0.016) {
             this.triggerLayerSweep();
         }
 
-        // RENDER STEP 4: Layered Neural Network (hidden while speaking — blob only)
+        // RENDER STEP 4: Layered Neural Network — fixed to scene center so avatar roam does not drag the web
         if (showNeuralWeb) {
-            this.drawNeuralWeb(centerX, centerY, avatarRadius, primaryColor, secondaryColor);
+            this.drawNeuralWeb(sceneCenterX, sceneCenterY, avatarRadius, primaryColor, secondaryColor);
         }
 
         // RENDER STEP 5: Central avatar form
@@ -1528,7 +1526,7 @@ class JarvisHUD {
             const shimmer = this.blobCoreShimmer || 0;
             // Multi-layered liquid plasma orb. We layer 3 separate undulating paths to simulate a 3D gas sphere.
             this.drawLiquidBlob(
-                centerX, centerY,
+                avatarCenterX, avatarCenterY,
                 activeRadius * 1.28,
                 this.time, scaleSpeed * 0.75, noiseAmp * 1.45, 0.75,
                 `rgba(${this.hexToRgb(primaryColor)}, ${0.15 + shimmer * 0.08})`,
@@ -1536,20 +1534,20 @@ class JarvisHUD {
             );
 
             this.drawLiquidBlob(
-                centerX, centerY,
+                avatarCenterX, avatarCenterY,
                 activeRadius,
                 this.time + 12, scaleSpeed * 1.05, noiseAmp * 1.1, 1.05,
                 `rgba(${this.hexToRgb(primaryColor)}, ${0.5 + shimmer * 0.15})`,
                 'rgba(0,0,0,0)', 0
             );
 
-            const coreGrad = this.ctx.createRadialGradient(centerX, centerY, 5, centerX, centerY, activeRadius * 0.6);
+            const coreGrad = this.ctx.createRadialGradient(avatarCenterX, avatarCenterY, 5, avatarCenterX, avatarCenterY, activeRadius * 0.6);
             coreGrad.addColorStop(0, '#ffffff');
             coreGrad.addColorStop(0.5, secondaryColor);
             coreGrad.addColorStop(1, `rgba(${this.hexToRgb(primaryColor)}, ${0.1 + shimmer * 0.12})`);
 
             this.drawLiquidBlob(
-                centerX, centerY,
+                avatarCenterX, avatarCenterY,
                 activeRadius * 0.62,
                 this.time - 8, scaleSpeed * 1.35, noiseAmp * 0.65, 1.35,
                 coreGrad,
@@ -1558,7 +1556,7 @@ class JarvisHUD {
         }
 
         // RENDER STEP 6: Vocal Oscilloscope Equalizer (outer speak boundary)
-        this.drawVoiceWaveRing(centerX, centerY, avatarRadius, primaryColor, secondaryColor);
+        this.drawVoiceWaveRing(avatarCenterX, avatarCenterY, avatarRadius, primaryColor, secondaryColor);
 
         // RENDER STEP 7: Active State Transition Shockwaves (expanding foreground overlay) safely using a backward loop
         for (let idx = this.shockwaves.length - 1; idx >= 0; idx--) {
@@ -1576,14 +1574,14 @@ class JarvisHUD {
             
             // Outer expanding ring
             this.ctx.beginPath();
-            this.ctx.arc(centerX, centerY, sw.radius, 0, Math.PI * 2);
+            this.ctx.arc(avatarCenterX, avatarCenterY, sw.radius, 0, Math.PI * 2);
             this.ctx.stroke();
             
             // Faint secondary glow ring
             this.ctx.strokeStyle = `rgba(${this.hexToRgb(secondaryColor)}, ${sw.alpha * 0.35})`;
             this.ctx.lineWidth = sw.width * 0.5;
             this.ctx.beginPath();
-            this.ctx.arc(centerX, centerY, sw.radius * 0.9, 0, Math.PI * 2);
+            this.ctx.arc(avatarCenterX, avatarCenterY, sw.radius * 0.9, 0, Math.PI * 2);
             this.ctx.stroke();
         }
 
@@ -1984,49 +1982,51 @@ class JarvisHUD {
         if (!action || action === 'none' || intensity <= 0) return;
         if (state !== 'idle' && state !== 'thinking' && state !== 'speaking') return;
 
-        if (action === 'core-shimmer' || action === 'halo-breathe') this.blobCoreShimmer = intensity;
-        if (action === 'ring-tick' || action === 'rim-flare' || action === 'ring-echo') this.blobRingPulse = intensity;
-        if (action === 'scan-sweep') this.blobLaserBoost = intensity;
+        const overlay = intensity * (state === 'idle' ? 0.48 : 1);
+
+        if (action === 'core-shimmer' || action === 'halo-breathe') this.blobCoreShimmer = overlay;
+        if (action === 'ring-tick' || action === 'rim-flare' || action === 'ring-echo') this.blobRingPulse = overlay;
+        if (action === 'scan-sweep') this.blobLaserBoost = overlay;
 
         switch (action) {
             case 'soft-pulse':
             case 'micro-pulse':
             case 'halo-breathe':
-                targets.targetScale += 0.06 * intensity;
-                targets.targetWeight1 += 0.04 * intensity;
-                targets.targetWeight2 += 0.035 * intensity;
-                targets.targetWeight3 += 0.03 * intensity;
-                targets.targetWeight4 += 0.025 * intensity;
+                targets.targetScale += 0.06 * overlay;
+                targets.targetWeight1 += 0.04 * overlay;
+                targets.targetWeight2 += 0.035 * overlay;
+                targets.targetWeight3 += 0.03 * overlay;
+                targets.targetWeight4 += 0.025 * overlay;
                 break;
             case 'lobe-drift':
             case 'orbit-wobble':
-                targets.targetLobe1 += 1.2 * intensity;
-                targets.targetLobe3 -= 0.8 * intensity;
-                targets.targetStretchX += 0.04 * intensity;
+                targets.targetLobe1 += 0.75 * overlay;
+                targets.targetLobe3 -= 0.5 * overlay;
+                targets.targetStretchX += 0.025 * overlay;
                 break;
             case 'web-flicker':
             case 'web-surge':
             case 'node-cluster':
-                targets.targetWebOp += 0.18 * intensity;
-                targets.targetWebExp += 0.12 * intensity;
+                targets.targetWebOp += 0.12 * overlay;
+                targets.targetWebExp += 0.08 * overlay;
                 break;
             case 'settle-sigh':
-                targets.targetStretchY -= 0.06 * intensity;
-                targets.targetLobe2 += 0.5 * intensity;
-                targets.targetWeight2 += 0.03 * intensity;
+                targets.targetStretchY -= 0.06 * overlay;
+                targets.targetLobe2 += 0.5 * overlay;
+                targets.targetWeight2 += 0.03 * overlay;
                 break;
             case 'lobe-compute':
-                targets.targetLobe1 += 2.0 * intensity;
-                targets.targetLobe2 += 1.5 * intensity;
-                targets.targetLobe3 += 1.8 * intensity;
-                targets.targetWeight1 += 0.08 * intensity;
+                targets.targetLobe1 += 2.0 * overlay;
+                targets.targetLobe2 += 1.5 * overlay;
+                targets.targetLobe3 += 1.8 * overlay;
+                targets.targetWeight1 += 0.08 * overlay;
                 break;
             case 'rim-flare':
-                targets.targetScale += 0.04 * intensity;
-                targets.noiseAmpBoost = (targets.noiseAmpBoost || 0) + 8 * intensity;
+                targets.targetScale += 0.04 * overlay;
+                targets.noiseAmpBoost = (targets.noiseAmpBoost || 0) + 8 * overlay;
                 break;
             case 'scan-sweep':
-                targets.targetWebOp += 0.12 * intensity;
+                targets.targetWebOp += 0.12 * overlay;
                 break;
             default:
                 break;

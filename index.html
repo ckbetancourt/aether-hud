@@ -62,7 +62,6 @@
             <div class="orb-container">
                 <canvas id="jarvisCanvas"></canvas>
                 <div class="avatar-layer" id="avatarLayer" aria-hidden="true"></div>
-                <div class="hud-orb-label" id="hudOrbLabel">AETHER ACTIVE</div>
             </div>
         </section>
 
@@ -74,8 +73,10 @@
             </div>
         </section>
 
-        <!-- 4. BOTTOM FLOATING CONTROL PILL -->
-        <footer class="hud-controls-pill glass-panel">
+        <!-- 4. BOTTOM STATUS + CONTROL PILL -->
+        <div class="hud-bottom-area">
+            <div class="hud-orb-label" id="hudOrbLabel">AETHER ACTIVE</div>
+            <footer class="hud-controls-pill glass-panel">
             <!-- Voice Recognition microphone -->
             <button class="hud-circle-btn mic-btn" id="voiceRecognitionBtn" title="Activate voice telemetry mode">
                 <i data-lucide="mic" style="width: 18px; height: 18px;"></i>
@@ -104,7 +105,8 @@
             <button class="hud-circle-btn" id="historyDrawerToggle" title="Open archives list">
                 <i data-lucide="database" style="width: 18px; height: 18px;"></i>
             </button>
-        </footer>
+            </footer>
+        </div>
 
     </div>
 
