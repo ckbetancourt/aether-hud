@@ -133,16 +133,28 @@
             <!-- Populated dynamically with conversational bubbles -->
         </div>
         <div class="chat-composer">
-            <div class="chat-composer-row">
-                <textarea class="chat-composer-input" id="deckChatInputField" rows="1" placeholder="Message Aether…"></textarea>
-                <button class="composer-attach-btn" id="composerAttachBtn" type="button" title="Attach file">
-                    <i data-lucide="paperclip" style="width:16px; height:16px;"></i>
-                </button>
-                <button class="deck-send-btn" id="deckSendMessageBtn" type="button" title="Send message">
-                    <i data-lucide="arrow-up" style="width:14px; height:14px;"></i>
-                </button>
+            <input type="file" id="composerFileInput" hidden multiple accept="image/*,.txt,.md,.markdown,.json,.js,.jsx,.ts,.tsx,.css,.html,.htm,.xml,.yaml,.yml,.csv,.log,.py,.sh,.rb,.go,.rs,.sql,.toml,.env,.ini,.cfg,.conf,.vue,.svelte,.heic,.heif">
+            <div class="chat-composer-box" id="chatComposerBox">
+                <section id="composerAttachmentDock" class="composer-attachment-dock" hidden>
+                    <div class="composer-attachment-dock-header">
+                        <span class="composer-attachment-dock-title">Attachments</span>
+                        <span id="composerAttachmentCount" class="composer-attachment-dock-count">0</span>
+                    </div>
+                    <div id="composerAttachments" class="composer-attachment-grid" aria-live="polite"></div>
+                </section>
+                <div class="chat-composer-input-row">
+                    <textarea class="chat-composer-input" id="deckChatInputField" rows="1" placeholder="Message Aether…"></textarea>
+                    <div class="chat-composer-actions">
+                        <button class="composer-attach-btn" id="composerAttachBtn" type="button" title="Attach file">
+                            <i data-lucide="paperclip" style="width:16px; height:16px;"></i>
+                        </button>
+                        <button class="deck-send-btn" id="deckSendMessageBtn" type="button" title="Send message">
+                            <i data-lucide="arrow-up" style="width:14px; height:14px;"></i>
+                        </button>
+                    </div>
+                </div>
             </div>
-            <span class="chat-composer-hint">Enter to send · Shift+Enter for newline</span>
+            <span class="chat-composer-hint">Enter to send · Shift+Enter for newline · Drop files to attach</span>
         </div>
     </aside>
 

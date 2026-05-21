@@ -14,7 +14,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     const SESSIONS_PAGE_SIZE = 25;
     const MAX_MESSAGES_PER_SESSION = 100;
     const MAX_MESSAGE_CHARS = 32000;
+    const MAX_CHAT_ATTACHMENTS = 6;
+    const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
+    const TEXT_ATTACHMENT_EXTENSIONS = new Set([
+        '.txt', '.md', '.markdown', '.json', '.js', '.jsx', '.ts', '.tsx', '.css',
+        '.html', '.htm', '.xml', '.yaml', '.yml', '.csv', '.log', '.py', '.sh', '.rb',
+        '.go', '.rs', '.sql', '.toml', '.env', '.ini', '.cfg', '.conf', '.vue', '.svelte',
+    ]);
     const DEFAULT_DISPLAY_NAME = AETHER_PERSONALITY.displayName;
+
+    let pendingAttachments = [];
+    let chatDropDepth = 0;
+    let attachmentUiVerified = false;
 
     function loadSavedSessions() {
         try {
@@ -225,6 +236,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         deckChatScroller: document.getElementById('deckChatScroller'),
         deckChatInputField: document.getElementById('deckChatInputField'),
         deckSendMessageBtn: document.getElementById('deckSendMessageBtn'),
+        composerAttachBtn: document.getElementById('composerAttachBtn'),
+        composerFileInput: document.getElementById('composerFileInput'),
+        composerAttachmentDock: document.getElementById('composerAttachmentDock'),
+        composerAttachments: document.getElementById('composerAttachments'),
+        composerAttachmentCount: document.getElementById('composerAttachmentCount'),
+        chatComposerBox: document.getElementById('chatComposerBox'),
 
         // Settings inputs
         ttsProvider: document.getElementById('ttsProvider'),
@@ -422,6 +439,21 @@ document.addEventListener('DOMContentLoaded', async () => {
         resizeChatComposerInput();
         elements.deckSendMessageBtn.addEventListener('click', submitDeckMessage);
 
+        if (elements.composerAttachBtn && elements.composerFileInput) {
+            elements.composerAttachBtn.addEventListener('click', () => {
+                if (!verifyAttachmentUi()) return;
+                elements.composerFileInput.click();
+            });
+            elements.composerFileInput.addEventListener('change', () => {
+                if (!elements.composerFileInput.files?.length) return;
+                addComposerAttachmentFiles(elements.composerFileInput.files);
+                elements.composerFileInput.value = '';
+            });
+        }
+
+        verifyAttachmentUi();
+        setupChatDropZone();
+
         // Sliders updates
         elements.synthSpeed.addEventListener('input', () => {
             elements.synthSpeedVal.textContent = elements.synthSpeed.value + 'x';
@@ -548,15 +580,363 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
 
-    async function submitDirectTextCommand(text) {
+    function formatAttachmentSize(bytes) {
+        const size = Number(bytes) || 0;
+        if (size < 1024) return `${size} B`;
+        if (size < 1024 * 1024) return `${(size / 1024).toFixed(size < 10 * 1024 ? 1 : 0)} KB`;
+        return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+    }
+
+    function getFileExtension(name) {
+        const match = String(name || '').toLowerCase().match(/(\.[a-z0-9]+)$/i);
+        return match ? match[1] : '';
+    }
+
+    function isTextAttachmentFile(file) {
+        if (!file) return false;
+        if (file.type.startsWith('text/')) return true;
+        if (file.type === 'application/json' || file.type === 'application/xml') return true;
+        return TEXT_ATTACHMENT_EXTENSIONS.has(getFileExtension(file.name));
+    }
+
+    function isImageAttachmentFile(file) {
+        if (!file) return false;
+        if (file.type.startsWith('image/')) return true;
+        return ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg', '.heic', '.heif', '.avif'].includes(getFileExtension(file.name));
+    }
+
+    function readFileAsDataUrl(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(String(reader.result || ''));
+            reader.onerror = () => reject(reader.error || new Error('Failed to read file'));
+            reader.readAsDataURL(file);
+        });
+    }
+
+    function readFileAsText(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(String(reader.result || ''));
+            reader.onerror = () => reject(reader.error || new Error('Failed to read file'));
+            reader.readAsText(file);
+        });
+    }
+
+    async function compressImageDataUrl(dataUrl, maxDimension = 2048, quality = 0.88) {
+        return new Promise((resolve) => {
+            const img = new Image();
+            img.onload = () => {
+                let { width, height } = img;
+                const scale = Math.min(1, maxDimension / Math.max(width, height));
+                width = Math.max(1, Math.round(width * scale));
+                height = Math.max(1, Math.round(height * scale));
+                const canvas = document.createElement('canvas');
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                if (!ctx) {
+                    resolve(dataUrl);
+                    return;
+                }
+                ctx.drawImage(img, 0, 0, width, height);
+                resolve(canvas.toDataURL('image/jpeg', quality));
+            };
+            img.onerror = () => resolve(dataUrl);
+            img.src = dataUrl;
+        });
+    }
+
+    async function buildAttachmentFromFile(file) {
+        if (!file) throw new Error('Missing file');
+        if (file.size > MAX_ATTACHMENT_BYTES) {
+            throw new Error(`${file.name} is too large (max ${formatAttachmentSize(MAX_ATTACHMENT_BYTES)})`);
+        }
+
+        if (isImageAttachmentFile(file)) {
+            let dataUrl = await readFileAsDataUrl(file);
+            if (file.size > 512 * 1024) {
+                dataUrl = await compressImageDataUrl(dataUrl);
+            }
+            return {
+                id: `att_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                name: file.name,
+                mimeType: file.type || 'image/jpeg',
+                kind: 'image',
+                dataUrl,
+                size: file.size,
+            };
+        }
+
+        if (isTextAttachmentFile(file)) {
+            const text = await readFileAsText(file);
+            return {
+                id: `att_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                name: file.name,
+                mimeType: file.type || 'text/plain',
+                kind: 'text',
+                text,
+                size: file.size,
+            };
+        }
+
+        throw new Error(`${file.name} isn't supported yet — use images or text files.`);
+    }
+
+    function verifyAttachmentUi() {
+        if (attachmentUiVerified) return true;
+        const missing = [];
+        if (!elements.composerFileInput) missing.push('#composerFileInput');
+        if (!elements.composerAttachments) missing.push('#composerAttachments');
+        if (!elements.composerAttachmentDock) missing.push('#composerAttachmentDock');
+        if (missing.length) {
+            showToast(
+                'Attachment UI unavailable',
+                'Hard refresh the page (Cmd+Shift+R) and try again.',
+                { variant: 'error', durationMs: 8000 }
+            );
+            return false;
+        }
+        attachmentUiVerified = true;
+        return true;
+    }
+
+    async function addComposerAttachmentFiles(fileList) {
+        if (!verifyAttachmentUi()) return;
+        const files = Array.from(fileList || []);
+        if (!files.length) return;
+
+        if (elements.hudShell?.classList.contains('chat-collapsed')) {
+            expandChatColumn(false);
+        }
+
+        let addedCount = 0;
+        for (const file of files) {
+            if (pendingAttachments.length >= MAX_CHAT_ATTACHMENTS) {
+                showToast(
+                    'Attachment limit reached',
+                    `You can attach up to ${MAX_CHAT_ATTACHMENTS} files per message.`,
+                    { variant: 'warning', durationMs: 4200 }
+                );
+                break;
+            }
+            if (pendingAttachments.some((att) => att.name === file.name && att.size === file.size && att.status !== 'loading')) {
+                continue;
+            }
+
+            const placeholderId = `att_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+            pendingAttachments.push({
+                id: placeholderId,
+                name: file.name,
+                size: file.size,
+                kind: 'loading',
+                status: 'loading',
+            });
+            renderComposerAttachments();
+
+            try {
+                const attachment = await buildAttachmentFromFile(file);
+                const idx = pendingAttachments.findIndex((att) => att.id === placeholderId);
+                if (idx !== -1) {
+                    pendingAttachments[idx] = { ...attachment, status: 'ready' };
+                    addedCount += 1;
+                }
+            } catch (err) {
+                pendingAttachments = pendingAttachments.filter((att) => att.id !== placeholderId);
+                showToast(
+                    'Could not attach file',
+                    err.message || `Could not attach ${file.name}.`,
+                    { variant: 'error', durationMs: 5200 }
+                );
+            }
+            renderComposerAttachments();
+        }
+
+        if (addedCount > 0) {
+            const lastReady = [...pendingAttachments].reverse().find((att) => att.status === 'ready');
+            if (lastReady) {
+                showToast('Attachment added', `${lastReady.name} ready to send`, { durationMs: 2200 });
+            }
+        }
+        elements.deckChatInputField?.focus();
+    }
+
+    function removeComposerAttachment(id) {
+        pendingAttachments = pendingAttachments.filter((att) => att.id !== id);
+        renderComposerAttachments();
+    }
+
+    function clearComposerAttachments() {
+        pendingAttachments = [];
+        renderComposerAttachments();
+    }
+
+    function renderComposerAttachments() {
+        const container = elements.composerAttachments;
+        const dock = elements.composerAttachmentDock;
+        const countEl = elements.composerAttachmentCount;
+        if (!container || !dock) return;
+
+        const items = pendingAttachments;
+        const hasItems = items.length > 0;
+        dock.hidden = !hasItems;
+        if (countEl) countEl.textContent = String(items.length);
+
+        container.replaceChildren();
+        if (!hasItems) return;
+
+        for (const att of items) {
+            const isLoading = att.status === 'loading' || att.kind === 'loading';
+            const card = document.createElement('div');
+            card.className = `composer-attachment-card composer-attachment-card-${isLoading ? 'loading' : att.kind}`;
+
+            if (!isLoading) {
+                const removeBtn = document.createElement('button');
+                removeBtn.type = 'button';
+                removeBtn.className = 'composer-attachment-remove';
+                removeBtn.title = `Remove ${att.name}`;
+                removeBtn.setAttribute('aria-label', `Remove ${att.name}`);
+                removeBtn.innerHTML = '<i data-lucide="x"></i>';
+                removeBtn.addEventListener('click', (event) => {
+                    event.stopPropagation();
+                    removeComposerAttachment(att.id);
+                });
+                card.appendChild(removeBtn);
+            }
+
+            if (isLoading) {
+                const loadingBody = document.createElement('div');
+                loadingBody.className = 'composer-attachment-loading';
+                loadingBody.textContent = 'Reading…';
+                card.appendChild(loadingBody);
+            } else if (att.kind === 'image' && att.dataUrl) {
+                const img = document.createElement('img');
+                img.className = 'composer-attachment-preview-image';
+                img.src = att.dataUrl;
+                img.alt = att.name;
+                card.appendChild(img);
+            } else {
+                const fileBody = document.createElement('div');
+                fileBody.className = 'composer-attachment-file-body';
+
+                const icon = document.createElement('span');
+                icon.className = 'composer-attachment-file-icon';
+                icon.innerHTML = '<i data-lucide="file-text"></i>';
+                fileBody.appendChild(icon);
+
+                if (att.kind === 'text' && att.text) {
+                    const snippet = document.createElement('span');
+                    snippet.className = 'composer-attachment-text-snippet';
+                    const previewText = String(att.text).trim();
+                    snippet.textContent = previewText.slice(0, 48) + (previewText.length > 48 ? '…' : '');
+                    fileBody.appendChild(snippet);
+                }
+
+                card.appendChild(fileBody);
+            }
+
+            const caption = document.createElement('div');
+            caption.className = 'composer-attachment-caption';
+            caption.textContent = att.name;
+            caption.title = `${att.name} · ${formatAttachmentSize(att.size)}`;
+            card.appendChild(caption);
+
+            container.appendChild(card);
+        }
+
+        refreshBubbleIcons(container);
+        requestAnimationFrame(() => {
+            container.scrollLeft = container.scrollWidth;
+            dock.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        });
+    }
+
+    function setChatDropActive(active) {
+        elements.chatColumn?.classList.toggle('chat-drop-active', active);
+    }
+
+    function setupChatDropZone() {
+        const targets = [
+            elements.chatColumn,
+            elements.deckChatScroller,
+            elements.chatComposerBox,
+            elements.composerAttachmentDock,
+        ].filter(Boolean);
+        if (!targets.length) return;
+
+        const hasFiles = (event) => Array.from(event.dataTransfer?.types || []).includes('Files');
+
+        const onDragEnter = (event) => {
+            if (!hasFiles(event)) return;
+            event.preventDefault();
+            chatDropDepth += 1;
+            setChatDropActive(true);
+        };
+
+        const onDragOver = (event) => {
+            if (!hasFiles(event)) return;
+            event.preventDefault();
+            event.dataTransfer.dropEffect = 'copy';
+            setChatDropActive(true);
+        };
+
+        const onDragLeave = (event) => {
+            if (!hasFiles(event)) return;
+            event.preventDefault();
+            chatDropDepth = Math.max(0, chatDropDepth - 1);
+            if (chatDropDepth === 0) setChatDropActive(false);
+        };
+
+        const onDrop = async (event) => {
+            if (!hasFiles(event)) return;
+            event.preventDefault();
+            chatDropDepth = 0;
+            setChatDropActive(false);
+            if (event.dataTransfer?.files?.length) {
+                await addComposerAttachmentFiles(event.dataTransfer.files);
+            }
+        };
+
+        for (const target of targets) {
+            target.addEventListener('dragenter', onDragEnter);
+            target.addEventListener('dragover', onDragOver);
+            target.addEventListener('dragleave', onDragLeave);
+            target.addEventListener('drop', onDrop);
+        }
+    }
+
+    function serializeAttachmentsForSession(attachments) {
+        return (attachments || []).map((att) => ({
+            id: att.id,
+            name: att.name,
+            mimeType: att.mimeType,
+            kind: att.kind,
+            size: att.size,
+            dataUrl: att.kind === 'image' ? att.dataUrl : undefined,
+            text: att.kind === 'text' ? att.text : undefined,
+        }));
+    }
+
+    function cloneAttachmentsForSend(attachments) {
+        return serializeAttachmentsForSession(
+            (attachments || []).filter((att) => att.status !== 'loading' && att.kind !== 'loading')
+        );
+    }
+
+    async function submitDirectTextCommand(text, attachments = []) {
+        const trimmedText = String(text || '').trim();
+        const outgoingAttachments = cloneAttachmentsForSend(attachments);
+        if (!trimmedText && !outgoingAttachments.length) return;
+
         // Stop currently playing synthesis
         speech.stopSpeaking();
         visualizer.setState('idle');
 
         // Render input in diagnostic terminal logs and chat deck bubble
-        appendSystemConsoleLine(`[USER] &gt; ${text}`);
-        appendUserChatBubble(text);
-        saveMessageToSession('user', text);
+        const userDisplayText = trimmedText || '(attachment)';
+        appendSystemConsoleLine(`[USER] &gt; ${userDisplayText}${outgoingAttachments.length ? ` [${outgoingAttachments.length} file${outgoingAttachments.length === 1 ? '' : 's'}]` : ''}`);
+        appendUserChatBubble(trimmedText, outgoingAttachments);
+        saveMessageToSession('user', trimmedText, { attachments: serializeAttachmentsForSession(outgoingAttachments) });
 
         // Spawn thinking state animations
         visualizer.setState('thinking');
@@ -580,9 +960,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             // Query cognitive engine
             const aiResponse = await ai.getResponse(
-                text, 
+                trimmedText,
                 null,
-                history, 
+                history,
                 // Ignore checklist/memory overlay drawer triggers in minimalist screen, 
                 // or just log task events to console!
                 (tasks) => {
@@ -594,6 +974,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 {
                     sessionId: activeSession?.id,
                     hermesProfile: activeSession?.hermesProfile || state.activeHermesProfile,
+                    attachments: outgoingAttachments,
                     onToolProgress: (toolInfo) => {
                         setAssistantBubbleToolPreview(bubbleNode, toolInfo);
                         const label = typeof toolInfo === 'object' && toolInfo?.label
@@ -1131,14 +1512,33 @@ document.addEventListener('DOMContentLoaded', async () => {
         let pruned = sessions.slice(0, MAX_SESSIONS).map((s) => ({
             ...s,
             messages: (s.messages || []).slice(-MAX_MESSAGES_PER_SESSION).map((m) => {
-                if (m.content && m.content.length > MAX_MESSAGE_CHARS) {
-                    return {
-                        ...m,
-                        content: m.content.slice(0, MAX_MESSAGE_CHARS),
+                let next = { ...m };
+                if (typeof next.content === 'string' && next.content.length > MAX_MESSAGE_CHARS) {
+                    next = {
+                        ...next,
+                        content: next.content.slice(0, MAX_MESSAGE_CHARS),
                         truncated: true,
                     };
                 }
-                return m;
+                if (Array.isArray(next.attachments)) {
+                    next.attachments = next.attachments.map((att) => {
+                        const slim = {
+                            id: att.id,
+                            name: att.name,
+                            mimeType: att.mimeType,
+                            kind: att.kind,
+                            size: att.size,
+                        };
+                        if (att.kind === 'image' && att.dataUrl && att.dataUrl.length <= 120000) {
+                            slim.dataUrl = att.dataUrl;
+                        }
+                        if (att.kind === 'text' && att.text && att.text.length <= 8000) {
+                            slim.text = att.text;
+                        }
+                        return slim;
+                    });
+                }
+                return next;
             }),
         }));
 
@@ -1284,7 +1684,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         } else {
             session.messages.forEach(msg => {
                 if (msg.role === 'user') {
-                    appendSystemConsoleLine(`[USER] &gt; ${msg.content}`);
+                    const attachmentNote = msg.attachments?.length
+                        ? ` [${msg.attachments.length} file${msg.attachments.length === 1 ? '' : 's'}]`
+                        : '';
+                    appendSystemConsoleLine(`[USER] &gt; ${msg.content || '(attachment)'}${attachmentNote}`);
                 } else {
                     const line = appendSystemConsoleLine(`[AETHER] ...`);
                     const profileLabel = (session.profile || session.model || 'general').toUpperCase();
@@ -1300,7 +1703,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         } else {
             session.messages.forEach((msg, i) => {
                 if (msg.role === 'user') {
-                    appendUserChatBubble(msg.content);
+                    appendUserChatBubble(msg.content, msg.attachments || []);
                 } else {
                     appendAssistantChatBubble(msg.content, i);
                 }
@@ -1317,6 +1720,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (sessionIndex === -1) return;
 
         const message = { role, content };
+        if (Array.isArray(meta.attachments) && meta.attachments.length) {
+            message.attachments = meta.attachments;
+        }
         if (meta.backend) message.backend = meta.backend;
         if (meta.audioReplayId) message.audioReplayId = meta.audioReplayId;
         state.sessions[sessionIndex].messages.push(message);
@@ -1325,7 +1731,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (state.sessions[sessionIndex].messages.length === 2) {
             const firstUserMessage = state.sessions[sessionIndex].messages.find(m => m.role === 'user');
             if (firstUserMessage) {
-                const words = firstUserMessage.content.split(' ');
+                const titleSeed = firstUserMessage.content
+                    || firstUserMessage.attachments?.[0]?.name
+                    || 'Attachment';
+                const words = titleSeed.split(' ');
                 state.sessions[sessionIndex].title = words.slice(0, 3).join(' ') + (words.length > 3 ? '...' : '');
             }
         }
@@ -2091,13 +2500,50 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
 
-    function appendUserChatBubble(text) {
+    function appendUserChatBubble(text, attachments = []) {
         const div = document.createElement('div');
         div.className = 'chat-bubble user-bubble';
 
         const content = document.createElement('div');
         content.className = 'bubble-content';
-        content.textContent = text;
+
+        if (attachments.length) {
+            const attachmentRow = document.createElement('div');
+            attachmentRow.className = 'bubble-attachments';
+            for (const att of attachments) {
+                const chip = document.createElement('div');
+                chip.className = `bubble-attachment-chip bubble-attachment-chip-${att.kind}`;
+
+                if (att.kind === 'image' && att.dataUrl) {
+                    const img = document.createElement('img');
+                    img.className = 'bubble-attachment-image';
+                    img.src = att.dataUrl;
+                    img.alt = att.name;
+                    chip.appendChild(img);
+                } else {
+                    const icon = document.createElement('span');
+                    icon.className = 'bubble-attachment-file-icon';
+                    icon.innerHTML = '<i data-lucide="file-text"></i>';
+                    chip.appendChild(icon);
+                }
+
+                const label = document.createElement('span');
+                label.className = 'bubble-attachment-label';
+                label.textContent = att.name;
+                label.title = att.name;
+                chip.appendChild(label);
+                attachmentRow.appendChild(chip);
+            }
+            content.appendChild(attachmentRow);
+        }
+
+        if (text) {
+            const textNode = document.createElement('div');
+            textNode.className = 'bubble-text';
+            textNode.textContent = text;
+            content.appendChild(textNode);
+        }
+
         div.appendChild(content);
         div.appendChild(createBubbleFooter({ showReadReceipt: true }));
 
@@ -2200,13 +2646,16 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     async function submitDeckMessage() {
         const text = elements.deckChatInputField.value.trim();
-        if (!text) return;
+        const attachments = cloneAttachmentsForSend(pendingAttachments);
+        if (!text && !attachments.length) return;
+
         elements.deckChatInputField.value = '';
+        clearComposerAttachments();
         resizeChatComposerInput();
         if (elements.hudShell?.classList.contains('chat-collapsed')) {
             expandChatColumn(false);
         }
-        await submitDirectTextCommand(text);
+        await submitDirectTextCommand(text, attachments);
     }
 
     function resizeChatComposerInput() {

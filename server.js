@@ -643,10 +643,33 @@ function chatCompletionsUrl(baseUrl) {
   return `${baseUrl.replace(/\/$/, '')}/chat/completions`;
 }
 
+function normalizeMessageContent(content) {
+  if (content == null) return '';
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => {
+        if (!part || typeof part !== 'object') return null;
+        if (part.type === 'text' && part.text != null) {
+          return { type: 'text', text: String(part.text) };
+        }
+        if (part.type === 'image_url' && part.image_url?.url) {
+          return {
+            type: 'image_url',
+            image_url: { url: String(part.image_url.url) },
+          };
+        }
+        return null;
+      })
+      .filter(Boolean);
+  }
+  return String(content);
+}
+
 function normalizeMessages(messages) {
   return messages.map((m) => ({
     role: m.role === 'assistant' ? 'assistant' : 'user',
-    content: String(m.content ?? ''),
+    content: normalizeMessageContent(m.content),
   }));
 }
 
@@ -1199,6 +1222,13 @@ function sendBinary(res, status, buffer, contentType, extraHeaders = {}) {
   res.end(buffer);
 }
 
+function injectStaticAssetVersions(html, version) {
+  const stamp = encodeURIComponent(String(version));
+  return html
+    .replace(/href="styles\.css(?:\?[^"]*)?"/g, `href="styles.css?v=${stamp}"`)
+    .replace(/src="app\.js(?:\?[^"]*)?"/g, `src="app.js?v=${stamp}"`);
+}
+
 function serveStatic(urlPath, res) {
   let rel = decodeURIComponent(urlPath);
   if (rel === '/' || rel === '') {
@@ -1224,7 +1254,27 @@ function serveStatic(urlPath, res) {
     }
     const ext = path.extname(filePath).toLowerCase();
     const type = MIME[ext] || 'application/octet-stream';
-    res.writeHead(200, { 'Content-Type': type });
+    const headers = { 'Content-Type': type };
+    if (['.html', '.js', '.css'].includes(ext)) {
+      headers['Cache-Control'] = 'no-cache, no-store, must-revalidate';
+    }
+
+    if (ext === '.html') {
+      fs.readFile(filePath, 'utf8', (readErr, html) => {
+        if (readErr) {
+          sendJson(res, 500, { error: 'Failed to read file' });
+          return;
+        }
+        const body = injectStaticAssetVersions(html, Math.floor(st.mtimeMs));
+        headers['Content-Type'] = 'text/html; charset=utf-8';
+        headers['Content-Length'] = Buffer.byteLength(body);
+        res.writeHead(200, headers);
+        res.end(body);
+      });
+      return;
+    }
+
+    res.writeHead(200, headers);
     fs.createReadStream(filePath).pipe(res);
   });
 }

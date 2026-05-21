@@ -21,13 +21,54 @@ class AIEngine {
      * Session history often includes the latest user turn before the model is called;
      * avoid sending that message twice to remote APIs.
      */
-    historyWithoutPendingUserTurn(history, userMessage, maxMsgs) {
+    historyWithoutPendingUserTurn(history, userMessage, maxMsgs, attachments = []) {
         let h = history.slice(-maxMsgs);
         const last = h[h.length - 1];
-        if (last && last.role === 'user' && last.content === userMessage) {
+        if (
+            last
+            && last.role === 'user'
+            && last.content === userMessage
+            && !(attachments?.length || last.attachments?.length)
+        ) {
             h = h.slice(0, -1);
         }
         return h;
+    }
+
+    static buildUserMessageContent(text, attachments = []) {
+        const parts = [];
+        const trimmed = String(text || '').trim();
+        if (trimmed) {
+            parts.push({ type: 'text', text: trimmed });
+        }
+
+        for (const att of attachments) {
+            if (att?.kind === 'image' && att.dataUrl) {
+                parts.push({
+                    type: 'image_url',
+                    image_url: { url: String(att.dataUrl) },
+                });
+            } else if (att?.kind === 'text' && att.text != null) {
+                const body = String(att.text);
+                const clipped = body.length > 24000 ? `${body.slice(0, 24000)}\n… [truncated]` : body;
+                parts.push({
+                    type: 'text',
+                    text: `\n\n[Attached file: ${att.name}]\n\`\`\`\n${clipped}\n\`\`\``,
+                });
+            }
+        }
+
+        if (parts.length === 0) return '';
+        if (parts.length === 1 && parts[0].type === 'text') return parts[0].text;
+        return parts;
+    }
+
+    static sessionMessageToApiContent(msg) {
+        if (!msg) return '';
+        if (msg.attachments?.length) {
+            return AIEngine.buildUserMessageContent(msg.content || '', msg.attachments);
+        }
+        return msg.content ?? '';
     }
 
     /**
@@ -87,13 +128,17 @@ class AIEngine {
         const root = baseUrl.replace(/\/$/, '');
         const endpoint = `${root}/api/chat`;
         const onToolProgress = typeof options.onToolProgress === 'function' ? options.onToolProgress : null;
+        const attachments = Array.isArray(options.attachments) ? options.attachments : [];
 
-        const prior = this.historyWithoutPendingUserTurn(history, userMessage, 12);
+        const prior = this.historyWithoutPendingUserTurn(history, userMessage, 12, attachments);
         const messages = prior.map((msg) => ({
             role: msg.role === 'assistant' ? 'assistant' : 'user',
-            content: msg.content,
+            content: AIEngine.sessionMessageToApiContent(msg),
         }));
-        messages.push({ role: 'user', content: userMessage });
+        messages.push({
+            role: 'user',
+            content: AIEngine.buildUserMessageContent(userMessage, attachments),
+        });
 
         const payload = {
             messages,

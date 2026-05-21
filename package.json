@@ -9,7 +9,8 @@
     "start": "node scripts/free-port.js && node server.js",
     "hermes:doctor": "node scripts/hermes-doctor.js",
     "hermes:launch": "node scripts/aether-hermes-launch.js --open",
-    "hermes:install-skill": "bash scripts/install-hermes-skill.sh"
+    "hermes:install-skill": "bash scripts/install-hermes-skill.sh",
+    "test:attachment-preview": "node scripts/test-attachment-preview.mjs"
   },
   "engines": {
     "node": ">=18.0.0"
@@ -17,5 +18,8 @@
   "dependencies": {
     "better-sqlite3": "^11.10.0",
     "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "playwright": "^1.49.0"
   }
 }
