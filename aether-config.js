@@ -45,6 +45,7 @@ const AETHER_ACCENT_THEMES = {
     amber: buildAccentTheme('amber', 'Amber', '#ff9800', '#ffb74d'),
     emerald: buildAccentTheme('emerald', 'Emerald', '#00f5a0', '#00d9f6'),
     violet: buildAccentTheme('violet', 'Violet', '#f107a3', '#7b2ff7'),
+    wisp: buildAccentTheme('wisp', 'Wisp', '#b9a7ff', '#f3ecff'),
     gold: buildAccentTheme('gold', 'Gold', '#ffd200', '#f7971e'),
 };
 

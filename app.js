@@ -63,7 +63,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     function loadAvatarForm() {
         const stored = AetherUserData.getItem('aether_avatar_form');
-        return stored === 'nova' ? 'nova' : 'classic-blob';
+        return ['classic-blob', 'nova', 'axel', 'wisp'].includes(stored) ? stored : 'classic-blob';
     }
 
     function getColorMode(modeId) {
@@ -294,7 +294,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         document.querySelectorAll('.avatar-form-btn').forEach((btn) => {
             btn.addEventListener('click', () => {
                 const formId = btn.getAttribute('data-avatar-form');
-                state.avatarForm = formId === 'nova' ? 'nova' : 'classic-blob';
+                state.avatarForm = ['classic-blob', 'nova', 'axel', 'wisp'].includes(formId) ? formId : 'classic-blob';
                 updateAvatarFormUi(state.avatarForm);
                 visualizer.setAvatarForm(state.avatarForm);
             });

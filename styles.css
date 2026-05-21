@@ -660,6 +660,424 @@ body {
     height: 100%;
 }
 
+.avatar-layer {
+    --creature-primary: var(--accent-primary);
+    --creature-secondary: var(--accent-secondary);
+    --creature-glow: var(--accent-glow);
+    --creature-blink: 1;
+    --creature-eye-x: 0px;
+    --creature-eye-y: 0px;
+    --creature-mouth-open: 0;
+    --creature-mouth-round: 0;
+    --creature-state-boost: 0;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: clamp(340px, 38vw, 620px);
+    height: clamp(340px, 38vw, 620px);
+    transform: translate(-50%, -50%);
+    display: grid;
+    place-items: center;
+    pointer-events: none;
+    opacity: 0;
+    z-index: 3;
+    filter:
+        drop-shadow(0 0 14px color-mix(in srgb, var(--creature-primary) 52%, transparent))
+        drop-shadow(0 0 36px color-mix(in srgb, var(--creature-secondary) 28%, transparent));
+    transition: opacity 0.28s ease, width 0.28s ease, height 0.28s ease, transform 0.28s ease;
+}
+
+.avatar-layer.active {
+    opacity: 1;
+}
+
+.avatar-layer.avatar-axel {
+    width: clamp(390px, 43vw, 690px);
+    height: clamp(390px, 43vw, 690px);
+}
+
+.avatar-layer.avatar-wisp {
+    width: clamp(390px, 43vw, 700px);
+    height: clamp(390px, 43vw, 700px);
+    transform: translate(-50%, -50%) translateY(-8px);
+}
+
+.creature-svg {
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    isolation: isolate;
+}
+
+.creature-float {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: creatureFloat 5.2s ease-in-out infinite;
+}
+
+.avatar-layer[data-state="listening"] .creature-float {
+    animation-duration: 3.5s;
+}
+
+.avatar-layer[data-state="thinking"] .creature-float {
+    animation-duration: 2.8s;
+}
+
+.avatar-layer[data-state="speaking"] .creature-float {
+    animation-duration: 2.2s;
+}
+
+.creature-shadow {
+    fill: color-mix(in srgb, var(--creature-primary) 35%, transparent);
+    opacity: 0.34;
+    filter: blur(6px);
+    transform-origin: center;
+    animation: creatureShadow 5.2s ease-in-out infinite;
+}
+
+.creature-body,
+.glass-part,
+.wisp-tail {
+    fill: url(#nova-body);
+    stroke: color-mix(in srgb, var(--creature-secondary) 72%, white 8%);
+    stroke-width: 2.4;
+    vector-effect: non-scaling-stroke;
+}
+
+.axel-svg .creature-body,
+.axel-svg .glass-part {
+    fill: url(#axel-body);
+}
+
+.wisp-svg .creature-body,
+.wisp-svg .glass-part,
+.wisp-svg .wisp-tail {
+    fill: url(#wisp-body);
+}
+
+.glass-line,
+.body-highlight,
+.armor-line {
+    fill: none;
+    stroke: rgba(255, 255, 255, 0.5);
+    stroke-width: 2;
+    stroke-linecap: round;
+    vector-effect: non-scaling-stroke;
+    opacity: 0.52;
+}
+
+.body-highlight {
+    stroke-width: 4;
+    opacity: 0.2;
+}
+
+.surface-spark {
+    fill: none;
+    stroke: rgba(255, 255, 255, 0.46);
+    stroke-width: 3;
+    stroke-linecap: round;
+}
+
+.cheek {
+    fill: color-mix(in srgb, var(--creature-secondary) 34%, white 26%);
+    opacity: 0.32;
+    filter: blur(0.4px);
+}
+
+.creature-eye {
+    transform-box: fill-box;
+    transform-origin: center;
+    transform: translate(var(--creature-eye-x), var(--creature-eye-y)) scaleY(var(--creature-blink));
+    transition: transform 80ms linear;
+}
+
+.eye-shell {
+    fill: rgba(3, 8, 18, 0.9);
+    stroke: color-mix(in srgb, var(--creature-secondary) 34%, white 16%);
+    stroke-width: 1.8;
+    vector-effect: non-scaling-stroke;
+}
+
+.eye-gloss {
+    fill: white;
+    opacity: 0.92;
+}
+
+.eye-gloss.small {
+    opacity: 0.35;
+}
+
+.creature-mouth {
+    fill: none;
+    stroke: rgba(4, 10, 20, 0.84);
+    stroke-width: calc(3.2px + var(--creature-mouth-open) * 2px);
+    stroke-linecap: round;
+    transform-box: fill-box;
+    transform-origin: center;
+    transform: scaleX(calc(1 + var(--creature-mouth-round) * -0.35)) scaleY(calc(1 + var(--creature-mouth-open) * 1.8));
+    transition: transform 90ms linear, stroke-width 90ms linear;
+    vector-effect: non-scaling-stroke;
+}
+
+.creature-core {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: creatureCorePulse 2.2s ease-in-out infinite;
+}
+
+.core-aura {
+    opacity: calc(0.52 + var(--creature-state-boost) * 0.28);
+}
+
+.core-ring {
+    fill: none;
+    stroke: color-mix(in srgb, var(--creature-secondary) 88%, white 12%);
+    stroke-width: 2;
+    opacity: 0.78;
+    vector-effect: non-scaling-stroke;
+}
+
+.core-light {
+    fill: #fff;
+    opacity: 0.94;
+}
+
+.nova-ears,
+.axel-ears,
+.nova-limbs,
+.axel-limbs {
+    transform-box: fill-box;
+    transform-origin: center;
+}
+
+.nova-ears,
+.axel-ears {
+    animation: creatureEars 4.4s ease-in-out infinite;
+}
+
+.avatar-layer[data-state="listening"] .nova-ears,
+.avatar-layer[data-state="listening"] .axel-ears {
+    animation-duration: 2.2s;
+}
+
+.nova-body {
+    stroke-width: 2.8;
+}
+
+.nova-ear {
+    stroke-width: 2.2;
+}
+
+.nova-arm,
+.nova-foot {
+    opacity: 0.9;
+}
+
+.axel-head,
+.axel-torso {
+    stroke-width: 2.8;
+}
+
+.axel-head {
+    opacity: 0.92;
+}
+
+.axel-torso {
+    opacity: 0.82;
+}
+
+.axel-face-plate,
+.axel-cheek-plate,
+.axel-forehead-plate,
+.axel-chest-plate {
+    fill: color-mix(in srgb, var(--creature-primary) 18%, rgba(2, 10, 24, 0.58));
+    stroke: color-mix(in srgb, var(--creature-secondary) 70%, white 8%);
+    stroke-width: 2.3;
+    vector-effect: non-scaling-stroke;
+}
+
+.axel-cheek-plate,
+.axel-chest-plate {
+    opacity: 0.48;
+}
+
+.axel-forehead-plate {
+    opacity: 0.58;
+}
+
+.axel-v-fin {
+    stroke-width: 2.4;
+    opacity: 0.9;
+}
+
+.axel-fin-edge,
+.axel-fin-cut,
+.axel-helmet-rim,
+.axel-crest,
+.axel-vent {
+    fill: none;
+    stroke: color-mix(in srgb, var(--creature-secondary) 72%, white 16%);
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    vector-effect: non-scaling-stroke;
+    filter: drop-shadow(0 0 5px var(--creature-secondary));
+}
+
+.axel-fin-cut {
+    fill: color-mix(in srgb, var(--page-bg) 68%, transparent);
+    stroke-width: 1.8;
+    opacity: 0.62;
+}
+
+.axel-fin-edge {
+    stroke-width: 2.8;
+    opacity: 0.6;
+}
+
+.axel-crest {
+    fill: color-mix(in srgb, var(--creature-secondary) 46%, transparent);
+    stroke-width: 2;
+    opacity: 0.74;
+}
+
+.axel-helmet-rim {
+    stroke-width: 3;
+    opacity: 0.5;
+}
+
+.axel-vent {
+    stroke-width: 2.2;
+    opacity: 0.58;
+}
+
+.axel-dash-eyes {
+    transform-box: fill-box;
+    transform-origin: center;
+    transform: translate(var(--creature-eye-x), var(--creature-eye-y));
+}
+
+.axel-eye-dash {
+    fill: color-mix(in srgb, var(--creature-secondary) 80%, white 20%);
+    stroke: color-mix(in srgb, var(--creature-secondary) 86%, white 14%);
+    stroke-width: 1.8;
+    stroke-linejoin: round;
+    opacity: calc(0.28 + var(--creature-blink) * 0.72);
+    filter: drop-shadow(0 0 8px var(--creature-secondary));
+    vector-effect: non-scaling-stroke;
+    transform-box: fill-box;
+    transform-origin: center;
+    transform: scaleY(calc(0.16 + var(--creature-blink) * 0.84));
+    transition: transform 80ms linear, opacity 80ms linear;
+}
+
+.axel-mouth {
+    transform: scaleX(calc(1 + var(--creature-mouth-round) * -0.25)) scaleY(calc(1 + var(--creature-mouth-open) * 1.55));
+}
+
+.wisp-body {
+    stroke-width: 3.4;
+    opacity: 0.94;
+}
+
+.wisp-tuft {
+    fill: url(#wisp-glass);
+    stroke: rgba(255, 255, 255, 0.62);
+    stroke-width: 2;
+    vector-effect: non-scaling-stroke;
+}
+
+.wisp-tail {
+    opacity: 0.88;
+    animation: wispTail 4.8s ease-in-out infinite;
+    transform-box: fill-box;
+    transform-origin: 20% 10%;
+}
+
+.wisp-ribbon,
+.wisp-tail-stream,
+.wisp-hem-glow {
+    fill: none;
+    stroke: color-mix(in srgb, var(--creature-secondary) 72%, white 18%);
+    stroke-linecap: round;
+    stroke-width: 2.6;
+    opacity: 0.34;
+    filter: drop-shadow(0 0 7px var(--creature-secondary));
+    vector-effect: non-scaling-stroke;
+}
+
+.wisp-hem-glow {
+    stroke-width: 2.6;
+    opacity: 0.42;
+}
+
+.wisp-tail-stream {
+    stroke-width: 2.2;
+    opacity: 0.48;
+    animation: wispTailStream 5.6s ease-in-out infinite;
+    transform-box: fill-box;
+    transform-origin: left center;
+}
+
+.wisp-sparks {
+    fill: rgba(255, 255, 255, 0.7);
+    opacity: 0.55;
+    filter: drop-shadow(0 0 5px var(--creature-secondary));
+    animation: wispSparkle 3.6s ease-in-out infinite;
+}
+
+.wisp-arm {
+    opacity: 0.76;
+}
+
+.wisp-svg .eye-shell {
+    fill: rgba(12, 9, 42, 0.88);
+}
+
+.wisp-svg .creature-eyes {
+    transform-box: fill-box;
+    transform-origin: center;
+    transform: translateY(-16px) scale(1.32);
+}
+
+.wisp-svg .creature-mouth {
+    stroke-width: calc(2.8px + var(--creature-mouth-open) * 2px);
+}
+
+@keyframes creatureFloat {
+    0%, 100% { transform: translateY(0) scale(1); }
+    50% { transform: translateY(-13px) scale(1.018, 0.992); }
+}
+
+@keyframes creatureShadow {
+    0%, 100% { transform: scaleX(1); opacity: 0.28; }
+    50% { transform: scaleX(0.82); opacity: 0.42; }
+}
+
+@keyframes creatureCorePulse {
+    0%, 100% { transform: scale(1); opacity: 0.95; }
+    50% { transform: scale(calc(1.08 + var(--creature-state-boost) * 0.14)); opacity: 1; }
+}
+
+@keyframes creatureEars {
+    0%, 100% { transform: translateY(0) rotate(0deg); }
+    50% { transform: translateY(calc(-4px - var(--creature-state-boost) * 8px)) rotate(1deg); }
+}
+
+@keyframes wispTail {
+    0%, 100% { transform: translate(0, 0) rotate(0deg); opacity: 0.72; }
+    50% { transform: translate(9px, -7px) rotate(-5deg); opacity: 0.92; }
+}
+
+@keyframes wispTailStream {
+    0%, 100% { transform: translate(0, 0) rotate(0deg); opacity: 0.32; }
+    50% { transform: translate(12px, -6px) rotate(-4deg); opacity: 0.62; }
+}
+
+@keyframes wispSparkle {
+    0%, 100% { opacity: 0.36; }
+    50% { opacity: 0.72; }
+}
+
 .hud-orb-label {
     position: absolute;
     top: 50%;

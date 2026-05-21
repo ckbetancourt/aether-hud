@@ -18,7 +18,7 @@
             }
         })();
     </script>
-    <link rel="stylesheet" href="styles.css?v=nova-avatar">
+    <link rel="stylesheet" href="styles.css?v=wisp-reference-polish">
     <!-- Lucide Icons CDN -->
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
@@ -61,6 +61,7 @@
         <section class="hud-core-visualizer">
             <div class="orb-container">
                 <canvas id="jarvisCanvas"></canvas>
+                <div class="avatar-layer" id="avatarLayer" aria-hidden="true"></div>
                 <div class="hud-orb-label" id="hudOrbLabel">AETHER ACTIVE</div>
             </div>
         </section>
@@ -221,6 +222,7 @@
                             <button type="button" class="accent-swatch" data-accent-theme="amber" title="Amber" aria-label="Amber" aria-pressed="false" style="--swatch-primary: #ff9800; --swatch-secondary: #ffb74d;"></button>
                             <button type="button" class="accent-swatch" data-accent-theme="emerald" title="Emerald" aria-label="Emerald" aria-pressed="false" style="--swatch-primary: #00f5a0; --swatch-secondary: #00d9f6;"></button>
                             <button type="button" class="accent-swatch" data-accent-theme="violet" title="Violet" aria-label="Violet" aria-pressed="false" style="--swatch-primary: #f107a3; --swatch-secondary: #7b2ff7;"></button>
+                            <button type="button" class="accent-swatch" data-accent-theme="wisp" title="Wisp" aria-label="Wisp" aria-pressed="false" style="--swatch-primary: #b9a7ff; --swatch-secondary: #f3ecff;"></button>
                             <button type="button" class="accent-swatch" data-accent-theme="gold" title="Gold" aria-label="Gold" aria-pressed="false" style="--swatch-primary: #ffd200; --swatch-secondary: #f7971e;"></button>
                         </div>
                         <div class="form-hint">Controls orb, Nova, chat highlights, and HUD glow color.</div>
@@ -234,8 +236,14 @@
                             <button type="button" class="avatar-form-btn" data-avatar-form="nova" aria-pressed="false">
                                 Nova
                             </button>
+                            <button type="button" class="avatar-form-btn" data-avatar-form="axel" aria-pressed="false">
+                                Axel
+                            </button>
+                            <button type="button" class="avatar-form-btn" data-avatar-form="wisp" aria-pressed="false">
+                                Wisp
+                            </button>
                         </div>
-                        <div class="form-hint">Choose the central Aether visualization. Nova is the companion creature form.</div>
+                        <div class="form-hint">Choose the central Aether visualization. Nova, Axel, and Wisp are companion creature forms.</div>
                     </div>
                 </section>
 
@@ -341,7 +349,7 @@
 
     <!-- Script References -->
     <script src="user-data.js"></script>
-    <script src="visualizer.js?v=nova-avatar"></script>
+    <script src="visualizer.js?v=wisp-reference-polish"></script>
     <script src="aether-config.js"></script>
     <script src="speech-engine.js"></script>
     <script src="ai-engine.js"></script>

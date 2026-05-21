@@ -13,6 +13,8 @@ class JarvisHUD {
         if (!this.canvas) return;
 
         this.ctx = this.canvas.getContext('2d');
+        this.avatarLayer = document.getElementById('avatarLayer');
+        this.renderedAvatarForm = null;
         this.state = 'idle'; // 'idle', 'listening', 'thinking', 'speaking'
         this.thinkingCaption = '';
         // 3D Parallax Anchors
@@ -122,24 +124,36 @@ class JarvisHUD {
     }
 
     setAvatarForm(formId) {
-        this.avatarForm = formId === 'nova' ? 'nova' : 'classic-blob';
+        const allowedForms = ['classic-blob', 'nova', 'axel', 'wisp'];
+        this.avatarForm = allowedForms.includes(formId) ? formId : 'classic-blob';
+        this.syncCreatureAvatarShell();
         this.syncAvatarLabelPlacement(document.getElementById('hudOrbLabel'));
         this.setState(this.state);
     }
 
+    isCreatureAvatar() {
+        return this.avatarForm !== 'classic-blob';
+    }
+
     syncAvatarLabelPlacement(statusLabel) {
         if (!statusLabel) return;
-        const isNova = this.avatarForm === 'nova';
-        statusLabel.classList.toggle('nova-label', isNova);
+        const isCreature = this.isCreatureAvatar();
+        statusLabel.classList.toggle('nova-label', isCreature);
         statusLabel.style.top = '50%';
         statusLabel.style.left = '50%';
-        statusLabel.style.transform = isNova
+        statusLabel.style.transform = isCreature
             ? 'translate(-50%, -50%) translateY(190px)'
             : 'translate(-50%, -50%)';
     }
 
     getAvatarName() {
-        return this.avatarForm === 'nova' ? 'Nova' : 'Aether';
+        const names = {
+            'classic-blob': 'Aether',
+            nova: 'Nova',
+            axel: 'Axel',
+            wisp: 'Wisp',
+        };
+        return names[this.avatarForm] || 'Aether';
     }
 
     startSpeechMouthCue(text) {
@@ -158,10 +172,11 @@ class JarvisHUD {
     stopSpeechMouthCue() {
         this.speechCue = null;
         this.novaMouthShape = 'closed';
+        this.syncCreatureAvatarShell();
     }
 
     handleSpeechBoundary(event) {
-        if (!this.speechCue || this.avatarForm !== 'nova') return;
+        if (!this.speechCue || !this.isCreatureAvatar()) return;
         const now = performance.now();
         const elapsed = now - this.speechCue.startTime;
         this.speechCue.boundaryTime = elapsed;
@@ -171,6 +186,7 @@ class JarvisHUD {
             this.speechCue.wordIndex
         );
         this.speechCue.lastShapeAt = elapsed;
+        this.syncCreatureAvatarShell();
         if (Number.isFinite(event?.charIndex)) {
             const spokenPrefix = this.speechCue.text.slice(0, event.charIndex);
             this.speechCue.wordIndex = Math.max(
@@ -226,6 +242,7 @@ class JarvisHUD {
         }
 
         this.state = state;
+        this.syncCreatureAvatarShell();
         const statusLabel = document.getElementById('hudOrbLabel');
         
         if (statusLabel) {
@@ -247,7 +264,7 @@ class JarvisHUD {
                     break;
                 case 'idle':
                 default:
-                    statusLabel.textContent = this.avatarForm === 'nova' ? "NOVA ACTIVE" : "AETHER ACTIVE";
+                    statusLabel.textContent = this.isCreatureAvatar() ? `${avatarName.toUpperCase()} ACTIVE` : "AETHER ACTIVE";
                     statusLabel.style.color = 'var(--text-muted)';
                     break;
             }
@@ -611,13 +628,13 @@ class JarvisHUD {
             this.updateNodeActivations();
         }
 
-        const isNova = this.avatarForm === 'nova';
+        const isCreature = this.isCreatureAvatar();
         const activeRadius = this.coreBaseRadius * this.orbPulseScale;
-        const avatarRadius = isNova ? activeRadius * 1.38 : activeRadius;
+        const avatarRadius = isCreature ? activeRadius * 1.38 : activeRadius;
         const showNeuralWeb = this.state !== 'speaking' && this.webOpacity > 0.04;
 
         // RENDER STEP 3: Concentric HUD Rings and Rotating Hex Data Dials (hidden while speaking)
-        if (this.state !== 'speaking' || isNova) {
+        if (this.state !== 'speaking' || isCreature) {
             this.drawHUDRings(centerX, centerY, avatarRadius, primaryColor, glowColor);
             this.drawDataRing(centerX, centerY, avatarRadius, primaryColor);
         }
@@ -632,8 +649,10 @@ class JarvisHUD {
         }
 
         // RENDER STEP 5: Central avatar form
-        if (isNova) {
-            this.drawNovaAvatar(centerX, centerY, avatarRadius, primaryColor, secondaryColor, glowColor);
+        if (isCreature) {
+            this.updateNovaBlinkAndEyes();
+            this.updateNovaMouth();
+            this.syncCreatureAvatarShell();
         } else {
             // Multi-layered liquid plasma orb. We layer 3 separate undulating paths to simulate a 3D gas sphere.
             this.drawLiquidBlob(
@@ -981,6 +1000,212 @@ class JarvisHUD {
         this.novaEyeDrift.y += (driftY - this.novaEyeDrift.y) * 0.06;
     }
 
+    syncCreatureAvatarShell() {
+        if (!this.avatarLayer) return;
+        if (!this.isCreatureAvatar()) {
+            this.avatarLayer.innerHTML = '';
+            this.avatarLayer.className = 'avatar-layer';
+            this.renderedAvatarForm = null;
+            return;
+        }
+
+        if (this.renderedAvatarForm !== this.avatarForm) {
+            this.avatarLayer.innerHTML = this.getCreatureAvatarMarkup(this.avatarForm);
+            this.avatarLayer.className = `avatar-layer active avatar-${this.avatarForm}`;
+            this.renderedAvatarForm = this.avatarForm;
+        }
+
+        const audioEnvelope = this._audioReactive?.envelope ?? 0;
+        const stateBoost = this.state === 'listening' ? 0.55 : this.state === 'thinking' ? 0.72 : this.state === 'speaking' ? 0.95 : 0.2;
+        const mouthOpen = Math.max(this.novaMouthOpen, this.state === 'speaking' ? audioEnvelope * 0.85 : 0);
+        const mouthRound = this.novaMouthRound;
+        const blinkScale = Math.max(0.08, 1 - this.novaBlinkAmount * 0.9);
+        const eyeX = this.novaEyeDrift.x.toFixed(2);
+        const eyeY = this.novaEyeDrift.y.toFixed(2);
+        const primary = this.accentTheme.primary || '#ff4436';
+        const secondary = this.accentTheme.secondary || '#ff6e40';
+        const glow = this.accentTheme.glow || 'rgba(255, 68, 54, 0.4)';
+
+        this.avatarLayer.style.setProperty('--creature-primary', primary);
+        this.avatarLayer.style.setProperty('--creature-secondary', secondary);
+        this.avatarLayer.style.setProperty('--creature-glow', glow);
+        this.avatarLayer.style.setProperty('--creature-blink', blinkScale.toFixed(3));
+        this.avatarLayer.style.setProperty('--creature-eye-x', `${eyeX}px`);
+        this.avatarLayer.style.setProperty('--creature-eye-y', `${eyeY}px`);
+        this.avatarLayer.style.setProperty('--creature-mouth-open', mouthOpen.toFixed(3));
+        this.avatarLayer.style.setProperty('--creature-mouth-round', mouthRound.toFixed(3));
+        this.avatarLayer.style.setProperty('--creature-state-boost', stateBoost.toFixed(3));
+        this.avatarLayer.dataset.state = this.state;
+    }
+
+    getCreatureAvatarMarkup(form) {
+        if (form === 'axel') return this.getAxelAvatarMarkup();
+        if (form === 'wisp') return this.getWispAvatarMarkup();
+        return this.getNovaAvatarMarkup();
+    }
+
+    getCreatureDefs(idPrefix) {
+        return `
+            <defs>
+                <filter id="${idPrefix}-glow" x="-80%" y="-80%" width="260%" height="260%">
+                    <feGaussianBlur stdDeviation="6" result="blur"/>
+                    <feColorMatrix in="blur" type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 1.5 0" result="glow"/>
+                    <feMerge><feMergeNode in="glow"/><feMergeNode in="SourceGraphic"/></feMerge>
+                </filter>
+                <radialGradient id="${idPrefix}-body" cx="34%" cy="24%" r="78%">
+                    <stop offset="0%" stop-color="#fff" stop-opacity="0.58"/>
+                    <stop offset="26%" stop-color="var(--creature-secondary)" stop-opacity="0.58"/>
+                    <stop offset="72%" stop-color="var(--creature-primary)" stop-opacity="0.42"/>
+                    <stop offset="100%" stop-color="var(--creature-primary)" stop-opacity="0.16"/>
+                </radialGradient>
+                <radialGradient id="${idPrefix}-core" cx="50%" cy="50%" r="58%">
+                    <stop offset="0%" stop-color="#fff"/>
+                    <stop offset="34%" stop-color="var(--creature-secondary)" stop-opacity="0.92"/>
+                    <stop offset="100%" stop-color="var(--creature-primary)" stop-opacity="0"/>
+                </radialGradient>
+                <linearGradient id="${idPrefix}-glass" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stop-color="#fff" stop-opacity="0.55"/>
+                    <stop offset="42%" stop-color="var(--creature-secondary)" stop-opacity="0.28"/>
+                    <stop offset="100%" stop-color="var(--creature-primary)" stop-opacity="0.08"/>
+                </linearGradient>
+            </defs>`;
+    }
+
+    getCreatureEyesMarkup() {
+        return `
+            <g class="creature-eyes">
+                <g class="creature-eye left-eye">
+                    <ellipse class="eye-shell" cx="-45" cy="-30" rx="19" ry="27"/>
+                    <circle class="eye-gloss big" cx="-51" cy="-42" r="6"/>
+                    <circle class="eye-gloss small" cx="-38" cy="-23" r="3"/>
+                </g>
+                <g class="creature-eye right-eye">
+                    <ellipse class="eye-shell" cx="45" cy="-30" rx="19" ry="27"/>
+                    <circle class="eye-gloss big" cx="39" cy="-42" r="6"/>
+                    <circle class="eye-gloss small" cx="52" cy="-23" r="3"/>
+                </g>
+                <path class="creature-mouth" d="M-14 17 Q0 31 14 17"/>
+            </g>`;
+    }
+
+    getCreatureCoreMarkup(idPrefix, y = 48, r = 28) {
+        return `
+            <g class="creature-core" filter="url(#${idPrefix}-glow)">
+                <circle class="core-aura" cx="0" cy="${y}" r="${r * 2.15}" fill="url(#${idPrefix}-core)"/>
+                <circle class="core-ring" cx="0" cy="${y}" r="${r * 1.16}"/>
+                <circle class="core-light" cx="0" cy="${y}" r="${r * 0.58}"/>
+            </g>`;
+    }
+
+    getNovaAvatarMarkup() {
+        return `
+            <svg class="creature-svg nova-svg" viewBox="-210 -230 420 470" role="img" aria-label="Nova avatar">
+                ${this.getCreatureDefs('nova')}
+                <g class="creature-shadow"><ellipse cx="0" cy="178" rx="105" ry="18"/></g>
+                <g class="creature-float">
+                    <g class="nova-ears" filter="url(#nova-glow)">
+                        <path class="glass-part nova-ear left" d="M-72 -95 C-138 -196 -57 -224 -31 -112 C-44 -105 -59 -100 -72 -95Z"/>
+                        <path class="glass-line" d="M-73 -101 C-94 -144 -76 -181 -48 -124"/>
+                        <path class="glass-part nova-ear right" d="M72 -95 C138 -196 57 -224 31 -112 C44 -105 59 -100 72 -95Z"/>
+                        <path class="glass-line" d="M73 -101 C94 -144 76 -181 48 -124"/>
+                        <path class="glass-part nova-fin left" d="M-76 -83 C-115 -82 -116 -52 -63 -61"/>
+                        <path class="glass-part nova-fin right" d="M76 -83 C115 -82 116 -52 63 -61"/>
+                    </g>
+                    <g class="nova-limbs" filter="url(#nova-glow)">
+                        <ellipse class="glass-part nova-arm left" cx="-107" cy="38" rx="22" ry="47" transform="rotate(25 -107 38)"/>
+                        <ellipse class="glass-part nova-arm right" cx="107" cy="38" rx="22" ry="47" transform="rotate(-25 107 38)"/>
+                        <ellipse class="glass-part nova-foot left" cx="-44" cy="137" rx="25" ry="36" transform="rotate(18 -44 137)"/>
+                        <ellipse class="glass-part nova-foot right" cx="44" cy="137" rx="25" ry="36" transform="rotate(-18 44 137)"/>
+                    </g>
+                    <path class="creature-body nova-body" filter="url(#nova-glow)" d="M0 -120 C72 -120 118 -70 117 8 C116 92 70 151 0 151 C-70 151 -116 92 -117 8 C-118 -70 -72 -120 0 -120Z"/>
+                    <path class="body-highlight" d="M-67 -74 C-31 -112 49 -112 78 -50"/>
+                    <ellipse class="cheek left" cx="-55" cy="54" rx="21" ry="29"/>
+                    <ellipse class="cheek right" cx="55" cy="54" rx="21" ry="29"/>
+                    ${this.getCreatureEyesMarkup()}
+                    ${this.getCreatureCoreMarkup('nova', 61, 30)}
+                    <path class="surface-spark" d="M67 -83 C78 -88 83 -81 78 -72"/>
+                </g>
+            </svg>`;
+    }
+
+    getAxelAvatarMarkup() {
+        return `
+            <svg class="creature-svg axel-svg" viewBox="-230 -245 460 500" role="img" aria-label="Axel avatar">
+                ${this.getCreatureDefs('axel')}
+                <g class="creature-shadow"><ellipse cx="0" cy="190" rx="118" ry="18"/></g>
+                <g class="creature-float">
+                    <g class="axel-ears" filter="url(#axel-glow)">
+                        <path class="glass-part axel-v-fin left" d="M-28 -112 L-116 -196 L-82 -118 Z"/>
+                        <path class="glass-part axel-v-fin right" d="M28 -112 L116 -196 L82 -118 Z"/>
+                        <path class="glass-part axel-v-fin outer-left" d="M-70 -105 L-176 -154 L-103 -101 Z"/>
+                        <path class="glass-part axel-v-fin outer-right" d="M70 -105 L176 -154 L103 -101 Z"/>
+                        <path class="axel-fin-cut left" d="M-38 -121 L-95 -174 L-70 -121 Z"/>
+                        <path class="axel-fin-cut right" d="M38 -121 L95 -174 L70 -121 Z"/>
+                        <path class="axel-fin-edge left" d="M-34 -116 L-103 -184"/>
+                        <path class="axel-fin-edge right" d="M34 -116 L103 -184"/>
+                        <path class="axel-crest" d="M0 -128 L18 -92 L0 -78 L-18 -92 Z"/>
+                    </g>
+                    <g class="axel-limbs" filter="url(#axel-glow)">
+                        <ellipse class="glass-part axel-arm left" cx="-86" cy="93" rx="26" ry="52" transform="rotate(24 -86 93)"/>
+                        <ellipse class="glass-part axel-arm right" cx="86" cy="93" rx="26" ry="52" transform="rotate(-24 86 93)"/>
+                        <ellipse class="glass-part axel-leg left" cx="-45" cy="159" rx="32" ry="47" transform="rotate(10 -45 159)"/>
+                        <ellipse class="glass-part axel-leg right" cx="45" cy="159" rx="32" ry="47" transform="rotate(-10 45 159)"/>
+                    </g>
+                    <path class="creature-body axel-torso" filter="url(#axel-glow)" d="M-70 61 C-55 23 55 23 70 61 C84 113 55 161 0 170 C-55 161 -84 113 -70 61Z"/>
+                    <path class="creature-body axel-head" filter="url(#axel-glow)" d="M-104 -82 C-75 -128 75 -128 104 -82 L117 -30 C112 29 70 62 0 66 C-70 62 -112 29 -117 -30Z"/>
+                    <path class="axel-helmet-rim" d="M-107 -78 L-66 -111 L0 -119 L66 -111 L107 -78"/>
+                    <path class="axel-forehead-plate" d="M-47 -91 L0 -112 L47 -91 L31 -69 L0 -78 L-31 -69Z"/>
+                    <path class="axel-face-plate" d="M-96 -58 C-68 -88 68 -88 96 -58 C78 -22 45 -6 0 -5 C-45 -6 -78 -22 -96 -58Z"/>
+                    <path class="axel-cheek-plate left" d="M-98 -10 L-55 16 L-24 7 L-54 42 L-88 29Z"/>
+                    <path class="axel-cheek-plate right" d="M98 -10 L55 16 L24 7 L54 42 L88 29Z"/>
+                    <path class="axel-vent left" d="M-70 18 L-51 27 M-82 29 L-61 39"/>
+                    <path class="axel-vent right" d="M70 18 L51 27 M82 29 L61 39"/>
+                    <g class="axel-dash-eyes">
+                        <path class="axel-eye-dash left" d="M-74 -44 C-60 -50 -38 -48 -23 -39 C-21 -35 -24 -31 -31 -31 L-69 -27 C-79 -28 -83 -39 -74 -44Z"/>
+                        <path class="axel-eye-dash right" d="M74 -44 C60 -50 38 -48 23 -39 C21 -35 24 -31 31 -31 L69 -27 C79 -28 83 -39 74 -44Z"/>
+                    </g>
+                    <path class="creature-mouth axel-mouth" d="M-15 18 Q0 31 15 18"/>
+                    <path class="axel-chest-plate left" d="M-63 63 L-13 76 L-31 105 L-73 94Z"/>
+                    <path class="axel-chest-plate right" d="M63 63 L13 76 L31 105 L73 94Z"/>
+                    <path class="armor-line" d="M-58 72 C-29 52 29 52 58 72"/>
+                    <path class="armor-line" d="M-46 120 C-22 106 22 106 46 120"/>
+                    ${this.getCreatureCoreMarkup('axel', 71, 29)}
+                </g>
+            </svg>`;
+    }
+
+    getWispAvatarMarkup() {
+        return `
+            <svg class="creature-svg wisp-svg" viewBox="-240 -255 480 560" role="img" aria-label="Wisp avatar">
+                ${this.getCreatureDefs('wisp')}
+                <g class="creature-shadow"><ellipse cx="0" cy="235" rx="126" ry="19"/></g>
+                <g class="creature-float">
+                    <path class="wisp-tail" filter="url(#wisp-glow)" d="M-8 137 C23 171 10 213 -42 235 C8 245 55 226 63 185 C72 145 103 140 140 117 C93 132 44 129 -8 137Z"/>
+                    <path class="wisp-tail-stream" d="M-7 153 C31 191 20 227 -29 248 C28 242 43 209 58 181 C77 146 111 147 140 123"/>
+                    <path class="wisp-ribbon" d="M74 151 C100 169 133 159 164 132"/>
+                    <path class="glass-part wisp-arm left" filter="url(#wisp-glow)" d="M-113 12 C-186 42 -177 115 -98 109 C-72 83 -77 35 -113 12Z"/>
+                    <path class="glass-part wisp-arm right" filter="url(#wisp-glow)" d="M113 12 C186 42 177 115 98 109 C72 83 77 35 113 12Z"/>
+                    <path class="creature-body wisp-body" filter="url(#wisp-glow)" d="M0 -151 C79 -151 132 -94 136 -18 C142 55 123 121 100 155 C76 144 56 154 39 176 C18 151 -7 151 -29 176 C-48 154 -70 144 -97 158 C-121 124 -139 57 -134 -18 C-128 -95 -79 -151 0 -151Z"/>
+                    <path class="wisp-tuft" d="M5 -151 C53 -216 96 -165 48 -97 C36 -119 22 -137 5 -151Z"/>
+                    <path class="body-highlight" d="M-75 -91 C-32 -133 62 -126 91 -56"/>
+                    <path class="wisp-hem-glow" d="M-96 145 C-74 132 -51 151 -29 176 C-8 152 18 152 39 176 C59 151 77 132 99 149"/>
+                    <g class="wisp-sparks">
+                        <circle cx="-52" cy="-102" r="2.1"/>
+                        <circle cx="-12" cy="-116" r="1.5"/>
+                        <circle cx="43" cy="-101" r="1.7"/>
+                        <circle cx="-71" cy="-36" r="1.3"/>
+                        <circle cx="71" cy="-27" r="1.4"/>
+                        <circle cx="-33" cy="73" r="1.2"/>
+                        <circle cx="36" cy="88" r="1.1"/>
+                    </g>
+                    <ellipse class="cheek left" cx="-66" cy="46" rx="21" ry="13"/>
+                    <ellipse class="cheek right" cx="66" cy="46" rx="21" ry="13"/>
+                    ${this.getCreatureEyesMarkup()}
+                    ${this.getCreatureCoreMarkup('wisp', 73, 31)}
+                </g>
+            </svg>`;
+    }
+
     drawNovaAvatar(cx, cy, activeRadius, primaryColor, secondaryColor, glowColor) {
         this.updateNovaBlinkAndEyes();
         this.updateNovaMouth();
@@ -1073,6 +1298,186 @@ class JarvisHUD {
         ctx.restore();
     }
 
+    drawAxelAvatar(cx, cy, activeRadius, primaryColor, secondaryColor, glowColor) {
+        this.updateNovaBlinkAndEyes();
+        this.updateNovaMouth();
+
+        const ctx = this.ctx;
+        const rootStyles = getComputedStyle(document.documentElement);
+        const creaturePrimary = rootStyles.getPropertyValue('--accent-primary').trim() || primaryColor;
+        const creatureSecondary = rootStyles.getPropertyValue('--accent-secondary').trim() || secondaryColor;
+        const creatureGlow = rootStyles.getPropertyValue('--accent-glow').trim() || glowColor;
+        const rgbPrimary = this.hexToRgb(creaturePrimary);
+        const rgbSecondary = this.hexToRgb(creatureSecondary);
+        const audioEnvelope = this._audioReactive?.envelope ?? 0;
+        const bodyR = activeRadius * 1.02;
+
+        let stateLift = 0;
+        let earLift = 0;
+        let stance = 1;
+        if (this.state === 'listening') {
+            stateLift = -7;
+            earLift = 10;
+            stance = 0.98;
+        } else if (this.state === 'thinking') {
+            stateLift = -2 + Math.sin(this.time * 6.2) * 2;
+            earLift = 6;
+        } else if (this.state === 'speaking') {
+            stateLift = Math.sin(this.time * 5) * 4 - audioEnvelope * 8;
+            earLift = 5 + audioEnvelope * 8;
+            stance = 1 + audioEnvelope * 0.05;
+        }
+
+        const floatY = Math.sin(this.time * 1.25) * 5 + stateLift + activeRadius * 0.1;
+        const breathe = 1 + Math.sin(this.time * 1.7) * 0.018 + audioEnvelope * 0.035;
+
+        ctx.save();
+        ctx.translate(cx, cy + floatY);
+        ctx.scale(breathe, breathe * stance);
+
+        const aura = ctx.createRadialGradient(0, 0, bodyR * 0.15, 0, 0, bodyR * 1.5);
+        aura.addColorStop(0, `rgba(${rgbSecondary}, 0.2)`);
+        aura.addColorStop(0.45, `rgba(${rgbPrimary}, 0.16)`);
+        aura.addColorStop(1, `rgba(${rgbPrimary}, 0)`);
+        ctx.fillStyle = aura;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, bodyR * 1.42, bodyR * 1.3, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        this.drawAxelEar(-bodyR * 0.48, -bodyR * 0.72, -1, bodyR, creaturePrimary, creatureSecondary, earLift);
+        this.drawAxelEar(bodyR * 0.48, -bodyR * 0.72, 1, bodyR, creaturePrimary, creatureSecondary, earLift);
+        this.drawAxelSidePod(-bodyR * 0.72, -bodyR * 0.24, -1, bodyR, creaturePrimary, creatureSecondary);
+        this.drawAxelSidePod(bodyR * 0.72, -bodyR * 0.24, 1, bodyR, creaturePrimary, creatureSecondary);
+        this.drawAxelArm(-bodyR * 0.75, bodyR * 0.42, -1, bodyR, creaturePrimary, creatureSecondary);
+        this.drawAxelArm(bodyR * 0.75, bodyR * 0.42, 1, bodyR, creaturePrimary, creatureSecondary);
+        this.drawAxelLeg(-bodyR * 0.3, bodyR * 0.92, -1, bodyR, creaturePrimary, creatureSecondary);
+        this.drawAxelLeg(bodyR * 0.3, bodyR * 0.92, 1, bodyR, creaturePrimary, creatureSecondary);
+
+        ctx.shadowBlur = 24;
+        ctx.shadowColor = creatureGlow;
+        const bodyGrad = ctx.createRadialGradient(-bodyR * 0.18, -bodyR * 0.44, 8, 0, 0, bodyR * 1.1);
+        bodyGrad.addColorStop(0, 'rgba(255, 255, 255, 0.34)');
+        bodyGrad.addColorStop(0.28, `rgba(${rgbSecondary}, 0.62)`);
+        bodyGrad.addColorStop(0.72, `rgba(${rgbPrimary}, 0.42)`);
+        bodyGrad.addColorStop(1, `rgba(${rgbPrimary}, 0.18)`);
+        ctx.fillStyle = bodyGrad;
+        this.drawAxelArmorBody(0, 0, bodyR);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+
+        ctx.strokeStyle = `rgba(${rgbSecondary}, 0.55)`;
+        ctx.lineWidth = 1.8;
+        this.drawAxelArmorBody(0, 0, bodyR);
+        ctx.stroke();
+
+        this.drawAxelArmorLines(bodyR, creaturePrimary, creatureSecondary);
+
+        const corePulse = 1 + Math.sin(this.time * 5) * 0.08 + audioEnvelope * 0.48;
+        const coreGrad = ctx.createRadialGradient(0, bodyR * 0.42, 2, 0, bodyR * 0.42, bodyR * 0.32 * corePulse);
+        coreGrad.addColorStop(0, '#ffffff');
+        coreGrad.addColorStop(0.36, `rgba(${rgbSecondary}, 0.92)`);
+        coreGrad.addColorStop(1, `rgba(${rgbPrimary}, 0.02)`);
+        ctx.fillStyle = coreGrad;
+        ctx.shadowBlur = 20 + audioEnvelope * 24;
+        ctx.shadowColor = creatureSecondary;
+        ctx.beginPath();
+        ctx.arc(0, bodyR * 0.42, bodyR * 0.25 * corePulse, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+
+        this.drawAxelFace(bodyR, creaturePrimary, creatureSecondary);
+        this.drawNovaHudTicks(bodyR, primaryColor, secondaryColor);
+        ctx.restore();
+    }
+
+    drawWispAvatar(cx, cy, activeRadius, primaryColor, secondaryColor, glowColor) {
+        this.updateNovaBlinkAndEyes();
+        this.updateNovaMouth();
+
+        const ctx = this.ctx;
+        const rootStyles = getComputedStyle(document.documentElement);
+        const creaturePrimary = rootStyles.getPropertyValue('--accent-primary').trim() || primaryColor;
+        const creatureSecondary = rootStyles.getPropertyValue('--accent-secondary').trim() || secondaryColor;
+        const creatureGlow = rootStyles.getPropertyValue('--accent-glow').trim() || glowColor;
+        const rgbPrimary = this.hexToRgb(creaturePrimary);
+        const rgbSecondary = this.hexToRgb(creatureSecondary);
+        const audioEnvelope = this._audioReactive?.envelope ?? 0;
+        const bodyR = activeRadius * 1.08;
+
+        let stateLift = 0;
+        if (this.state === 'listening') {
+            stateLift = -9;
+        } else if (this.state === 'thinking') {
+            stateLift = Math.sin(this.time * 6.5) * 2 - 4;
+        } else if (this.state === 'speaking') {
+            stateLift = Math.sin(this.time * 5.3) * 6 - audioEnvelope * 10;
+        }
+
+        const floatY = Math.sin(this.time * 1.1) * 9 + stateLift + activeRadius * 0.04;
+        const breathe = 1 + Math.sin(this.time * 1.6) * 0.025 + audioEnvelope * 0.04;
+
+        ctx.save();
+        ctx.translate(cx, cy + floatY);
+        ctx.scale(breathe, breathe * (1 + audioEnvelope * 0.04));
+
+        const aura = ctx.createRadialGradient(0, 0, bodyR * 0.12, 0, 0, bodyR * 1.55);
+        aura.addColorStop(0, `rgba(${rgbSecondary}, 0.26)`);
+        aura.addColorStop(0.5, `rgba(${rgbPrimary}, 0.16)`);
+        aura.addColorStop(1, `rgba(${rgbPrimary}, 0)`);
+        ctx.fillStyle = aura;
+        ctx.beginPath();
+        ctx.ellipse(0, bodyR * 0.08, bodyR * 1.4, bodyR * 1.35, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        this.drawWispTail(bodyR, creaturePrimary, creatureSecondary);
+        this.drawWispArm(-bodyR * 0.72, bodyR * 0.16, -1, bodyR, creaturePrimary, creatureSecondary);
+        this.drawWispArm(bodyR * 0.72, bodyR * 0.16, 1, bodyR, creaturePrimary, creatureSecondary);
+
+        ctx.shadowBlur = 28;
+        ctx.shadowColor = creatureGlow;
+        const bodyGrad = ctx.createRadialGradient(-bodyR * 0.18, -bodyR * 0.36, 8, 0, bodyR * 0.08, bodyR * 1.1);
+        bodyGrad.addColorStop(0, 'rgba(255, 255, 255, 0.48)');
+        bodyGrad.addColorStop(0.3, `rgba(${rgbSecondary}, 0.52)`);
+        bodyGrad.addColorStop(0.72, `rgba(${rgbPrimary}, 0.32)`);
+        bodyGrad.addColorStop(1, `rgba(${rgbPrimary}, 0.08)`);
+        ctx.fillStyle = bodyGrad;
+        this.drawWispBody(0, 0, bodyR);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+
+        ctx.strokeStyle = `rgba(${rgbSecondary}, 0.55)`;
+        ctx.lineWidth = 1.7;
+        this.drawWispBody(0, 0, bodyR);
+        ctx.stroke();
+
+        const tuftGrad = ctx.createLinearGradient(0, -bodyR * 1.15, bodyR * 0.26, -bodyR * 0.54);
+        tuftGrad.addColorStop(0, 'rgba(255, 255, 255, 0.5)');
+        tuftGrad.addColorStop(1, `rgba(${rgbSecondary}, 0.18)`);
+        ctx.fillStyle = tuftGrad;
+        ctx.beginPath();
+        ctx.moveTo(bodyR * 0.02, -bodyR * 0.82);
+        ctx.quadraticCurveTo(bodyR * 0.34, -bodyR * 1.18, bodyR * 0.18, -bodyR * 0.58);
+        ctx.quadraticCurveTo(bodyR * 0.08, -bodyR * 0.68, bodyR * 0.02, -bodyR * 0.82);
+        ctx.fill();
+
+        const corePulse = 1 + Math.sin(this.time * 4.6) * 0.08 + audioEnvelope * 0.5;
+        const coreGrad = ctx.createRadialGradient(0, bodyR * 0.28, 2, 0, bodyR * 0.28, bodyR * 0.36 * corePulse);
+        coreGrad.addColorStop(0, '#ffffff');
+        coreGrad.addColorStop(0.38, `rgba(${rgbSecondary}, 0.86)`);
+        coreGrad.addColorStop(1, `rgba(${rgbPrimary}, 0.02)`);
+        ctx.fillStyle = coreGrad;
+        ctx.shadowBlur = 20 + audioEnvelope * 24;
+        ctx.shadowColor = creatureSecondary;
+        ctx.beginPath();
+        ctx.arc(0, bodyR * 0.28, bodyR * 0.27 * corePulse, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+
+        this.drawWispFace(bodyR, creaturePrimary, creatureSecondary);
+        this.drawNovaHudTicks(bodyR, primaryColor, secondaryColor);
+        ctx.restore();
+    }
+
     drawNovaOrganicBody(x, y, radius) {
         const steps = 96;
         const angleStep = (Math.PI * 2) / steps;
@@ -1089,6 +1494,303 @@ class JarvisHUD {
             else this.ctx.lineTo(px, py);
         }
         this.ctx.closePath();
+    }
+
+    drawAxelArmorBody(x, y, radius) {
+        const ctx = this.ctx;
+        ctx.beginPath();
+        ctx.moveTo(x - radius * 0.54, y - radius * 0.42);
+        ctx.quadraticCurveTo(x - radius * 0.48, y - radius * 0.82, x - radius * 0.06, y - radius * 0.86);
+        ctx.quadraticCurveTo(x + radius * 0.48, y - radius * 0.88, x + radius * 0.56, y - radius * 0.42);
+        ctx.lineTo(x + radius * 0.52, y + radius * 0.12);
+        ctx.quadraticCurveTo(x + radius * 0.58, y + radius * 0.58, x + radius * 0.34, y + radius * 0.82);
+        ctx.quadraticCurveTo(x, y + radius * 1.02, x - radius * 0.34, y + radius * 0.82);
+        ctx.quadraticCurveTo(x - radius * 0.58, y + radius * 0.58, x - radius * 0.52, y + radius * 0.12);
+        ctx.closePath();
+    }
+
+    drawAxelEar(x, y, side, bodyR, primaryColor, secondaryColor, lift) {
+        const ctx = this.ctx;
+        ctx.save();
+        ctx.translate(x, y - lift);
+        ctx.rotate(side * (0.54 + Math.sin(this.time * 1.5 + side) * 0.035));
+        const grad = ctx.createLinearGradient(0, -bodyR * 0.7, 0, bodyR * 0.14);
+        grad.addColorStop(0, `rgba(${this.hexToRgb(secondaryColor)}, 0.58)`);
+        grad.addColorStop(0.52, `rgba(${this.hexToRgb(primaryColor)}, 0.28)`);
+        grad.addColorStop(1, `rgba(${this.hexToRgb(primaryColor)}, 0.08)`);
+        ctx.fillStyle = grad;
+        ctx.strokeStyle = `rgba(${this.hexToRgb(secondaryColor)}, 0.58)`;
+        ctx.lineWidth = 1.7;
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = secondaryColor;
+        ctx.beginPath();
+        ctx.moveTo(0, -bodyR * 0.68);
+        ctx.quadraticCurveTo(side * bodyR * 0.28, -bodyR * 0.3, side * bodyR * 0.12, bodyR * 0.08);
+        ctx.quadraticCurveTo(-side * bodyR * 0.1, -bodyR * 0.04, 0, -bodyR * 0.68);
+        ctx.fill();
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = `rgba(255, 255, 255, 0.28)`;
+        ctx.beginPath();
+        ctx.moveTo(side * bodyR * 0.02, -bodyR * 0.52);
+        ctx.lineTo(side * bodyR * 0.1, -bodyR * 0.08);
+        ctx.stroke();
+        ctx.restore();
+    }
+
+    drawAxelSidePod(x, y, side, bodyR, primaryColor, secondaryColor) {
+        const ctx = this.ctx;
+        ctx.save();
+        ctx.translate(x, y);
+        const grad = ctx.createRadialGradient(0, 0, 2, 0, 0, bodyR * 0.22);
+        grad.addColorStop(0, `rgba(${this.hexToRgb(secondaryColor)}, 0.5)`);
+        grad.addColorStop(0.55, `rgba(${this.hexToRgb(primaryColor)}, 0.22)`);
+        grad.addColorStop(1, 'rgba(0, 0, 0, 0.14)');
+        ctx.fillStyle = grad;
+        ctx.strokeStyle = `rgba(${this.hexToRgb(secondaryColor)}, 0.55)`;
+        ctx.lineWidth = 1.4;
+        ctx.shadowBlur = 12;
+        ctx.shadowColor = secondaryColor;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, bodyR * 0.16, bodyR * 0.23, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = `rgba(255, 255, 255, 0.24)`;
+        ctx.beginPath();
+        ctx.arc(0, 0, bodyR * 0.1, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+    }
+
+    drawAxelArm(x, y, side, bodyR, primaryColor, secondaryColor) {
+        const ctx = this.ctx;
+        const bob = Math.sin(this.time * 2.1 + side) * 5;
+        ctx.save();
+        ctx.translate(x, y + bob);
+        ctx.rotate(side * (0.18 + Math.sin(this.time * 1.2) * 0.04));
+        const grad = ctx.createRadialGradient(0, 0, 2, 0, 0, bodyR * 0.3);
+        grad.addColorStop(0, `rgba(${this.hexToRgb(secondaryColor)}, 0.44)`);
+        grad.addColorStop(1, `rgba(${this.hexToRgb(primaryColor)}, 0.13)`);
+        ctx.fillStyle = grad;
+        ctx.strokeStyle = `rgba(${this.hexToRgb(secondaryColor)}, 0.36)`;
+        ctx.lineWidth = 1.1;
+        ctx.beginPath();
+        ctx.roundRect(-bodyR * 0.1, -bodyR * 0.2, bodyR * 0.2, bodyR * 0.42, bodyR * 0.11);
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+    }
+
+    drawAxelLeg(x, y, side, bodyR, primaryColor, secondaryColor) {
+        const ctx = this.ctx;
+        ctx.save();
+        ctx.translate(x, y + Math.sin(this.time * 1.8 + side) * 2);
+        ctx.rotate(side * -0.08);
+        const grad = ctx.createRadialGradient(0, 0, 2, 0, 0, bodyR * 0.24);
+        grad.addColorStop(0, `rgba(${this.hexToRgb(secondaryColor)}, 0.38)`);
+        grad.addColorStop(1, `rgba(${this.hexToRgb(primaryColor)}, 0.12)`);
+        ctx.fillStyle = grad;
+        ctx.strokeStyle = `rgba(${this.hexToRgb(secondaryColor)}, 0.32)`;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, bodyR * 0.14, bodyR * 0.25, side * 0.14, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+    }
+
+    drawAxelArmorLines(bodyR, primaryColor, secondaryColor) {
+        const ctx = this.ctx;
+        ctx.save();
+        ctx.strokeStyle = `rgba(${this.hexToRgb(secondaryColor)}, 0.34)`;
+        ctx.lineWidth = 1.2;
+        ctx.shadowBlur = 8;
+        ctx.shadowColor = secondaryColor;
+        ctx.beginPath();
+        ctx.moveTo(-bodyR * 0.5, -bodyR * 0.32);
+        ctx.lineTo(-bodyR * 0.24, -bodyR * 0.16);
+        ctx.lineTo(bodyR * 0.24, -bodyR * 0.16);
+        ctx.lineTo(bodyR * 0.5, -bodyR * 0.32);
+        ctx.moveTo(-bodyR * 0.42, bodyR * 0.28);
+        ctx.lineTo(-bodyR * 0.2, bodyR * 0.42);
+        ctx.moveTo(bodyR * 0.42, bodyR * 0.28);
+        ctx.lineTo(bodyR * 0.2, bodyR * 0.42);
+        ctx.stroke();
+
+        ctx.strokeStyle = `rgba(${this.hexToRgb(primaryColor)}, 0.6)`;
+        ctx.lineWidth = 3;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(-bodyR * 0.44, -bodyR * 0.42);
+        ctx.lineTo(-bodyR * 0.17, -bodyR * 0.34);
+        ctx.moveTo(bodyR * 0.44, -bodyR * 0.42);
+        ctx.lineTo(bodyR * 0.17, -bodyR * 0.34);
+        ctx.stroke();
+        ctx.restore();
+    }
+
+    drawAxelFace(bodyR, primaryColor, secondaryColor) {
+        const ctx = this.ctx;
+        const blinkScale = Math.max(0.1, 1 - this.novaBlinkAmount);
+        const eyeY = -bodyR * 0.2 + this.novaEyeDrift.y;
+        const leftX = -bodyR * 0.23 + this.novaEyeDrift.x;
+        const rightX = bodyR * 0.23 + this.novaEyeDrift.x;
+
+        ctx.save();
+        ctx.shadowBlur = 12;
+        ctx.shadowColor = secondaryColor;
+        ctx.fillStyle = 'rgba(4, 8, 14, 0.88)';
+        ctx.beginPath();
+        ctx.ellipse(leftX, eyeY, bodyR * 0.09, bodyR * 0.14 * blinkScale, 0, 0, Math.PI * 2);
+        ctx.ellipse(rightX, eyeY, bodyR * 0.09, bodyR * 0.14 * blinkScale, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = `rgba(${this.hexToRgb(secondaryColor)}, 0.92)`;
+        ctx.beginPath();
+        ctx.arc(leftX + bodyR * 0.018, eyeY - bodyR * 0.01, bodyR * 0.032, 0, Math.PI * 2);
+        ctx.arc(rightX + bodyR * 0.018, eyeY - bodyR * 0.01, bodyR * 0.032, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+        ctx.beginPath();
+        ctx.arc(leftX - bodyR * 0.026, eyeY - bodyR * 0.045, bodyR * 0.022, 0, Math.PI * 2);
+        ctx.arc(rightX - bodyR * 0.026, eyeY - bodyR * 0.045, bodyR * 0.022, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+
+        this.drawCreatureMouth(bodyR, bodyR * 0.08, primaryColor, secondaryColor, 0.95);
+        ctx.restore();
+    }
+
+    drawWispBody(x, y, radius) {
+        const ctx = this.ctx;
+        const ripple = Math.sin(this.time * 1.8) * radius * 0.025;
+        ctx.beginPath();
+        ctx.moveTo(x, y - radius * 0.88);
+        ctx.bezierCurveTo(x + radius * 0.48, y - radius * 0.86, x + radius * 0.64, y - radius * 0.42, x + radius * 0.62, y + radius * 0.02);
+        ctx.bezierCurveTo(x + radius * 0.6, y + radius * 0.38, x + radius * 0.76, y + radius * 0.62, x + radius * 0.42, y + radius * 0.76 + ripple);
+        ctx.quadraticCurveTo(x + radius * 0.24, y + radius * 0.62, x + radius * 0.08, y + radius * 0.78 - ripple);
+        ctx.quadraticCurveTo(x - radius * 0.08, y + radius * 0.62, x - radius * 0.24, y + radius * 0.78 + ripple);
+        ctx.quadraticCurveTo(x - radius * 0.42, y + radius * 0.62, x - radius * 0.62, y + radius * 0.76 - ripple);
+        ctx.bezierCurveTo(x - radius * 0.78, y + radius * 0.5, x - radius * 0.64, y + radius * 0.22, x - radius * 0.62, y - radius * 0.02);
+        ctx.bezierCurveTo(x - radius * 0.62, y - radius * 0.5, x - radius * 0.46, y - radius * 0.86, x, y - radius * 0.88);
+        ctx.closePath();
+    }
+
+    drawWispTail(bodyR, primaryColor, secondaryColor) {
+        const ctx = this.ctx;
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        const sway = Math.sin(this.time * 1.35) * bodyR * 0.08;
+        const tailGrad = ctx.createLinearGradient(0, bodyR * 0.72, bodyR * 0.78, bodyR * 1.42);
+        tailGrad.addColorStop(0, `rgba(${this.hexToRgb(secondaryColor)}, 0.22)`);
+        tailGrad.addColorStop(0.55, `rgba(${this.hexToRgb(primaryColor)}, 0.16)`);
+        tailGrad.addColorStop(1, `rgba(${this.hexToRgb(primaryColor)}, 0)`);
+        ctx.strokeStyle = tailGrad;
+        ctx.lineWidth = bodyR * 0.13;
+        ctx.lineCap = 'round';
+        ctx.shadowBlur = 16;
+        ctx.shadowColor = secondaryColor;
+        ctx.beginPath();
+        ctx.moveTo(0, bodyR * 0.72);
+        ctx.bezierCurveTo(bodyR * 0.1 + sway, bodyR * 0.94, bodyR * 0.5 + sway, bodyR * 1.0, bodyR * 0.66 + sway, bodyR * 1.34);
+        ctx.stroke();
+        ctx.lineWidth = bodyR * 0.035;
+        ctx.strokeStyle = `rgba(255, 255, 255, 0.22)`;
+        ctx.beginPath();
+        ctx.moveTo(bodyR * 0.02, bodyR * 0.8);
+        ctx.bezierCurveTo(bodyR * 0.22 + sway, bodyR * 0.98, bodyR * 0.36 + sway, bodyR * 1.08, bodyR * 0.58 + sway, bodyR * 1.25);
+        ctx.stroke();
+        ctx.lineWidth = bodyR * 0.025;
+        ctx.strokeStyle = `rgba(${this.hexToRgb(secondaryColor)}, 0.18)`;
+        ctx.beginPath();
+        ctx.moveTo(-bodyR * 0.08, bodyR * 0.78);
+        ctx.bezierCurveTo(bodyR * 0.08 - sway, bodyR * 1.0, bodyR * 0.18 - sway, bodyR * 1.08, bodyR * 0.38 - sway, bodyR * 1.3);
+        ctx.stroke();
+        ctx.restore();
+    }
+
+    drawWispArm(x, y, side, bodyR, primaryColor, secondaryColor) {
+        const ctx = this.ctx;
+        ctx.save();
+        ctx.translate(x, y + Math.sin(this.time * 2.1 + side) * 6);
+        ctx.rotate(side * (0.52 + Math.sin(this.time * 1.4) * 0.06));
+        const grad = ctx.createRadialGradient(0, 0, 2, 0, 0, bodyR * 0.26);
+        grad.addColorStop(0, `rgba(${this.hexToRgb(secondaryColor)}, 0.38)`);
+        grad.addColorStop(1, `rgba(${this.hexToRgb(primaryColor)}, 0.08)`);
+        ctx.fillStyle = grad;
+        ctx.strokeStyle = `rgba(${this.hexToRgb(secondaryColor)}, 0.34)`;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, bodyR * 0.15, bodyR * 0.31, side * 0.28, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+    }
+
+    drawWispFace(bodyR, primaryColor, secondaryColor) {
+        const ctx = this.ctx;
+        const blinkScale = Math.max(0.12, 1 - this.novaBlinkAmount);
+        const eyeY = -bodyR * 0.22 + this.novaEyeDrift.y;
+        const leftX = -bodyR * 0.24 + this.novaEyeDrift.x;
+        const rightX = bodyR * 0.24 + this.novaEyeDrift.x;
+
+        ctx.save();
+        ctx.shadowBlur = 16;
+        ctx.shadowColor = secondaryColor;
+        ctx.fillStyle = 'rgba(14, 10, 28, 0.82)';
+        ctx.beginPath();
+        ctx.ellipse(leftX, eyeY, bodyR * 0.105, bodyR * 0.16 * blinkScale, 0, 0, Math.PI * 2);
+        ctx.ellipse(rightX, eyeY, bodyR * 0.105, bodyR * 0.16 * blinkScale, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.94)';
+        ctx.beginPath();
+        ctx.arc(leftX - bodyR * 0.03, eyeY - bodyR * 0.054, bodyR * 0.03, 0, Math.PI * 2);
+        ctx.arc(rightX - bodyR * 0.03, eyeY - bodyR * 0.054, bodyR * 0.03, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+
+        const cheekY = bodyR * 0.03;
+        ctx.fillStyle = `rgba(${this.hexToRgb(secondaryColor)}, 0.24)`;
+        ctx.beginPath();
+        ctx.ellipse(-bodyR * 0.38, cheekY, bodyR * 0.1, bodyR * 0.055, 0, 0, Math.PI * 2);
+        ctx.ellipse(bodyR * 0.38, cheekY, bodyR * 0.1, bodyR * 0.055, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        this.drawCreatureMouth(bodyR, -bodyR * 0.02, primaryColor, secondaryColor, 0.9);
+        ctx.restore();
+    }
+
+    drawCreatureMouth(bodyR, mouthY, primaryColor, secondaryColor, smileScale = 1) {
+        const ctx = this.ctx;
+        if (this.state === 'speaking' || this.novaMouthOpen > 0.12) {
+            const mouthW = bodyR * (0.11 + this.novaMouthOpen * 0.16 - this.novaMouthRound * 0.04);
+            const mouthH = bodyR * (0.018 + this.novaMouthOpen * 0.12);
+            ctx.fillStyle = `rgba(4, 4, 10, ${0.72 + this.novaMouthOpen * 0.2})`;
+            ctx.strokeStyle = `rgba(${this.hexToRgb(secondaryColor)}, ${0.34 + this.novaMouthOpen * 0.3})`;
+            ctx.lineWidth = 1.3;
+            ctx.shadowBlur = 8;
+            ctx.shadowColor = secondaryColor;
+            ctx.beginPath();
+            if (this.novaMouthRound > 0.55) {
+                ctx.ellipse(0, mouthY, mouthW * 0.72, mouthH * 1.08, 0, 0, Math.PI * 2);
+            } else {
+                ctx.ellipse(0, mouthY, mouthW, mouthH, 0, 0, Math.PI * 2);
+            }
+            ctx.fill();
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+            return;
+        }
+
+        ctx.strokeStyle = 'rgba(8, 6, 12, 0.86)';
+        ctx.lineWidth = 2.2;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(-bodyR * 0.08 * smileScale, mouthY);
+        ctx.quadraticCurveTo(0, mouthY + bodyR * 0.068 * smileScale, bodyR * 0.08 * smileScale, mouthY);
+        ctx.stroke();
     }
 
     drawNovaEar(x, y, side, bodyR, primaryColor, secondaryColor, lift) {
