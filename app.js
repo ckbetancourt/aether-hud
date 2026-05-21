@@ -14,6 +14,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const SESSIONS_PAGE_SIZE = 25;
     const MAX_MESSAGES_PER_SESSION = 100;
     const MAX_MESSAGE_CHARS = 32000;
+    const DEFAULT_DISPLAY_NAME = AETHER_PERSONALITY.displayName;
 
     function loadSavedSessions() {
         try {
@@ -168,6 +169,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         activeProfileBadge: document.getElementById('activeProfileBadge'),
         activeStatusBadge: document.getElementById('activeStatusBadge'),
         hudOrbLabel: document.getElementById('hudOrbLabel'),
+        brandName: document.getElementById('brandName'),
+        consoleText: document.getElementById('consoleText'),
         
         // Buttons
         settingsBtn: document.getElementById('settingsBtn'),
@@ -217,6 +220,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         refreshChatsBtn: document.getElementById('refreshChatsBtn'),
         composerRefreshBtn: document.getElementById('composerRefreshBtn'),
         avatarFormRow: document.getElementById('avatarFormRow'),
+        displayNameInput: document.getElementById('displayNameInput'),
     };
 
     // Initialize speech mute UI button state
@@ -226,12 +230,39 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     speech.speechEnabled = state.speechEnabled;
 
+    function getDisplayName() {
+        const stored = AetherUserData.getItem('aether_display_name');
+        const trimmed = String(stored ?? DEFAULT_DISPLAY_NAME).trim();
+        return trimmed || DEFAULT_DISPLAY_NAME;
+    }
+
+    function getWelcomeConsoleMessage() {
+        return `Welcome. I am ${getDisplayName()}. Press Space to open chat or use the mic to coordinate telemetries.`;
+    }
+
+    function applyDisplayName() {
+        const name = getDisplayName();
+        if (elements.brandName) {
+            elements.brandName.textContent = name.toUpperCase();
+        }
+        if (elements.deckChatInputField) {
+            elements.deckChatInputField.placeholder = `Message ${name}…`;
+        }
+        if (elements.consoleText) {
+            elements.consoleText.textContent = getWelcomeConsoleMessage();
+        }
+        visualizer.setDisplayName(name);
+        ai.setDisplayName(name);
+        updateMicButtonTitle();
+    }
+
     // 4. UI Setup and Event Wiring
     buildColorModePicker();
     applyColorMode(state.globalColorMode);
     updateColorModePickerUi(state.globalColorMode);
     setupEventListeners();
     applyAccentTheme(state.globalAccentTheme);
+    applyDisplayName();
     updateHermesProfileBadge();
     renderHistorySessions();
     startLatencyTelemetryMock();
@@ -473,7 +504,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const isChatCollapsed = elements.hudShell?.classList.contains('chat-collapsed');
         
         if (behavior === 'llm' || (behavior === 'auto' && isChatCollapsed)) {
-            elements.voiceRecognitionBtn.title = "Speak directly to Aether (Voice-to-LLM Mode)";
+            elements.voiceRecognitionBtn.title = `Speak directly to ${getDisplayName()} (Voice-to-LLM Mode)`;
         } else {
             elements.voiceRecognitionBtn.title = "Speak to type in Chat input (Speech-to-Text Mode)";
         }
@@ -1083,7 +1114,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // Wipe logs
         elements.consoleScroller.innerHTML = `<div class="console-log-line system-line">[SYSTEM] Client connection active. Telemetries initialized.</div>
-        <div class="console-log-line">Welcome. I am Aether. Press Space to open chat or use the mic to coordinate telemetries.</div>`;
+        <div class="console-log-line">${getWelcomeConsoleMessage()}</div>`;
 
         elements.deckChatScroller.innerHTML = '';
         appendAssistantChatBubble('New session started. Awaiting inputs…');
@@ -1783,6 +1814,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         updateOmniVoiceInstructVisibility();
         updateAvatarFormUi(state.avatarForm);
 
+        if (elements.displayNameInput) {
+            elements.displayNameInput.value = getDisplayName();
+        }
+
         if (elements.omnivoiceInstruct) {
             elements.omnivoiceInstruct.value =
                 AetherUserData.getItem('aether_omnivoice_instruct') || '';
@@ -1828,6 +1863,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     function saveSettings() {
+        const displayName = elements.displayNameInput?.value.trim() || DEFAULT_DISPLAY_NAME;
+        AetherUserData.setItem('aether_display_name', displayName);
+        applyDisplayName();
+
         AetherUserData.setItem('aether_voice_speed', elements.synthSpeed.value);
         AetherUserData.setItem('aether_stream_delay', elements.simulationSpeed.value);
         AetherUserData.setItem('aether_avatar_form', state.avatarForm || 'classic-blob');

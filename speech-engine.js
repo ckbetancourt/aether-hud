@@ -521,7 +521,8 @@ class SpeechEngine {
 
     this.stopSpeaking();
 
-    const previewText = 'Hello. I am Aether. This is a voice preview.';
+    const displayName = (AetherUserData.getItem('aether_display_name') || AETHER_PERSONALITY.displayName).trim() || AETHER_PERSONALITY.displayName;
+    const previewText = `Hello. I am ${displayName}. This is a voice preview.`;
     const provider = providerOverride || this.getTtsProvider();
     const previewOpts = { skipReplayCache: true };
 

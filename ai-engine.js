@@ -5,7 +5,12 @@
 
 class AIEngine {
     constructor() {
-        this.personality = AETHER_PERSONALITY;
+        this.personality = { ...AETHER_PERSONALITY };
+    }
+
+    setDisplayName(name) {
+        const trimmed = String(name || '').trim();
+        this.personality.displayName = trimmed || AETHER_PERSONALITY.displayName;
     }
 
     buildSystemInstruction() {

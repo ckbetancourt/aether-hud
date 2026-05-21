@@ -148,6 +148,7 @@ class JarvisHUD {
         this.speechEngine = null;
         this._audioReactive = null;
         this.avatarForm = 'classic-blob';
+        this.displayName = 'Aether';
         this.speechCue = null;
         this.avatarBehaviorProfiles = {
             'classic-blob': {
@@ -371,6 +372,12 @@ class JarvisHUD {
         }
         this.syncCreatureAvatarShell();
         this.syncAvatarLabelPlacement(document.getElementById('hudOrbLabel'));
+        this.setState(this.state);
+    }
+
+    setDisplayName(name) {
+        const trimmed = String(name || '').trim();
+        this.displayName = trimmed || 'Aether';
         this.setState(this.state);
     }
 
@@ -819,12 +826,12 @@ class JarvisHUD {
 
     getAvatarName() {
         const names = {
-            'classic-blob': 'Aether',
+            'classic-blob': this.displayName || 'Aether',
             nova: 'Nova',
             wisp: 'Wisp',
             eve: 'EVE',
         };
-        return names[this.avatarForm] || 'Aether';
+        return names[this.avatarForm] || this.displayName || 'Aether';
     }
 
     startSpeechMouthCue(text) {
@@ -984,7 +991,7 @@ class JarvisHUD {
                     break;
                 case 'idle':
                 default:
-                    statusLabel.textContent = this.isCreatureAvatar() ? `${avatarName.toUpperCase()} ACTIVE` : "AETHER ACTIVE";
+                    statusLabel.textContent = `${avatarName.toUpperCase()} ACTIVE`;
                     statusLabel.style.color = 'var(--text-muted)';
                     break;
             }
