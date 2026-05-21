@@ -163,19 +163,6 @@
             <div class="drawer-scroll">
                 
 
-                <section class="accent-section" style="margin-bottom:24px;">
-                    <h3 class="section-label font-heading">HUD Accent</h3>
-                    <p class="section-hint">Orb color and UI accent highlights.</p>
-                    <div class="accent-swatch-row" id="accentSwatchRow">
-                        <button type="button" class="accent-swatch active" data-accent-theme="jarvis-red" title="Jarvis Red" aria-label="Jarvis Red" aria-pressed="true" style="--swatch-primary: #ff4436; --swatch-secondary: #ff6e40;"></button>
-                        <button type="button" class="accent-swatch" data-accent-theme="jarvis-blue" title="Jarvis Blue" aria-label="Jarvis Blue" aria-pressed="false" style="--swatch-primary: #00c8ff; --swatch-secondary: #00e8ff;"></button>
-                        <button type="button" class="accent-swatch" data-accent-theme="amber" title="Amber" aria-label="Amber" aria-pressed="false" style="--swatch-primary: #ff9800; --swatch-secondary: #ffb74d;"></button>
-                        <button type="button" class="accent-swatch" data-accent-theme="emerald" title="Emerald" aria-label="Emerald" aria-pressed="false" style="--swatch-primary: #00f5a0; --swatch-secondary: #00d9f6;"></button>
-                        <button type="button" class="accent-swatch" data-accent-theme="violet" title="Violet" aria-label="Violet" aria-pressed="false" style="--swatch-primary: #f107a3; --swatch-secondary: #7b2ff7;"></button>
-                        <button type="button" class="accent-swatch" data-accent-theme="gold" title="Gold" aria-label="Gold" aria-pressed="false" style="--swatch-primary: #ffd200; --swatch-secondary: #f7971e;"></button>
-                    </div>
-                </section>
-
                 <section>
                     <h3 class="section-label">Chats</h3>
                     <div class="chat-history-list" id="chatHistoryList">
@@ -224,7 +211,19 @@
                     <div class="form-group">
                         <label>Color mode</label>
                         <div class="color-mode-row" id="colorModeRow" role="group" aria-label="Appearance mode"></div>
-                        <div class="form-hint">HUD accent swatches in the chat drawer control orb and highlight colors.</div>
+                        <div class="form-hint">Control the HUD surface tone and contrast.</div>
+                    </div>
+                    <div class="form-group">
+                        <label>HUD accent</label>
+                        <div class="accent-swatch-row" id="accentSwatchRow" role="group" aria-label="HUD accent color">
+                            <button type="button" class="accent-swatch active" data-accent-theme="jarvis-red" title="Jarvis Red" aria-label="Jarvis Red" aria-pressed="true" style="--swatch-primary: #ff4436; --swatch-secondary: #ff6e40;"></button>
+                            <button type="button" class="accent-swatch" data-accent-theme="jarvis-blue" title="Jarvis Blue" aria-label="Jarvis Blue" aria-pressed="false" style="--swatch-primary: #00c8ff; --swatch-secondary: #00e8ff;"></button>
+                            <button type="button" class="accent-swatch" data-accent-theme="amber" title="Amber" aria-label="Amber" aria-pressed="false" style="--swatch-primary: #ff9800; --swatch-secondary: #ffb74d;"></button>
+                            <button type="button" class="accent-swatch" data-accent-theme="emerald" title="Emerald" aria-label="Emerald" aria-pressed="false" style="--swatch-primary: #00f5a0; --swatch-secondary: #00d9f6;"></button>
+                            <button type="button" class="accent-swatch" data-accent-theme="violet" title="Violet" aria-label="Violet" aria-pressed="false" style="--swatch-primary: #f107a3; --swatch-secondary: #7b2ff7;"></button>
+                            <button type="button" class="accent-swatch" data-accent-theme="gold" title="Gold" aria-label="Gold" aria-pressed="false" style="--swatch-primary: #ffd200; --swatch-secondary: #f7971e;"></button>
+                        </div>
+                        <div class="form-hint">Controls orb, Nova, chat highlights, and HUD glow color.</div>
                     </div>
                     <div class="form-group">
                         <label>Avatar form</label>

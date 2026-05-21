@@ -119,8 +119,8 @@
     --sidebar-bg: rgba(255, 255, 255, 0.96);
     --sidebar-shadow: rgba(15, 18, 28, 0.15);
     --chat-column-bg: rgba(255, 255, 255, 0.82);
-    --chat-column-border: rgba(255, 68, 54, 0.25);
-    --chat-column-glow: 0 0 32px rgba(255, 68, 54, 0.08);
+    --chat-column-border: color-mix(in srgb, var(--accent-primary) 30%, rgba(15, 18, 28, 0.16));
+    --chat-column-glow: 0 0 32px color-mix(in srgb, var(--accent-primary) 12%, transparent);
     --chat-messages-bg: transparent;
     --composer-bg: transparent;
     --composer-input-bg: rgba(15, 18, 28, 0.04);
@@ -177,8 +177,8 @@
     --sidebar-bg: rgba(4, 6, 14, 0.92);
     --sidebar-shadow: rgba(0, 0, 0, 0.85);
     --chat-column-bg: rgba(8, 12, 24, 0.65);
-    --chat-column-border: rgba(120, 160, 255, 0.28);
-    --chat-column-glow: 0 0 40px rgba(80, 120, 200, 0.12);
+    --chat-column-border: color-mix(in srgb, var(--accent-primary) 28%, rgba(120, 160, 255, 0.16));
+    --chat-column-glow: 0 0 40px color-mix(in srgb, var(--accent-primary) 14%, transparent);
     --chat-messages-bg: transparent;
     --composer-bg: transparent;
     --composer-input-bg: rgba(2, 6, 16, 0.45);
@@ -235,8 +235,8 @@
     --sidebar-bg: rgba(12, 14, 20, 0.9);
     --sidebar-shadow: rgba(0, 0, 0, 0.75);
     --chat-column-bg: rgba(18, 22, 30, 0.65);
-    --chat-column-border: rgba(255, 68, 54, 0.25);
-    --chat-column-glow: 0 0 36px rgba(255, 68, 54, 0.1);
+    --chat-column-border: color-mix(in srgb, var(--accent-primary) 30%, rgba(200, 210, 225, 0.14));
+    --chat-column-glow: 0 0 36px color-mix(in srgb, var(--accent-primary) 13%, transparent);
     --chat-messages-bg: transparent;
     --composer-bg: transparent;
     --composer-input-bg: rgba(8, 10, 14, 0.45);
@@ -293,8 +293,8 @@
     --sidebar-bg: rgba(2, 6, 4, 0.92);
     --sidebar-shadow: rgba(0, 0, 0, 0.85);
     --chat-column-bg: rgba(4, 10, 6, 0.65);
-    --chat-column-border: rgba(0, 245, 160, 0.28);
-    --chat-column-glow: 0 0 36px rgba(0, 245, 160, 0.1);
+    --chat-column-border: color-mix(in srgb, var(--accent-primary) 32%, rgba(57, 255, 20, 0.14));
+    --chat-column-glow: 0 0 36px color-mix(in srgb, var(--accent-primary) 13%, transparent);
     --chat-messages-bg: transparent;
     --composer-bg: transparent;
     --composer-input-bg: rgba(0, 0, 0, 0.45);
@@ -351,8 +351,8 @@
     --sidebar-bg: rgba(0, 0, 0, 0.96);
     --sidebar-shadow: rgba(0, 0, 0, 0.95);
     --chat-column-bg: rgba(12, 12, 12, 0.88);
-    --chat-column-border: rgba(255, 255, 255, 0.35);
-    --chat-column-glow: 0 0 32px rgba(255, 255, 255, 0.08);
+    --chat-column-border: color-mix(in srgb, var(--accent-primary) 36%, rgba(255, 255, 255, 0.22));
+    --chat-column-glow: 0 0 32px color-mix(in srgb, var(--accent-primary) 16%, transparent);
     --chat-messages-bg: transparent;
     --composer-bg: transparent;
     --composer-input-bg: rgba(0, 0, 0, 0.75);
