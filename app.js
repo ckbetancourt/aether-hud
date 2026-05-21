@@ -61,6 +61,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         return fallback;
     }
 
+    function loadAvatarForm() {
+        const stored = AetherUserData.getItem('aether_avatar_form');
+        return stored === 'nova' ? 'nova' : 'classic-blob';
+    }
+
     function getColorMode(modeId) {
         return AETHER_COLOR_MODES[modeId] || AETHER_COLOR_MODES.dark;
     }
@@ -83,6 +88,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     function updateColorModePickerUi(modeId) {
         document.querySelectorAll('.color-mode-btn').forEach((btn) => {
             const active = btn.getAttribute('data-color-mode') === modeId;
+            btn.classList.toggle('active', active);
+            btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+        });
+    }
+
+    function updateAvatarFormUi(formId) {
+        document.querySelectorAll('.avatar-form-btn').forEach((btn) => {
+            const active = btn.getAttribute('data-avatar-form') === formId;
             btn.classList.toggle('active', active);
             btn.setAttribute('aria-pressed', active ? 'true' : 'false');
         });
@@ -132,9 +145,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         globalAccentTheme: null,
         activeAccentTheme: null,
         globalColorMode: null,
+        avatarForm: null,
     };
     state.globalAccentTheme = loadGlobalAccentTheme();
     state.globalColorMode = loadColorMode();
+    state.avatarForm = loadAvatarForm();
 
     // 2. Instantiate Systems
     const ai = new AIEngine();
@@ -145,6 +160,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Start Orb Rendering immediately
     visualizer.start();
     visualizer.setColorMode(state.globalColorMode);
+    visualizer.setAvatarForm(state.avatarForm);
 
     // 3. Select HUD DOM Elements
     const elements = {
@@ -200,6 +216,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         hermesStatusText: document.getElementById('hermesStatusText'),
         refreshChatsBtn: document.getElementById('refreshChatsBtn'),
         composerRefreshBtn: document.getElementById('composerRefreshBtn'),
+        avatarFormRow: document.getElementById('avatarFormRow'),
     };
 
     // Initialize speech mute UI button state
@@ -271,6 +288,15 @@ document.addEventListener('DOMContentLoaded', async () => {
             swatch.addEventListener('click', () => {
                 const themeId = swatch.getAttribute('data-accent-theme');
                 if (themeId) selectAccentTheme(themeId);
+            });
+        });
+
+        document.querySelectorAll('.avatar-form-btn').forEach((btn) => {
+            btn.addEventListener('click', () => {
+                const formId = btn.getAttribute('data-avatar-form');
+                state.avatarForm = formId === 'nova' ? 'nova' : 'classic-blob';
+                updateAvatarFormUi(state.avatarForm);
+                visualizer.setAvatarForm(state.avatarForm);
             });
         });
 
@@ -695,7 +721,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         btn.onclick = (e) => {
             e.stopPropagation();
             visualizer.setState('speaking');
+            visualizer.startSpeechMouthCue(btn.dataset.fallbackText || '');
             speech.replayById(btn.dataset.replayId, btn.dataset.fallbackText || null, () => {
+                visualizer.stopSpeechMouthCue();
                 if (visualizer.state === 'speaking') {
                     visualizer.setState('idle');
                 }
@@ -744,12 +772,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             if (speech.speechEnabled) {
                 visualizer.setState('speaking');
+                visualizer.startSpeechMouthCue(speakableText);
             }
             speech.speak(
                 speakableText,
                 null,
-                null,
+                (event) => visualizer.handleSpeechBoundary(event),
                 () => {
+                    visualizer.stopSpeechMouthCue();
                     if (visualizer.state === 'speaking') {
                         visualizer.setState('idle');
                     }
@@ -883,6 +913,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             elements.speechSynthesisToggle.classList.remove('active');
             elements.speechSynthesisToggle.querySelector('i').setAttribute('data-lucide', 'volume-x');
             speech.stopSpeaking();
+            visualizer.stopSpeechMouthCue();
             appendSystemConsoleLine("[SYSTEM] Voice synthesis muted.");
         }
         lucide.createIcons();
@@ -1729,6 +1760,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
         updateTtsProviderHint();
         updateOmniVoiceInstructVisibility();
+        updateAvatarFormUi(state.avatarForm);
 
         if (elements.omnivoiceInstruct) {
             elements.omnivoiceInstruct.value =
@@ -1777,6 +1809,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     function saveSettings() {
         AetherUserData.setItem('aether_voice_speed', elements.synthSpeed.value);
         AetherUserData.setItem('aether_stream_delay', elements.simulationSpeed.value);
+        AetherUserData.setItem('aether_avatar_form', state.avatarForm || 'classic-blob');
+        visualizer.setAvatarForm(state.avatarForm || 'classic-blob');
 
         if (elements.ttsReplayCacheSize) {
             AetherUserData.setItem('aether_tts_replay_cache_size', elements.ttsReplayCacheSize.value);

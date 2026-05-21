@@ -18,7 +18,7 @@
             }
         })();
     </script>
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="styles.css?v=nova-avatar">
     <!-- Lucide Icons CDN -->
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
@@ -226,6 +226,18 @@
                         <div class="color-mode-row" id="colorModeRow" role="group" aria-label="Appearance mode"></div>
                         <div class="form-hint">HUD accent swatches in the chat drawer control orb and highlight colors.</div>
                     </div>
+                    <div class="form-group">
+                        <label>Avatar form</label>
+                        <div class="avatar-form-row" id="avatarFormRow" role="group" aria-label="Aether avatar form">
+                            <button type="button" class="avatar-form-btn active" data-avatar-form="classic-blob" aria-pressed="true">
+                                Classic Blob
+                            </button>
+                            <button type="button" class="avatar-form-btn" data-avatar-form="nova" aria-pressed="false">
+                                Nova
+                            </button>
+                        </div>
+                        <div class="form-hint">Choose the central Aether visualization. Nova is the companion creature form.</div>
+                    </div>
                 </section>
 
                 <section class="settings-panel" id="settingsPanelSpeech" role="tabpanel" aria-labelledby="settingsTabSpeech" data-settings-panel="speech" hidden>
@@ -330,7 +342,7 @@
 
     <!-- Script References -->
     <script src="user-data.js"></script>
-    <script src="visualizer.js"></script>
+    <script src="visualizer.js?v=nova-avatar"></script>
     <script src="aether-config.js"></script>
     <script src="speech-engine.js"></script>
     <script src="ai-engine.js"></script>

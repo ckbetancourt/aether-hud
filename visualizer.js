@@ -69,6 +69,14 @@ class JarvisHUD {
 
         this.speechEngine = null;
         this._audioReactive = null;
+        this.avatarForm = 'classic-blob';
+        this.speechCue = null;
+        this.novaBlinkTimer = 40 + Math.random() * 120;
+        this.novaBlinkAmount = 0;
+        this.novaEyeDrift = { x: 0, y: 0 };
+        this.novaMouthShape = 'closed';
+        this.novaMouthOpen = 0;
+        this.novaMouthRound = 0;
 
         // Canvas scaling and bindings
         this.resize();
@@ -113,6 +121,65 @@ class JarvisHUD {
         }
     }
 
+    setAvatarForm(formId) {
+        this.avatarForm = formId === 'nova' ? 'nova' : 'classic-blob';
+        this.syncAvatarLabelPlacement(document.getElementById('hudOrbLabel'));
+        this.setState(this.state);
+    }
+
+    syncAvatarLabelPlacement(statusLabel) {
+        if (!statusLabel) return;
+        const isNova = this.avatarForm === 'nova';
+        statusLabel.classList.toggle('nova-label', isNova);
+        statusLabel.style.top = '50%';
+        statusLabel.style.left = '50%';
+        statusLabel.style.transform = isNova
+            ? 'translate(-50%, -50%) translateY(190px)'
+            : 'translate(-50%, -50%)';
+    }
+
+    getAvatarName() {
+        return this.avatarForm === 'nova' ? 'Nova' : 'Aether';
+    }
+
+    startSpeechMouthCue(text) {
+        const cleanText = String(text || '').trim();
+        this.speechCue = {
+            text: cleanText,
+            words: cleanText ? cleanText.split(/\s+/).filter(Boolean) : [],
+            startTime: performance.now(),
+            boundaryTime: 0,
+            wordIndex: 0,
+            shape: 'small',
+            lastShapeAt: 0,
+        };
+    }
+
+    stopSpeechMouthCue() {
+        this.speechCue = null;
+        this.novaMouthShape = 'closed';
+    }
+
+    handleSpeechBoundary(event) {
+        if (!this.speechCue || this.avatarForm !== 'nova') return;
+        const now = performance.now();
+        const elapsed = now - this.speechCue.startTime;
+        this.speechCue.boundaryTime = elapsed;
+        this.speechCue.wordIndex += 1;
+        this.speechCue.shape = this.pickNovaMouthShape(
+            this.speechCue.words[this.speechCue.wordIndex] || '',
+            this.speechCue.wordIndex
+        );
+        this.speechCue.lastShapeAt = elapsed;
+        if (Number.isFinite(event?.charIndex)) {
+            const spokenPrefix = this.speechCue.text.slice(0, event.charIndex);
+            this.speechCue.wordIndex = Math.max(
+                this.speechCue.wordIndex,
+                spokenPrefix.split(/\s+/).filter(Boolean).length
+            );
+        }
+    }
+
     /**
      * Set visualizer operational status
      */
@@ -120,6 +187,9 @@ class JarvisHUD {
         if (this.state !== state) {
             if (state !== 'thinking') {
                 this.thinkingCaption = '';
+            }
+            if (state !== 'speaking') {
+                this.stopSpeechMouthCue();
             }
             // Trigger transition energy shockwaves
             this.shockwaves.push({
@@ -160,22 +230,24 @@ class JarvisHUD {
         
         if (statusLabel) {
             const { primary, secondary } = this.accentTheme;
+            const avatarName = this.getAvatarName();
+            this.syncAvatarLabelPlacement(statusLabel);
             switch (state) {
                 case 'listening':
-                    statusLabel.textContent = "Aether is listening...";
+                    statusLabel.textContent = `${avatarName} is listening...`;
                     statusLabel.style.color = primary;
                     break;
                 case 'thinking':
-                    statusLabel.textContent = this.thinkingCaption || "Aether is thinking...";
+                    statusLabel.textContent = this.thinkingCaption || `${avatarName} is thinking...`;
                     statusLabel.style.color = secondary;
                     break;
                 case 'speaking':
-                    statusLabel.textContent = "Aether speaking...";
+                    statusLabel.textContent = `${avatarName} speaking...`;
                     statusLabel.style.color = '#ffffff';
                     break;
                 case 'idle':
                 default:
-                    statusLabel.textContent = "AETHER ACTIVE";
+                    statusLabel.textContent = this.avatarForm === 'nova' ? "NOVA ACTIVE" : "AETHER ACTIVE";
                     statusLabel.style.color = 'var(--text-muted)';
                     break;
             }
@@ -187,7 +259,7 @@ class JarvisHUD {
         if (this.state === 'thinking') {
             const statusLabel = document.getElementById('hudOrbLabel');
             if (statusLabel) {
-                statusLabel.textContent = this.thinkingCaption || "Aether is thinking...";
+                statusLabel.textContent = this.thinkingCaption || `${this.getAvatarName()} is thinking...`;
             }
         }
     }
@@ -539,13 +611,15 @@ class JarvisHUD {
             this.updateNodeActivations();
         }
 
+        const isNova = this.avatarForm === 'nova';
         const activeRadius = this.coreBaseRadius * this.orbPulseScale;
+        const avatarRadius = isNova ? activeRadius * 1.38 : activeRadius;
         const showNeuralWeb = this.state !== 'speaking' && this.webOpacity > 0.04;
 
         // RENDER STEP 3: Concentric HUD Rings and Rotating Hex Data Dials (hidden while speaking)
-        if (this.state !== 'speaking') {
-            this.drawHUDRings(centerX, centerY, activeRadius, primaryColor, glowColor);
-            this.drawDataRing(centerX, centerY, activeRadius, primaryColor);
+        if (this.state !== 'speaking' || isNova) {
+            this.drawHUDRings(centerX, centerY, avatarRadius, primaryColor, glowColor);
+            this.drawDataRing(centerX, centerY, avatarRadius, primaryColor);
         }
 
         if (this.state === 'thinking' && Math.random() < 0.016) {
@@ -554,46 +628,46 @@ class JarvisHUD {
 
         // RENDER STEP 4: Layered Neural Network (hidden while speaking — blob only)
         if (showNeuralWeb) {
-            this.drawNeuralWeb(centerX, centerY, activeRadius, primaryColor, secondaryColor);
+            this.drawNeuralWeb(centerX, centerY, avatarRadius, primaryColor, secondaryColor);
         }
 
-        // RENDER STEP 5: Multi-Layered Liquid Plasma Orb
-        // We layer 3 separate undulating paths to simulate a 3D gas sphere!
-        
-        // A. Outer low-opacity glowing gas boundary (wide morph)
-        this.drawLiquidBlob(
-            centerX, centerY, 
-            activeRadius * 1.28, 
-            this.time, scaleSpeed * 0.75, noiseAmp * 1.45, 0.75,
-            `rgba(${this.hexToRgb(primaryColor)}, 0.15)`, 
-            glowColor, 20
-        );
+        // RENDER STEP 5: Central avatar form
+        if (isNova) {
+            this.drawNovaAvatar(centerX, centerY, avatarRadius, primaryColor, secondaryColor, glowColor);
+        } else {
+            // Multi-layered liquid plasma orb. We layer 3 separate undulating paths to simulate a 3D gas sphere.
+            this.drawLiquidBlob(
+                centerX, centerY,
+                activeRadius * 1.28,
+                this.time, scaleSpeed * 0.75, noiseAmp * 1.45, 0.75,
+                `rgba(${this.hexToRgb(primaryColor)}, 0.15)`,
+                glowColor, 20
+            );
 
-        // B. Mid-layer standard plasma fluid (primary morph body)
-        this.drawLiquidBlob(
-            centerX, centerY, 
-            activeRadius, 
-            this.time + 12, scaleSpeed * 1.05, noiseAmp * 1.1, 1.05,
-            `rgba(${this.hexToRgb(primaryColor)}, 0.5)`, 
-            'rgba(0,0,0,0)', 0
-        );
+            this.drawLiquidBlob(
+                centerX, centerY,
+                activeRadius,
+                this.time + 12, scaleSpeed * 1.05, noiseAmp * 1.1, 1.05,
+                `rgba(${this.hexToRgb(primaryColor)}, 0.5)`,
+                'rgba(0,0,0,0)', 0
+            );
 
-        // C. Hot glowing core plasma (tighter high-frequency detail)
-        const coreGrad = this.ctx.createRadialGradient(centerX, centerY, 5, centerX, centerY, activeRadius * 0.6);
-        coreGrad.addColorStop(0, '#ffffff');
-        coreGrad.addColorStop(0.5, secondaryColor);
-        coreGrad.addColorStop(1, `rgba(${this.hexToRgb(primaryColor)}, 0.1)`);
+            const coreGrad = this.ctx.createRadialGradient(centerX, centerY, 5, centerX, centerY, activeRadius * 0.6);
+            coreGrad.addColorStop(0, '#ffffff');
+            coreGrad.addColorStop(0.5, secondaryColor);
+            coreGrad.addColorStop(1, `rgba(${this.hexToRgb(primaryColor)}, 0.1)`);
 
-        this.drawLiquidBlob(
-            centerX, centerY, 
-            activeRadius * 0.62, 
-            this.time - 8, scaleSpeed * 1.35, noiseAmp * 0.65, 1.35,
-            coreGrad, 
-            'rgba(255,255,255,0.4)', 8
-        );
+            this.drawLiquidBlob(
+                centerX, centerY,
+                activeRadius * 0.62,
+                this.time - 8, scaleSpeed * 1.35, noiseAmp * 0.65, 1.35,
+                coreGrad,
+                'rgba(255,255,255,0.4)', 8
+            );
+        }
 
         // RENDER STEP 6: Vocal Oscilloscope Equalizer (outer speak boundary)
-        this.drawVoiceWaveRing(centerX, centerY, activeRadius, primaryColor, secondaryColor);
+        this.drawVoiceWaveRing(centerX, centerY, avatarRadius, primaryColor, secondaryColor);
 
         // RENDER STEP 7: Active State Transition Shockwaves (expanding foreground overlay) safely using a backward loop
         for (let idx = this.shockwaves.length - 1; idx >= 0; idx--) {
@@ -840,6 +914,341 @@ class JarvisHUD {
         this.ctx.fill();
 
         this.ctx.shadowBlur = 0; // Reset
+    }
+
+    pickNovaMouthShape(word = '', index = 0) {
+        const clean = String(word).toLowerCase();
+        if (/[ou]/.test(clean)) return 'round';
+        if (/[a]/.test(clean) || clean.length > 7) return 'wide';
+        if (/[ei]/.test(clean)) return 'smile';
+        return index % 3 === 0 ? 'small' : 'flat';
+    }
+
+    updateNovaMouth() {
+        let targetOpen = 0;
+        let targetRound = 0;
+        let shape = 'closed';
+
+        if (this.state === 'speaking') {
+            const now = performance.now();
+            const cue = this.speechCue;
+            const elapsed = cue ? now - cue.startTime : this.time * 1000;
+            const audioEnvelope = this._audioReactive?.envelope ?? 0;
+            const hasLiveAudio = Boolean(this._audioReactive?.frequency);
+
+            if (cue?.words.length) {
+                const approxWordMs = 210;
+                const scheduledIndex = Math.floor(elapsed / approxWordMs) % cue.words.length;
+                const cueIndex = Math.max(cue.wordIndex, scheduledIndex);
+                shape = this.pickNovaMouthShape(cue.words[cueIndex] || '', cueIndex);
+            } else {
+                const fallbackShapes = ['small', 'round', 'wide', 'flat', 'smile'];
+                shape = fallbackShapes[Math.floor(elapsed / 170) % fallbackShapes.length];
+            }
+
+            const syllablePulse = 0.5 + 0.5 * Math.sin(elapsed / 48);
+            const liveBoost = hasLiveAudio ? Math.min(1, audioEnvelope * 7) : 0.45 + syllablePulse * 0.45;
+            const openness = {
+                closed: 0,
+                flat: 0.24,
+                small: 0.48,
+                smile: 0.38,
+                round: 0.58,
+                wide: 0.82,
+            };
+
+            targetOpen = Math.min(1, (openness[shape] ?? 0.4) * (0.65 + liveBoost * 0.65));
+            targetRound = shape === 'round' ? 1 : shape === 'small' ? 0.35 : 0;
+        }
+
+        this.novaMouthShape = shape;
+        this.novaMouthOpen += (targetOpen - this.novaMouthOpen) * 0.32;
+        this.novaMouthRound += (targetRound - this.novaMouthRound) * 0.28;
+    }
+
+    updateNovaBlinkAndEyes() {
+        this.novaBlinkTimer -= 1;
+        if (this.novaBlinkTimer <= 0) {
+            this.novaBlinkAmount = 1;
+            this.novaBlinkTimer = 85 + Math.random() * 150;
+        }
+        this.novaBlinkAmount *= 0.72;
+
+        const attention = this.state === 'listening' ? 1 : this.state === 'thinking' ? 0.65 : 0.35;
+        const driftX = Math.sin(this.time * 0.9) * 5 * attention + this.parallaxX * 5;
+        const driftY = Math.cos(this.time * 0.7) * 2.5 * attention + this.parallaxY * 3;
+        this.novaEyeDrift.x += (driftX - this.novaEyeDrift.x) * 0.06;
+        this.novaEyeDrift.y += (driftY - this.novaEyeDrift.y) * 0.06;
+    }
+
+    drawNovaAvatar(cx, cy, activeRadius, primaryColor, secondaryColor, glowColor) {
+        this.updateNovaBlinkAndEyes();
+        this.updateNovaMouth();
+
+        const ctx = this.ctx;
+        const rootStyles = getComputedStyle(document.documentElement);
+        const creaturePrimary = rootStyles.getPropertyValue('--accent-primary').trim() || primaryColor;
+        const creatureSecondary = rootStyles.getPropertyValue('--accent-secondary').trim() || secondaryColor;
+        const creatureGlow = rootStyles.getPropertyValue('--accent-glow').trim() || glowColor;
+        const rgbPrimary = this.hexToRgb(creaturePrimary);
+        const rgbSecondary = this.hexToRgb(creatureSecondary);
+        const audioEnvelope = this._audioReactive?.envelope ?? 0;
+
+        let stateLift = 0;
+        let earLift = 0;
+        let bodySquash = 1;
+        if (this.state === 'listening') {
+            stateLift = -8;
+            earLift = 14;
+            bodySquash = 0.97;
+        } else if (this.state === 'thinking') {
+            stateLift = -3 + Math.sin(this.time * 6) * 2;
+            earLift = 9;
+        } else if (this.state === 'speaking') {
+            stateLift = Math.sin(this.time * 5.2) * 5 - audioEnvelope * 10;
+            earLift = 7 + audioEnvelope * 12;
+            bodySquash = 1 + audioEnvelope * 0.08;
+        }
+
+        const floatY = Math.sin(this.time * 1.4) * 7 + stateLift;
+        const breathe = 1 + Math.sin(this.time * 1.9) * 0.025 + audioEnvelope * 0.05;
+        const bodyR = activeRadius * 1.08;
+        const bodyX = cx;
+        const bodyY = cy + floatY + activeRadius * 0.1;
+
+        ctx.save();
+        ctx.translate(bodyX, bodyY);
+        ctx.scale(breathe * (1 / bodySquash), breathe * bodySquash);
+
+        // Soft hologram aura behind Nova.
+        const aura = ctx.createRadialGradient(0, 0, bodyR * 0.1, 0, 0, bodyR * 1.45);
+        aura.addColorStop(0, `rgba(${rgbSecondary}, 0.22)`);
+        aura.addColorStop(0.45, `rgba(${rgbPrimary}, 0.16)`);
+        aura.addColorStop(1, `rgba(${rgbPrimary}, 0)`);
+        ctx.fillStyle = aura;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, bodyR * 1.45, bodyR * 1.28, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        this.drawNovaEar(-bodyR * 0.42, -bodyR * 0.72, -1, bodyR, creaturePrimary, creatureSecondary, earLift);
+        this.drawNovaEar(bodyR * 0.42, -bodyR * 0.72, 1, bodyR, creaturePrimary, creatureSecondary, earLift);
+        this.drawNovaArm(-bodyR * 0.74, bodyR * 0.04, -1, bodyR, creaturePrimary, creatureSecondary);
+        this.drawNovaArm(bodyR * 0.74, bodyR * 0.04, 1, bodyR, creaturePrimary, creatureSecondary);
+        this.drawNovaFoot(-bodyR * 0.28, bodyR * 0.78, -1, bodyR, creaturePrimary, creatureSecondary);
+        this.drawNovaFoot(bodyR * 0.28, bodyR * 0.78, 1, bodyR, creaturePrimary, creatureSecondary);
+
+        ctx.shadowBlur = 24;
+        ctx.shadowColor = creatureGlow;
+        const bodyGrad = ctx.createRadialGradient(-bodyR * 0.22, -bodyR * 0.36, 8, 0, 0, bodyR * 1.05);
+        bodyGrad.addColorStop(0, `rgba(255, 255, 255, 0.36)`);
+        bodyGrad.addColorStop(0.24, `rgba(${rgbSecondary}, 0.68)`);
+        bodyGrad.addColorStop(0.72, `rgba(${rgbPrimary}, 0.5)`);
+        bodyGrad.addColorStop(1, `rgba(${rgbPrimary}, 0.24)`);
+        ctx.fillStyle = bodyGrad;
+        this.drawNovaOrganicBody(0, 0, bodyR);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+
+        ctx.strokeStyle = `rgba(${rgbSecondary}, 0.32)`;
+        ctx.lineWidth = 1.3;
+        this.drawNovaOrganicBody(0, 0, bodyR * 1.01);
+        ctx.stroke();
+
+        const corePulse = 1 + Math.sin(this.time * 4.8) * 0.08 + audioEnvelope * 0.5;
+        const coreGrad = ctx.createRadialGradient(0, bodyR * 0.28, 2, 0, bodyR * 0.28, bodyR * 0.36 * corePulse);
+        coreGrad.addColorStop(0, '#ffffff');
+        coreGrad.addColorStop(0.38, `rgba(${rgbSecondary}, 0.9)`);
+        coreGrad.addColorStop(1, `rgba(${rgbPrimary}, 0.03)`);
+        ctx.fillStyle = coreGrad;
+        ctx.shadowBlur = 18 + audioEnvelope * 22;
+        ctx.shadowColor = creatureSecondary;
+        ctx.beginPath();
+        ctx.arc(0, bodyR * 0.28, bodyR * 0.28 * corePulse, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+
+        this.drawNovaFace(bodyR, creaturePrimary, creatureSecondary);
+        this.drawNovaHudTicks(bodyR, primaryColor, secondaryColor);
+
+        ctx.restore();
+    }
+
+    drawNovaOrganicBody(x, y, radius) {
+        const steps = 96;
+        const angleStep = (Math.PI * 2) / steps;
+        this.ctx.beginPath();
+        for (let i = 0; i <= steps; i++) {
+            const angle = i * angleStep;
+            const wobble = Math.sin(angle * 3 + this.time * 0.85) * 0.045 +
+                Math.cos(angle * 5 - this.time * 0.62) * 0.032 +
+                Math.sin(angle * 2 + this.time * 0.38) * 0.022;
+            const r = radius * (1 + wobble);
+            const px = x + Math.cos(angle) * r * 0.74;
+            const py = y + Math.sin(angle) * r * 0.9;
+            if (i === 0) this.ctx.moveTo(px, py);
+            else this.ctx.lineTo(px, py);
+        }
+        this.ctx.closePath();
+    }
+
+    drawNovaEar(x, y, side, bodyR, primaryColor, secondaryColor, lift) {
+        const ctx = this.ctx;
+        ctx.save();
+        ctx.translate(x, y - lift);
+        ctx.rotate(side * (0.43 + Math.sin(this.time * 1.7 + side) * 0.04));
+        const grad = ctx.createLinearGradient(0, -bodyR * 0.82, 0, bodyR * 0.18);
+        grad.addColorStop(0, `rgba(${this.hexToRgb(secondaryColor)}, 0.5)`);
+        grad.addColorStop(0.55, `rgba(${this.hexToRgb(primaryColor)}, 0.34)`);
+        grad.addColorStop(1, `rgba(${this.hexToRgb(primaryColor)}, 0.1)`);
+        ctx.fillStyle = grad;
+        ctx.strokeStyle = `rgba(${this.hexToRgb(secondaryColor)}, 0.32)`;
+        ctx.lineWidth = 1.4;
+        ctx.shadowBlur = 14;
+        ctx.shadowColor = secondaryColor;
+        ctx.beginPath();
+        ctx.ellipse(0, -bodyR * 0.28, bodyR * 0.16, bodyR * 0.62, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = `rgba(255, 255, 255, 0.16)`;
+        ctx.beginPath();
+        ctx.ellipse(-side * bodyR * 0.035, -bodyR * 0.34, bodyR * 0.055, bodyR * 0.36, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    }
+
+    drawNovaArm(x, y, side, bodyR, primaryColor, secondaryColor) {
+        const ctx = this.ctx;
+        const wave = Math.sin(this.time * 2.2 + side) * 6;
+        ctx.save();
+        ctx.translate(x, y + wave);
+        ctx.rotate(side * (0.42 + Math.sin(this.time * 1.4) * 0.05));
+        const grad = ctx.createRadialGradient(0, 0, 2, 0, 0, bodyR * 0.24);
+        grad.addColorStop(0, `rgba(${this.hexToRgb(secondaryColor)}, 0.45)`);
+        grad.addColorStop(1, `rgba(${this.hexToRgb(primaryColor)}, 0.16)`);
+        ctx.fillStyle = grad;
+        ctx.strokeStyle = `rgba(${this.hexToRgb(secondaryColor)}, 0.26)`;
+        ctx.lineWidth = 1;
+        ctx.shadowBlur = 9;
+        ctx.shadowColor = secondaryColor;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, bodyR * 0.14, bodyR * 0.27, side * 0.22, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+        ctx.restore();
+    }
+
+    drawNovaFoot(x, y, side, bodyR, primaryColor, secondaryColor) {
+        const ctx = this.ctx;
+        ctx.save();
+        ctx.translate(x, y + Math.sin(this.time * 1.8 + side) * 3);
+        ctx.rotate(side * -0.2);
+        const grad = ctx.createRadialGradient(0, 0, 2, 0, 0, bodyR * 0.2);
+        grad.addColorStop(0, `rgba(${this.hexToRgb(secondaryColor)}, 0.38)`);
+        grad.addColorStop(1, `rgba(${this.hexToRgb(primaryColor)}, 0.13)`);
+        ctx.fillStyle = grad;
+        ctx.strokeStyle = `rgba(${this.hexToRgb(secondaryColor)}, 0.22)`;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, bodyR * 0.13, bodyR * 0.23, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+    }
+
+    drawNovaFace(bodyR, primaryColor, secondaryColor) {
+        const ctx = this.ctx;
+        const blinkScale = Math.max(0.12, 1 - this.novaBlinkAmount);
+        const eyeY = -bodyR * 0.16 + this.novaEyeDrift.y;
+        const leftX = -bodyR * 0.24 + this.novaEyeDrift.x;
+        const rightX = bodyR * 0.24 + this.novaEyeDrift.x;
+
+        ctx.save();
+        ctx.shadowBlur = 14;
+        ctx.shadowColor = secondaryColor;
+        ctx.fillStyle = 'rgba(14, 9, 10, 0.88)';
+        ctx.beginPath();
+        ctx.ellipse(leftX, eyeY, bodyR * 0.095, bodyR * 0.145 * blinkScale, 0, 0, Math.PI * 2);
+        ctx.ellipse(rightX, eyeY, bodyR * 0.095, bodyR * 0.145 * blinkScale, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.94)';
+        ctx.beginPath();
+        ctx.arc(leftX - bodyR * 0.026, eyeY - bodyR * 0.048, bodyR * 0.028, 0, Math.PI * 2);
+        ctx.arc(rightX - bodyR * 0.026, eyeY - bodyR * 0.048, bodyR * 0.028, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+
+        const cheekY = bodyR * 0.23;
+        const cheekGradL = ctx.createRadialGradient(-bodyR * 0.36, cheekY, 2, -bodyR * 0.36, cheekY, bodyR * 0.17);
+        cheekGradL.addColorStop(0, `rgba(${this.hexToRgb(secondaryColor)}, 0.38)`);
+        cheekGradL.addColorStop(1, `rgba(${this.hexToRgb(primaryColor)}, 0)`);
+        ctx.fillStyle = cheekGradL;
+        ctx.beginPath();
+        ctx.arc(-bodyR * 0.36, cheekY, bodyR * 0.17, 0, Math.PI * 2);
+        ctx.fill();
+
+        const cheekGradR = ctx.createRadialGradient(bodyR * 0.36, cheekY, 2, bodyR * 0.36, cheekY, bodyR * 0.17);
+        cheekGradR.addColorStop(0, `rgba(${this.hexToRgb(secondaryColor)}, 0.38)`);
+        cheekGradR.addColorStop(1, `rgba(${this.hexToRgb(primaryColor)}, 0)`);
+        ctx.fillStyle = cheekGradR;
+        ctx.beginPath();
+        ctx.arc(bodyR * 0.36, cheekY, bodyR * 0.17, 0, Math.PI * 2);
+        ctx.fill();
+
+        const mouthY = bodyR * 0.08;
+        if (this.state === 'speaking' || this.novaMouthOpen > 0.12) {
+            const mouthW = bodyR * (0.12 + this.novaMouthOpen * 0.16 - this.novaMouthRound * 0.04);
+            const mouthH = bodyR * (0.02 + this.novaMouthOpen * 0.13);
+            ctx.fillStyle = `rgba(8, 4, 5, ${0.72 + this.novaMouthOpen * 0.2})`;
+            ctx.strokeStyle = `rgba(${this.hexToRgb(secondaryColor)}, ${0.34 + this.novaMouthOpen * 0.3})`;
+            ctx.lineWidth = 1.3;
+            ctx.shadowBlur = 8;
+            ctx.shadowColor = secondaryColor;
+            ctx.beginPath();
+            if (this.novaMouthRound > 0.55) {
+                ctx.ellipse(0, mouthY, mouthW * 0.72, mouthH * 1.08, 0, 0, Math.PI * 2);
+            } else {
+                ctx.ellipse(0, mouthY, mouthW, mouthH, 0, 0, Math.PI * 2);
+            }
+            ctx.fill();
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+        } else {
+            ctx.strokeStyle = 'rgba(18, 8, 8, 0.88)';
+            ctx.lineWidth = 2.3;
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            ctx.moveTo(-bodyR * 0.07, mouthY);
+            ctx.quadraticCurveTo(0, mouthY + bodyR * 0.075, bodyR * 0.07, mouthY);
+            ctx.stroke();
+        }
+        ctx.restore();
+    }
+
+    drawNovaHudTicks(bodyR, primaryColor, secondaryColor) {
+        const ctx = this.ctx;
+        ctx.save();
+        ctx.strokeStyle = `rgba(${this.hexToRgb(primaryColor)}, 0.22)`;
+        ctx.lineWidth = 0.8;
+        for (let i = 0; i < 10; i++) {
+            const angle = i * Math.PI * 0.2 + this.time * 0.22;
+            const inner = bodyR * (0.9 + Math.sin(this.time + i) * 0.02);
+            const outer = inner + 8 + (i % 3) * 3;
+            ctx.beginPath();
+            ctx.moveTo(Math.cos(angle) * inner, Math.sin(angle) * inner);
+            ctx.lineTo(Math.cos(angle) * outer, Math.sin(angle) * outer);
+            ctx.stroke();
+        }
+        if (this.state === 'thinking') {
+            ctx.fillStyle = `rgba(${this.hexToRgb(secondaryColor)}, 0.5)`;
+            ctx.font = '600 7px "Fira Code", monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText('NOVA', 0, -bodyR * 1.04);
+        }
+        ctx.restore();
     }
 
     /**
