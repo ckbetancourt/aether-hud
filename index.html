@@ -105,6 +105,11 @@
             <button class="hud-circle-btn" id="historyDrawerToggle" title="Open archives list">
                 <i data-lucide="database" style="width: 18px; height: 18px;"></i>
             </button>
+
+            <!-- Hermes Kanban workspaces -->
+            <button class="hud-circle-btn" id="workspacesDrawerToggle" title="Open Hermes workspaces">
+                <i data-lucide="folder-kanban" style="width: 18px; height: 18px;"></i>
+            </button>
             </footer>
         </div>
 
@@ -117,6 +122,7 @@
                 <i data-lucide="message-square" style="width:14px; height:14px;"></i>
                 DIRECT CHANNEL
             </span>
+            <span class="workspace-pin-badge" id="workspacePinBadge" hidden title="Pinned Hermes workspace"></span>
             <div class="chat-column-header-actions">
                 <button class="settings-gear-btn" id="chatSplitViewBtn" title="Split view" type="button">
                     <i data-lucide="columns-2" style="width:16px; height:16px;"></i>
@@ -192,6 +198,52 @@
                     <i data-lucide="plus" style="width:14px; height:14px; vertical-align:middle;"></i>
                     New Core Session
                 </button>
+            </div>
+        </aside>
+
+        <!-- WORKSPACES DRAWER (Left Side) -->
+        <aside class="sidebar-drawer workspaces-drawer glass-panel" id="workspacesDrawer">
+            <div class="drawer-header">
+                <div class="hud-brand">
+                    <span class="brand-dot"></span>
+                    <span class="brand-name" style="font-size:0.95rem;">WORKSPACES</span>
+                </div>
+                <div class="drawer-header-actions">
+                    <button class="settings-gear-btn" id="refreshWorkspacesBtn" title="Refresh workspaces" style="border:none; background:transparent;">
+                        <i data-lucide="refresh-cw" style="width:14px; height:14px;"></i>
+                    </button>
+                    <button class="settings-gear-btn" id="workspacesDrawerCloseBtn" style="border:none; background:transparent;">
+                        <i data-lucide="x" style="width:16px; height:16px;"></i>
+                    </button>
+                </div>
+            </div>
+
+            <div class="drawer-scroll">
+                <section>
+                    <h3 class="section-label">Kanban board</h3>
+                    <select class="form-select" id="kanbanBoardSelect" aria-label="Active Kanban board">
+                        <option value="default">default</option>
+                    </select>
+                    <div class="form-hint workspace-board-hint" id="kanbanBoardHint">Hermes task workspaces for the active board.</div>
+                    <div class="workspace-default-workdir" id="kanbanDefaultWorkdir" hidden></div>
+                </section>
+
+                <section>
+                    <h3 class="section-label">Task workspaces</h3>
+                    <div class="workspace-list" id="workspaceList">
+                        <div class="workspace-empty-hint">Open this panel to load workspaces.</div>
+                    </div>
+                </section>
+
+                <section id="workspaceBrowseSection" hidden>
+                    <h3 class="section-label" id="workspaceBrowseTitle">Contents</h3>
+                    <div class="workspace-path-mono" id="workspaceBrowsePath"></div>
+                    <div class="workspace-file-list" id="workspaceFileList"></div>
+                    <div class="workspace-browse-actions">
+                        <button class="action-btn btn-secondary" id="workspaceRevealBtn" type="button">Open in Finder</button>
+                        <button class="action-btn btn-primary" id="workspacePinBtn" type="button">Pin workspace</button>
+                    </div>
+                </section>
             </div>
         </aside>
 

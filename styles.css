@@ -2608,6 +2608,189 @@ body {
     z-index: 1;
 }
 
+/* Workspaces drawer — stacks below chats drawer when both open */
+.workspaces-drawer.open {
+    transform: translateX(0);
+}
+
+.workspaces-drawer.open ~ .sidebar-drawer.open,
+.sidebar-drawer.open:has(+ .workspaces-drawer.open) {
+    transform: translateX(0);
+}
+
+.sidebar-drawer.open + .workspaces-drawer.open {
+    top: calc(50vh + 9px);
+    height: calc(50vh - 27px);
+}
+
+.workspace-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.workspace-item {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 3px;
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: 12px;
+    border: 1px solid color-mix(in srgb, var(--glass-card-border) 90%, transparent);
+    background: rgba(0, 0, 0, 0.18);
+    color: var(--text-primary);
+    text-align: left;
+    cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.workspace-item:hover {
+    border-color: color-mix(in srgb, var(--accent-primary) 24%, var(--glass-card-border));
+}
+
+.workspace-item.active {
+    border-color: color-mix(in srgb, var(--accent-secondary) 42%, var(--glass-card-border));
+    background: color-mix(in srgb, var(--accent-secondary) 8%, rgba(0, 0, 0, 0.22));
+}
+
+.workspace-item-title {
+    font-size: 0.78rem;
+    font-weight: 600;
+    line-height: 1.3;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 100%;
+}
+
+.workspace-item-meta {
+    font-size: 0.62rem;
+    font-family: var(--font-mono);
+    color: var(--text-muted);
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+}
+
+.workspace-item-path {
+    font-size: 0.62rem;
+    font-family: var(--font-mono);
+    color: var(--text-muted);
+    opacity: 0.85;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 100%;
+}
+
+.workspace-empty-hint,
+.workspace-board-hint {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    line-height: 1.45;
+}
+
+.workspace-default-workdir {
+    margin-top: 8px;
+    font-size: 0.68rem;
+    font-family: var(--font-mono);
+    color: var(--accent-secondary);
+    word-break: break-all;
+}
+
+.workspace-path-mono {
+    font-size: 0.62rem;
+    font-family: var(--font-mono);
+    color: var(--text-muted);
+    margin-bottom: 8px;
+    word-break: break-all;
+    line-height: 1.4;
+}
+
+.workspace-file-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 220px;
+    overflow-y: auto;
+    margin-bottom: 10px;
+}
+
+.workspace-file-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border-radius: 8px;
+    font-size: 0.72rem;
+    color: var(--text-primary);
+    cursor: pointer;
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.workspace-file-row:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.workspace-file-row.is-dir {
+    color: var(--accent-secondary);
+}
+
+.workspace-browse-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.workspace-browse-actions .action-btn {
+    flex: 1;
+    width: auto;
+    padding: 9px 10px;
+    font-size: 0.72rem;
+}
+
+.action-btn.btn-secondary {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--glass-card-border);
+    color: var(--text-muted);
+}
+
+.workspace-pin-badge {
+    flex: 1;
+    min-width: 0;
+    font-size: 0.58rem;
+    font-family: var(--font-mono);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--accent-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding: 0 8px;
+    opacity: 0.9;
+}
+
+.workspace-pin-badge[hidden] {
+    display: none !important;
+}
+
+.bubble-workspace-chip {
+    display: inline-block;
+    max-width: 100%;
+    margin-bottom: 6px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 0.58rem;
+    font-family: var(--font-mono);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--accent-secondary);
+    background: color-mix(in srgb, var(--accent-secondary) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent-secondary) 22%, transparent);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 /* Action Buttons inside Drawer */
 .action-btn {
     display: flex;

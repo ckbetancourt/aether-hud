@@ -15,7 +15,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     const MAX_MESSAGES_PER_SESSION = 100;
     const MAX_MESSAGE_CHARS = 32000;
     const MAX_CHAT_ATTACHMENTS = 6;
-    const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
+    const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+    const MAX_ATTACHMENT_DATA_URL_CHARS = 7 * 1024 * 1024;
     const TEXT_ATTACHMENT_EXTENSIONS = new Set([
         '.txt', '.md', '.markdown', '.json', '.js', '.jsx', '.ts', '.tsx', '.css',
         '.html', '.htm', '.xml', '.yaml', '.yml', '.csv', '.log', '.py', '.sh', '.rb',
@@ -151,6 +152,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         activeSessionId: AetherUserData.getItem('aether_active_session_id') || null,
         lastHermesSessionId: AetherUserData.getItem('aether_last_hermes_session_id') || null,
         activeHermesProfile: AetherUserData.getItem('aether_hermes_profile') || '',
+        activeKanbanBoard: AetherUserData.getItem('aether_kanban_board') || '',
+        activeWorkspacePath: AetherUserData.getItem('aether_active_workspace_path') || '',
+        selectedWorkspacePath: '',
+        selectedWorkspaceTitle: '',
+        kanbanBoards: [],
+        kanbanWorkspaces: [],
+        workspaceBrowsePath: '',
+        workspaceBrowseEntries: [],
         hermesStatus: null,
         isVoiceActive: false,
         speechEnabled: JSON.parse(AetherUserData.getItem('aether_speech_enabled') ?? 'true'),
@@ -220,6 +229,21 @@ document.addEventListener('DOMContentLoaded', async () => {
         historyDrawerToggle: document.getElementById('historyDrawerToggle'),
         historyDrawerCloseBtn: document.getElementById('historyDrawerCloseBtn'),
         sidebarDrawer: document.getElementById('sidebarDrawer'),
+        workspacesDrawerToggle: document.getElementById('workspacesDrawerToggle'),
+        workspacesDrawerCloseBtn: document.getElementById('workspacesDrawerCloseBtn'),
+        workspacesDrawer: document.getElementById('workspacesDrawer'),
+        refreshWorkspacesBtn: document.getElementById('refreshWorkspacesBtn'),
+        kanbanBoardSelect: document.getElementById('kanbanBoardSelect'),
+        kanbanBoardHint: document.getElementById('kanbanBoardHint'),
+        kanbanDefaultWorkdir: document.getElementById('kanbanDefaultWorkdir'),
+        workspaceList: document.getElementById('workspaceList'),
+        workspaceBrowseSection: document.getElementById('workspaceBrowseSection'),
+        workspaceBrowseTitle: document.getElementById('workspaceBrowseTitle'),
+        workspaceBrowsePath: document.getElementById('workspaceBrowsePath'),
+        workspaceFileList: document.getElementById('workspaceFileList'),
+        workspaceRevealBtn: document.getElementById('workspaceRevealBtn'),
+        workspacePinBtn: document.getElementById('workspacePinBtn'),
+        workspacePinBadge: document.getElementById('workspacePinBadge'),
         newChatBtn: document.getElementById('newChatBtn'),
 
         hudShell: document.getElementById('hudShell'),
@@ -307,6 +331,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     applyAccentTheme(state.globalAccentTheme);
     applyDisplayName();
     updateHermesProfileBadge();
+    updateWorkspacePinBadge();
     renderHistorySessions();
     startLatencyTelemetryMock();
     await refreshHermesIntegration();
@@ -343,8 +368,27 @@ document.addEventListener('DOMContentLoaded', async () => {
        ========================================================================== */
     function setupEventListeners() {
         // Toggle slide-in Sidebar Drawer
-        elements.historyDrawerToggle.addEventListener('click', toggleSidebarDrawer);
-        elements.historyDrawerCloseBtn.addEventListener('click', toggleSidebarDrawer);
+        elements.historyDrawerToggle.addEventListener('click', () => toggleSidebarDrawer());
+        elements.historyDrawerCloseBtn.addEventListener('click', () => toggleSidebarDrawer(false));
+
+        if (elements.workspacesDrawerToggle) {
+            elements.workspacesDrawerToggle.addEventListener('click', () => toggleWorkspacesDrawer());
+        }
+        if (elements.workspacesDrawerCloseBtn) {
+            elements.workspacesDrawerCloseBtn.addEventListener('click', () => toggleWorkspacesDrawer(false));
+        }
+        if (elements.refreshWorkspacesBtn) {
+            elements.refreshWorkspacesBtn.addEventListener('click', () => refreshKanbanWorkspaces());
+        }
+        if (elements.kanbanBoardSelect) {
+            elements.kanbanBoardSelect.addEventListener('change', () => handleKanbanBoardSwitch());
+        }
+        if (elements.workspaceRevealBtn) {
+            elements.workspaceRevealBtn.addEventListener('click', () => revealSelectedWorkspace());
+        }
+        if (elements.workspacePinBtn) {
+            elements.workspacePinBtn.addEventListener('click', () => pinSelectedWorkspace());
+        }
         
         // Settings triggers
         elements.settingsBtn.addEventListener('click', openSettingsModal);
@@ -521,9 +565,30 @@ document.addEventListener('DOMContentLoaded', async () => {
     /* ==========================================================================
        B. Typewriter Command Console Orchestrator
        ========================================================================== */
-    function toggleSidebarDrawer() {
-        elements.sidebarDrawer.classList.toggle('open');
-        elements.historyDrawerToggle.classList.toggle('active');
+    function toggleSidebarDrawer(forceOpen) {
+        const shouldOpen = forceOpen === undefined
+            ? !elements.sidebarDrawer.classList.contains('open')
+            : forceOpen;
+        elements.sidebarDrawer.classList.toggle('open', shouldOpen);
+        elements.historyDrawerToggle.classList.toggle('active', shouldOpen);
+        if (shouldOpen && elements.workspacesDrawer?.classList.contains('open')) {
+            toggleWorkspacesDrawer(false);
+        }
+    }
+
+    function toggleWorkspacesDrawer(forceOpen) {
+        if (!elements.workspacesDrawer) return;
+        const shouldOpen = forceOpen === undefined
+            ? !elements.workspacesDrawer.classList.contains('open')
+            : forceOpen;
+        elements.workspacesDrawer.classList.toggle('open', shouldOpen);
+        elements.workspacesDrawerToggle?.classList.toggle('active', shouldOpen);
+        if (shouldOpen) {
+            if (elements.sidebarDrawer?.classList.contains('open')) {
+                toggleSidebarDrawer(false);
+            }
+            refreshKanbanWorkspaces();
+        }
     }
 
     function runTransitionResizeLoop() {
@@ -623,7 +688,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
-    async function compressImageDataUrl(dataUrl, maxDimension = 2048, quality = 0.88) {
+    function attachmentFileKey(file) {
+        return `${file.name}|${file.size}|${file.lastModified ?? 0}`;
+    }
+
+    function isDuplicateAttachment(file) {
+        const key = attachmentFileKey(file);
+        return pendingAttachments.some((att) => att.fileKey === key);
+    }
+
+    async function compressImageDataUrl(dataUrl, { maxDimension = 2048, quality = 0.88 } = {}) {
         return new Promise((resolve) => {
             const img = new Image();
             img.onload = () => {
@@ -649,17 +723,35 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     async function buildAttachmentFromFile(file) {
         if (!file) throw new Error('Missing file');
-        if (file.size > MAX_ATTACHMENT_BYTES) {
-            throw new Error(`${file.name} is too large (max ${formatAttachmentSize(MAX_ATTACHMENT_BYTES)})`);
-        }
 
         if (isImageAttachmentFile(file)) {
-            let dataUrl = await readFileAsDataUrl(file);
-            if (file.size > 512 * 1024) {
-                dataUrl = await compressImageDataUrl(dataUrl);
+            if (file.size > MAX_ATTACHMENT_BYTES) {
+                throw new Error(`${file.name} is too large (max ${formatAttachmentSize(MAX_ATTACHMENT_BYTES)}). Try a smaller image.`);
             }
+
+            let dataUrl = await readFileAsDataUrl(file);
+            const compressOpts = file.size > 4 * 1024 * 1024
+                ? { maxDimension: 1280, quality: 0.72 }
+                : file.size > 1024 * 1024
+                    ? { maxDimension: 1600, quality: 0.78 }
+                    : file.size > 128 * 1024
+                        ? { maxDimension: 2048, quality: 0.85 }
+                        : null;
+
+            if (compressOpts) {
+                dataUrl = await compressImageDataUrl(dataUrl, compressOpts);
+            }
+
+            if (dataUrl.length > MAX_ATTACHMENT_DATA_URL_CHARS) {
+                dataUrl = await compressImageDataUrl(dataUrl, { maxDimension: 1024, quality: 0.65 });
+            }
+            if (dataUrl.length > MAX_ATTACHMENT_DATA_URL_CHARS) {
+                throw new Error(`${file.name} is still too large after compression. Try a smaller image.`);
+            }
+
             return {
                 id: `att_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                fileKey: attachmentFileKey(file),
                 name: file.name,
                 mimeType: file.type || 'image/jpeg',
                 kind: 'image',
@@ -668,10 +760,15 @@ document.addEventListener('DOMContentLoaded', async () => {
             };
         }
 
+        if (file.size > MAX_ATTACHMENT_BYTES) {
+            throw new Error(`${file.name} is too large (max ${formatAttachmentSize(MAX_ATTACHMENT_BYTES)})`);
+        }
+
         if (isTextAttachmentFile(file)) {
             const text = await readFileAsText(file);
             return {
                 id: `att_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                fileKey: attachmentFileKey(file),
                 name: file.name,
                 mimeType: file.type || 'text/plain',
                 kind: 'text',
@@ -701,55 +798,66 @@ document.addEventListener('DOMContentLoaded', async () => {
         return true;
     }
 
+    let attachmentIngestBusy = false;
+
     async function addComposerAttachmentFiles(fileList) {
         if (!verifyAttachmentUi()) return;
         const files = Array.from(fileList || []);
         if (!files.length) return;
+
+        if (attachmentIngestBusy) return;
+        attachmentIngestBusy = true;
 
         if (elements.hudShell?.classList.contains('chat-collapsed')) {
             expandChatColumn(false);
         }
 
         let addedCount = 0;
-        for (const file of files) {
-            if (pendingAttachments.length >= MAX_CHAT_ATTACHMENTS) {
-                showToast(
-                    'Attachment limit reached',
-                    `You can attach up to ${MAX_CHAT_ATTACHMENTS} files per message.`,
-                    { variant: 'warning', durationMs: 4200 }
-                );
-                break;
-            }
-            if (pendingAttachments.some((att) => att.name === file.name && att.size === file.size && att.status !== 'loading')) {
-                continue;
-            }
-
-            const placeholderId = `att_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-            pendingAttachments.push({
-                id: placeholderId,
-                name: file.name,
-                size: file.size,
-                kind: 'loading',
-                status: 'loading',
-            });
-            renderComposerAttachments();
-
-            try {
-                const attachment = await buildAttachmentFromFile(file);
-                const idx = pendingAttachments.findIndex((att) => att.id === placeholderId);
-                if (idx !== -1) {
-                    pendingAttachments[idx] = { ...attachment, status: 'ready' };
-                    addedCount += 1;
+        try {
+            for (const file of files) {
+                if (pendingAttachments.length >= MAX_CHAT_ATTACHMENTS) {
+                    showToast(
+                        'Attachment limit reached',
+                        `You can attach up to ${MAX_CHAT_ATTACHMENTS} files per message.`,
+                        { variant: 'warning', durationMs: 4200 }
+                    );
+                    break;
                 }
-            } catch (err) {
-                pendingAttachments = pendingAttachments.filter((att) => att.id !== placeholderId);
-                showToast(
-                    'Could not attach file',
-                    err.message || `Could not attach ${file.name}.`,
-                    { variant: 'error', durationMs: 5200 }
-                );
+                if (isDuplicateAttachment(file)) {
+                    continue;
+                }
+
+                const fileKey = attachmentFileKey(file);
+                const placeholderId = `att_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+                pendingAttachments.push({
+                    id: placeholderId,
+                    fileKey,
+                    name: file.name,
+                    size: file.size,
+                    kind: 'loading',
+                    status: 'loading',
+                });
+                renderComposerAttachments();
+
+                try {
+                    const attachment = await buildAttachmentFromFile(file);
+                    const idx = pendingAttachments.findIndex((att) => att.id === placeholderId);
+                    if (idx !== -1) {
+                        pendingAttachments[idx] = { ...attachment, status: 'ready' };
+                        addedCount += 1;
+                    }
+                } catch (err) {
+                    pendingAttachments = pendingAttachments.filter((att) => att.id !== placeholderId);
+                    showToast(
+                        'Could not attach file',
+                        err.message || `Could not attach ${file.name}.`,
+                        { variant: 'error', durationMs: 5200 }
+                    );
+                }
+                renderComposerAttachments();
             }
-            renderComposerAttachments();
+        } finally {
+            attachmentIngestBusy = false;
         }
 
         if (addedCount > 0) {
@@ -856,13 +964,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     function setupChatDropZone() {
-        const targets = [
+        const dropTarget = elements.chatColumn;
+        if (!dropTarget) return;
+
+        const dragTargets = [
             elements.chatColumn,
             elements.deckChatScroller,
             elements.chatComposerBox,
             elements.composerAttachmentDock,
         ].filter(Boolean);
-        if (!targets.length) return;
 
         const hasFiles = (event) => Array.from(event.dataTransfer?.types || []).includes('Files');
 
@@ -890,6 +1000,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const onDrop = async (event) => {
             if (!hasFiles(event)) return;
             event.preventDefault();
+            event.stopPropagation();
             chatDropDepth = 0;
             setChatDropActive(false);
             if (event.dataTransfer?.files?.length) {
@@ -897,12 +1008,13 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         };
 
-        for (const target of targets) {
+        for (const target of dragTargets) {
             target.addEventListener('dragenter', onDragEnter);
             target.addEventListener('dragover', onDragOver);
             target.addEventListener('dragleave', onDragLeave);
-            target.addEventListener('drop', onDrop);
         }
+
+        dropTarget.addEventListener('drop', onDrop);
     }
 
     function serializeAttachmentsForSession(attachments) {
@@ -935,7 +1047,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Render input in diagnostic terminal logs and chat deck bubble
         const userDisplayText = trimmedText || '(attachment)';
         appendSystemConsoleLine(`[USER] &gt; ${userDisplayText}${outgoingAttachments.length ? ` [${outgoingAttachments.length} file${outgoingAttachments.length === 1 ? '' : 's'}]` : ''}`);
-        appendUserChatBubble(trimmedText, outgoingAttachments);
+        appendUserChatBubble(trimmedText, outgoingAttachments, state.activeWorkspacePath || null);
         saveMessageToSession('user', trimmedText, { attachments: serializeAttachmentsForSession(outgoingAttachments) });
 
         // Spawn thinking state animations
@@ -946,6 +1058,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         const bubbleNode = appendAssistantChatBubble('...');
         setAssistantBubbleToolPreview(bubbleNode, { name: '_thinking', label: 'Thinking…', status: 'thinking' });
         visualizer.setThinkingCaption('Thinking…');
+
+        const messageForAi = buildMessageWithWorkspaceContext(trimmedText);
 
         try {
             const activeSession = state.sessions.find(s => s.id === state.activeSessionId);
@@ -960,7 +1074,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             // Query cognitive engine
             const aiResponse = await ai.getResponse(
-                trimmedText,
+                messageForAi,
                 null,
                 history,
                 // Ignore checklist/memory overlay drawer triggers in minimalist screen, 
@@ -1873,6 +1987,246 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
 
+    function shortenWorkspacePath(fullPath) {
+        const home = (typeof window !== 'undefined' && window.location?.hostname === 'localhost')
+            ? fullPath.replace(/^\/Users\/[^/]+/, '~')
+            : fullPath;
+        if (home.length <= 42) return home;
+        return `…${home.slice(-39)}`;
+    }
+
+    function updateWorkspacePinBadge() {
+        const badge = elements.workspacePinBadge;
+        if (!badge) return;
+        const path = state.activeWorkspacePath;
+        if (!path) {
+            badge.hidden = true;
+            badge.textContent = '';
+            return;
+        }
+        badge.hidden = false;
+        badge.textContent = `WORKSPACE ${shortenWorkspacePath(path)}`;
+        badge.title = path;
+    }
+
+    function renderKanbanBoardSelect(boards, current) {
+        const select = elements.kanbanBoardSelect;
+        if (!select) return;
+        select.innerHTML = '';
+        for (const board of boards) {
+            const opt = document.createElement('option');
+            opt.value = board.slug;
+            const countLabel = board.total != null ? ` · ${board.total}` : '';
+            opt.textContent = `${board.name || board.slug}${countLabel}`;
+            select.appendChild(opt);
+        }
+        const active = current || state.activeKanbanBoard || 'default';
+        select.value = active;
+        state.activeKanbanBoard = active;
+    }
+
+    function renderWorkspaceList(items) {
+        const list = elements.workspaceList;
+        if (!list) return;
+        list.replaceChildren();
+
+        if (!items.length) {
+            const empty = document.createElement('div');
+            empty.className = 'workspace-empty-hint';
+            empty.textContent = 'No task workspaces on this board yet.';
+            list.appendChild(empty);
+            return;
+        }
+
+        const fragment = document.createDocumentFragment();
+        for (const item of items) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = `workspace-item${state.selectedWorkspacePath === item.path ? ' active' : ''}`;
+            btn.dataset.path = item.path;
+            btn.dataset.title = item.title || item.id;
+
+            const title = document.createElement('span');
+            title.className = 'workspace-item-title';
+            title.textContent = item.title || item.id;
+
+            const meta = document.createElement('span');
+            meta.className = 'workspace-item-meta';
+            meta.textContent = `${item.status || 'unknown'} · ${item.workspaceKind || item.kind || 'scratch'}`;
+
+            const pathEl = document.createElement('span');
+            pathEl.className = 'workspace-item-path';
+            pathEl.textContent = shortenWorkspacePath(item.path);
+
+            btn.appendChild(title);
+            btn.appendChild(meta);
+            btn.appendChild(pathEl);
+            btn.addEventListener('click', () => selectWorkspace(item));
+            fragment.appendChild(btn);
+        }
+        list.appendChild(fragment);
+    }
+
+    async function refreshKanbanWorkspaces() {
+        const hint = elements.kanbanBoardHint;
+        if (hint) hint.textContent = 'Loading Hermes Kanban workspaces…';
+
+        try {
+            const boardsResult = await ai.getKanbanBoards();
+            if (!boardsResult.available) {
+                if (hint) {
+                    hint.textContent = boardsResult.hint || boardsResult.error || 'Kanban not initialized. Run `hermes kanban init`.';
+                }
+                renderWorkspaceList([]);
+                if (elements.workspaceBrowseSection) elements.workspaceBrowseSection.hidden = true;
+                return;
+            }
+
+            state.kanbanBoards = boardsResult.boards || [];
+            const current = boardsResult.current || state.activeKanbanBoard || 'default';
+            state.activeKanbanBoard = current;
+            AetherUserData.setItem('aether_kanban_board', current);
+            renderKanbanBoardSelect(state.kanbanBoards, current);
+
+            const wsResult = await ai.getKanbanWorkspaces(current);
+            state.kanbanWorkspaces = wsResult.items || [];
+            renderWorkspaceList(state.kanbanWorkspaces);
+
+            const defaultWd = elements.kanbanDefaultWorkdir;
+            if (defaultWd) {
+                if (wsResult.defaultWorkdir) {
+                    defaultWd.hidden = false;
+                    defaultWd.textContent = `Default workdir: ${wsResult.defaultWorkdir}`;
+                } else {
+                    defaultWd.hidden = true;
+                    defaultWd.textContent = '';
+                }
+            }
+
+            if (hint) {
+                hint.textContent = `${state.kanbanWorkspaces.length} workspace${state.kanbanWorkspaces.length === 1 ? '' : 's'} on board "${current}".`;
+            }
+        } catch (err) {
+            if (hint) hint.textContent = err.message || 'Failed to load workspaces.';
+            appendSystemConsoleLine(`[WORKSPACE] ${err.message || 'Load failed'}`);
+        }
+    }
+
+    async function handleKanbanBoardSwitch() {
+        const slug = elements.kanbanBoardSelect?.value;
+        if (!slug || slug === state.activeKanbanBoard) return;
+        try {
+            await ai.switchKanbanBoard(slug);
+            state.activeKanbanBoard = slug;
+            AetherUserData.setItem('aether_kanban_board', slug);
+            state.selectedWorkspacePath = '';
+            state.selectedWorkspaceTitle = '';
+            if (elements.workspaceBrowseSection) elements.workspaceBrowseSection.hidden = true;
+            await refreshKanbanWorkspaces();
+            appendSystemConsoleLine(`[WORKSPACE] Switched Kanban board to "${slug}".`);
+        } catch (err) {
+            showToast('Board switch failed', err.message || 'Could not switch board.', { variant: 'error' });
+            if (elements.kanbanBoardSelect) elements.kanbanBoardSelect.value = state.activeKanbanBoard;
+        }
+    }
+
+    async function selectWorkspace(item) {
+        if (!item?.path) return;
+        state.selectedWorkspacePath = item.path;
+        state.selectedWorkspaceTitle = item.title || item.id;
+        renderWorkspaceList(state.kanbanWorkspaces);
+        await browseWorkspaceAt(item.path);
+    }
+
+    async function browseWorkspaceAt(pathValue, board) {
+        const boardSlug = board || state.activeKanbanBoard || 'default';
+        try {
+            const result = await ai.browseKanbanPath(pathValue, boardSlug);
+            state.workspaceBrowsePath = result.path || pathValue;
+            state.workspaceBrowseEntries = result.entries || [];
+            renderWorkspaceFileList();
+            if (elements.workspaceBrowseSection) elements.workspaceBrowseSection.hidden = false;
+            if (elements.workspaceBrowseTitle) {
+                elements.workspaceBrowseTitle.textContent = `Contents · ${state.selectedWorkspaceTitle || 'workspace'}`;
+            }
+            if (elements.workspaceBrowsePath) {
+                elements.workspaceBrowsePath.textContent = state.workspaceBrowsePath;
+            }
+        } catch (err) {
+            showToast('Browse failed', err.message || 'Could not read workspace.', { variant: 'error' });
+        }
+    }
+
+    function renderWorkspaceFileList() {
+        const list = elements.workspaceFileList;
+        if (!list) return;
+        list.replaceChildren();
+
+        if (!state.workspaceBrowseEntries.length) {
+            const empty = document.createElement('div');
+            empty.className = 'workspace-empty-hint';
+            empty.textContent = 'This folder is empty.';
+            list.appendChild(empty);
+            return;
+        }
+
+        const fragment = document.createDocumentFragment();
+        for (const entry of state.workspaceBrowseEntries) {
+            const row = document.createElement('button');
+            row.type = 'button';
+            row.className = `workspace-file-row${entry.type === 'directory' ? ' is-dir' : ''}`;
+
+            const icon = document.createElement('span');
+            icon.innerHTML = entry.type === 'directory'
+                ? '<i data-lucide="folder"></i>'
+                : '<i data-lucide="file"></i>';
+
+            const label = document.createElement('span');
+            label.textContent = entry.name;
+
+            row.appendChild(icon);
+            row.appendChild(label);
+
+            if (entry.type === 'directory') {
+                row.addEventListener('click', () => {
+                    const next = `${state.workspaceBrowsePath.replace(/\/$/, '')}/${entry.name}`;
+                    browseWorkspaceAt(next);
+                });
+            }
+
+            fragment.appendChild(row);
+        }
+        list.appendChild(fragment);
+        refreshBubbleIcons(list);
+    }
+
+    async function revealSelectedWorkspace() {
+        const pathValue = state.workspaceBrowsePath || state.selectedWorkspacePath;
+        if (!pathValue) return;
+        try {
+            await ai.revealKanbanPath(pathValue, state.activeKanbanBoard);
+        } catch (err) {
+            showToast('Reveal failed', err.message || 'Could not open folder.', { variant: 'error' });
+        }
+    }
+
+    function pinSelectedWorkspace() {
+        const pathValue = state.selectedWorkspacePath || state.workspaceBrowsePath;
+        if (!pathValue) return;
+        state.activeWorkspacePath = pathValue;
+        AetherUserData.setItem('aether_active_workspace_path', pathValue);
+        updateWorkspacePinBadge();
+        showToast('Workspace pinned', shortenWorkspacePath(pathValue), { durationMs: 2200 });
+        appendSystemConsoleLine(`[WORKSPACE] Pinned ${pathValue}`);
+    }
+
+    function buildMessageWithWorkspaceContext(text) {
+        const trimmed = String(text || '').trim();
+        if (!state.activeWorkspacePath) return trimmed;
+        if (!trimmed) return `[Workspace: ${state.activeWorkspacePath}]`;
+        return `[Workspace: ${state.activeWorkspacePath}]\n${trimmed}`;
+    }
+
     async function refreshHermesChats() {
         if (!state.hermesStatus?.enabled || !state.hermesStatus?.connected) {
             appendSystemConsoleLine(`[AGENT] Cannot refresh chats — Hermes bridge is offline.`);
@@ -2500,12 +2854,20 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
 
-    function appendUserChatBubble(text, attachments = []) {
+    function appendUserChatBubble(text, attachments = [], workspacePath = null) {
         const div = document.createElement('div');
         div.className = 'chat-bubble user-bubble';
 
         const content = document.createElement('div');
         content.className = 'bubble-content';
+
+        if (workspacePath) {
+            const wsChip = document.createElement('div');
+            wsChip.className = 'bubble-workspace-chip';
+            wsChip.textContent = shortenWorkspacePath(workspacePath);
+            wsChip.title = workspacePath;
+            content.appendChild(wsChip);
+        }
 
         if (attachments.length) {
             const attachmentRow = document.createElement('div');

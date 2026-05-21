@@ -578,6 +578,16 @@ const {
 } = require('./aether-config.js');
 
 const {
+  KANBAN_INIT_HINT,
+  listBoards,
+  switchBoard,
+  listWorkspaces,
+  browseWorkspacePath,
+  revealWorkspacePath,
+  listBoardsViaCli,
+} = require('./lib/hermes-kanban.js');
+
+const {
   isElevenLabsConfigured,
   fetchElevenLabsVoices,
   synthesizeElevenLabsSpeech,
@@ -1349,6 +1359,35 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  const kanbanSwitchMatch = pathname.match(/^\/api\/hermes\/kanban\/boards\/([^/]+)\/switch$/);
+  if (req.method === 'POST' && kanbanSwitchMatch) {
+    const slug = decodeURIComponent(kanbanSwitchMatch[1]);
+    try {
+      const result = switchBoard(slug);
+      sendJson(res, 200, { available: true, ...result });
+    } catch (e) {
+      const status = e.statusCode || 400;
+      console.error('[api/hermes/kanban/boards/switch]', e.message || e);
+      sendJson(res, status, { available: false, error: e.message || 'Board switch failed' });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/api/hermes/kanban/reveal') {
+    try {
+      const body = await readBody(req);
+      const revealPath = body?.path || '';
+      const board = body?.board || '';
+      const result = revealWorkspacePath(revealPath, board || undefined);
+      sendJson(res, 200, { available: true, ...result });
+    } catch (e) {
+      const status = e.statusCode || 502;
+      console.error('[api/hermes/kanban/reveal]', e.message || e);
+      sendJson(res, status, { available: false, error: e.message || 'Reveal failed' });
+    }
+    return;
+  }
+
   if (req.method === 'POST' && pathname === '/api/chat') {
     try {
       const body = await readBody(req);
@@ -1509,6 +1548,48 @@ const server = http.createServer(async (req, res) => {
         const status = e.statusCode || 502;
         console.error('[api/hermes/sessions]', e.message || e);
         sendJson(res, status, { available: false, items: [], error: e.message || 'Hermes sessions unavailable', source: 'hermes-state-db' });
+      }
+      return;
+    }
+
+    if (pathname === '/api/hermes/kanban/boards') {
+      try {
+        let result = listBoards();
+        if (!result.available) {
+          const cliFallback = listBoardsViaCli();
+          if (cliFallback) result = cliFallback;
+        }
+        sendJson(res, result.available ? 200 : 503, result);
+      } catch (e) {
+        console.error('[api/hermes/kanban/boards]', e.message || e);
+        sendJson(res, 502, { available: false, boards: [], error: e.message, hint: KANBAN_INIT_HINT });
+      }
+      return;
+    }
+
+    if (pathname === '/api/hermes/kanban/workspaces') {
+      const board = u.searchParams.get('board') || '';
+      try {
+        const result = listWorkspaces(board || undefined);
+        sendJson(res, result.available ? 200 : 503, result);
+      } catch (e) {
+        console.error('[api/hermes/kanban/workspaces]', e.message || e);
+        sendJson(res, 502, { available: false, items: [], error: e.message, hint: KANBAN_INIT_HINT });
+      }
+      return;
+    }
+
+    const kanbanBrowseMatch = pathname === '/api/hermes/kanban/browse';
+    if (kanbanBrowseMatch) {
+      const browsePath = u.searchParams.get('path') || '';
+      const board = u.searchParams.get('board') || '';
+      try {
+        const result = browseWorkspacePath(browsePath, board || undefined);
+        sendJson(res, 200, { available: true, ...result });
+      } catch (e) {
+        const status = e.statusCode || 502;
+        console.error('[api/hermes/kanban/browse]', e.message || e);
+        sendJson(res, status, { available: false, error: e.message || 'Browse failed' });
       }
       return;
     }

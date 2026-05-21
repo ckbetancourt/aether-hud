@@ -303,6 +303,72 @@ class AIEngine {
         return data;
     }
 
+    async getKanbanBoards() {
+        const baseUrl = this.resolveLlmBackendBaseUrl();
+        if (!baseUrl) return { available: false, boards: [] };
+        const response = await fetch(`${baseUrl}/api/hermes/kanban/boards`);
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok && !data.boards) {
+            throw new Error(data.error || data.message || `HTTP ${response.status}`);
+        }
+        return data;
+    }
+
+    async switchKanbanBoard(slug) {
+        const baseUrl = this.resolveLlmBackendBaseUrl();
+        if (!baseUrl) throw new Error('No local backend URL configured.');
+        const encoded = encodeURIComponent(String(slug));
+        const response = await fetch(`${baseUrl}/api/hermes/kanban/boards/${encoded}/switch`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.ok) {
+            throw new Error(data.error || data.message || `HTTP ${response.status}`);
+        }
+        return data;
+    }
+
+    async getKanbanWorkspaces(board) {
+        const baseUrl = this.resolveLlmBackendBaseUrl();
+        if (!baseUrl) return { available: false, items: [] };
+        const params = board ? `?board=${encodeURIComponent(String(board))}` : '';
+        const response = await fetch(`${baseUrl}/api/hermes/kanban/workspaces${params}`);
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok && !data.items) {
+            throw new Error(data.error || data.message || `HTTP ${response.status}`);
+        }
+        return data;
+    }
+
+    async browseKanbanPath(pathValue, board) {
+        const baseUrl = this.resolveLlmBackendBaseUrl();
+        if (!baseUrl || !pathValue) return { available: false, entries: [] };
+        const params = new URLSearchParams({ path: String(pathValue) });
+        if (board) params.set('board', String(board));
+        const response = await fetch(`${baseUrl}/api/hermes/kanban/browse?${params}`);
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(data.error || data.message || `HTTP ${response.status}`);
+        }
+        return data;
+    }
+
+    async revealKanbanPath(pathValue, board) {
+        const baseUrl = this.resolveLlmBackendBaseUrl();
+        if (!baseUrl || !pathValue) throw new Error('Path is required.');
+        const response = await fetch(`${baseUrl}/api/hermes/kanban/reveal`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: pathValue, board: board || null }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.ok) {
+            throw new Error(data.error || data.message || `HTTP ${response.status}`);
+        }
+        return data;
+    }
+
     async getHermesModelOptions() {
         const baseUrl = this.resolveLlmBackendBaseUrl();
         if (!baseUrl) {

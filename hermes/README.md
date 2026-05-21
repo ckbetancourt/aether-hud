@@ -117,3 +117,42 @@ Then in `hermes` chat: `/aether`
 Hermes profiles are separate agent instances. Each profile’s gateway can use its own port and API key. The HUD profile dropdown only applies if you point Aether at that profile’s API URL (or set `HERMES_PROFILE` when your build supports it). Listing profiles via HTTP is optional and often not configured.
 
 Docs: [Hermes API Server](https://hermes-agent.nousresearch.com/docs/user-guide/features/api-server)
+
+## Workspaces in Aether
+
+Hermes **Kanban** uses *workspaces* — isolated directories where task workers read and write files (`scratch`, `dir:/path`, or `worktree`). Boards group unrelated workstreams (one Kanban DB + `workspaces/` tree per board).
+
+Aether reads Kanban state directly from `~/.hermes` (no Hermes dashboard token required):
+
+| HUD control | What it does |
+|-------------|--------------|
+| **Workspaces** button (folder icon, bottom pill) | Opens the Workspaces drawer |
+| **Board dropdown** | Lists boards and switches the active board (`~/.hermes/kanban/current`) |
+| **Task workspace list** | Shows each task’s resolved `workspace_path` plus the board default workdir |
+| **File browser** | Click a workspace to list files; click folders to drill in |
+| **Pin workspace** | Shows a badge in chat and prepends `[Workspace: /path]` to outbound messages (context-only in v1 — does not change Hermes `terminal.cwd`) |
+| **Open in Finder** | Reveals the folder in the OS file manager |
+
+**Prerequisites**
+
+```bash
+hermes kanban init          # once, creates ~/.hermes/kanban.db
+hermes kanban boards list   # verify boards exist
+npm start
+```
+
+**API routes** (served by Aether on port 8787):
+
+- `GET /api/hermes/kanban/boards`
+- `POST /api/hermes/kanban/boards/:slug/switch`
+- `GET /api/hermes/kanban/workspaces?board=`
+- `GET /api/hermes/kanban/browse?path=&board=`
+- `POST /api/hermes/kanban/reveal` — open folder in Finder/Explorer
+
+**Smoke test** (server must be running):
+
+```bash
+npm run test:kanban-workspaces
+```
+
+Docs: [Hermes Kanban](https://hermes-agent.nousresearch.com/docs/user-guide/features/kanban)
