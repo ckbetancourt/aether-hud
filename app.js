@@ -564,6 +564,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Create placeholders in both logs
         const consoleLogNode = appendSystemConsoleLine(`[AETHER] ...`);
         const bubbleNode = appendAssistantChatBubble('...');
+        setAssistantBubbleToolPreview(bubbleNode, { name: '_thinking', label: 'Thinking…', status: 'thinking' });
+        visualizer.setThinkingCaption('Thinking…');
 
         try {
             const activeSession = state.sessions.find(s => s.id === state.activeSessionId);
@@ -592,10 +594,17 @@ document.addEventListener('DOMContentLoaded', async () => {
                 {
                     sessionId: activeSession?.id,
                     hermesProfile: activeSession?.hermesProfile || state.activeHermesProfile,
-                    onToolProgress: (toolName) => {
-                        setAssistantBubbleToolPreview(bubbleNode, toolName);
-                        visualizer.setThinkingCaption(`Running ${toolName}…`);
-                        visualizer.triggerThinkingToolBurst(toolName);
+                    onToolProgress: (toolInfo) => {
+                        setAssistantBubbleToolPreview(bubbleNode, toolInfo);
+                        const label = typeof toolInfo === 'object' && toolInfo?.label
+                            ? toolInfo.label
+                            : String(toolInfo?.name || toolInfo || '');
+                        if (toolInfo?.status === 'thinking') {
+                            visualizer.setThinkingCaption(`${label}…`);
+                        } else {
+                            visualizer.setThinkingCaption(`Running ${label}…`);
+                            visualizer.triggerThinkingToolBurst(toolInfo?.name || toolInfo);
+                        }
                     },
                 }
             );
@@ -2126,8 +2135,30 @@ document.addEventListener('DOMContentLoaded', async () => {
         return div;
     }
 
-    function setAssistantBubbleToolPreview(bubbleNode, toolName) {
-        if (!bubbleNode || !toolName) return;
+    function formatToolPreviewLabel(toolInfo) {
+        const info = typeof toolInfo === 'string'
+            ? { name: toolInfo, label: toolInfo, status: 'running' }
+            : (toolInfo || {});
+        const name = String(info.name || '').trim();
+        if (!name) return null;
+
+        const rawLabel = String(info.label || name).trim();
+        const isThinking = info.status === 'thinking' || name === '_thinking';
+        const detail = (!isThinking && rawLabel && rawLabel !== '*' && rawLabel !== name)
+            ? rawLabel
+            : (isThinking ? 'Thinking…' : name);
+
+        return {
+            prefix: isThinking ? '' : 'Calling',
+            emoji: info.emoji ? String(info.emoji) : '',
+            detail,
+            isThinking,
+        };
+    }
+
+    function setAssistantBubbleToolPreview(bubbleNode, toolInfo) {
+        const formatted = formatToolPreviewLabel(toolInfo);
+        if (!bubbleNode || !formatted) return;
         bubbleNode.classList.add('assistant-bubble-tool-active');
 
         const content = ensureAssistantBubbleStructure(bubbleNode);
@@ -2135,19 +2166,28 @@ document.addEventListener('DOMContentLoaded', async () => {
         content.replaceChildren();
 
         const preview = document.createElement('div');
-        preview.className = 'chat-tool-preview';
+        preview.className = `chat-tool-preview${formatted.isThinking ? ' chat-tool-preview-thinking' : ''}`;
         preview.setAttribute('aria-live', 'polite');
 
-        const label = document.createElement('span');
-        label.className = 'chat-tool-preview-label';
-        label.textContent = 'Calling';
+        if (formatted.prefix) {
+            const prefix = document.createElement('span');
+            prefix.className = 'chat-tool-preview-label';
+            prefix.textContent = formatted.prefix;
+            preview.appendChild(prefix);
+        }
 
-        const name = document.createElement('code');
-        name.className = 'chat-tool-preview-name';
-        name.textContent = String(toolName);
+        if (formatted.emoji) {
+            const emoji = document.createElement('span');
+            emoji.className = 'chat-tool-preview-emoji';
+            emoji.textContent = formatted.emoji;
+            preview.appendChild(emoji);
+        }
 
-        preview.appendChild(label);
-        preview.appendChild(name);
+        const detail = document.createElement(formatted.isThinking ? 'span' : 'code');
+        detail.className = formatted.isThinking ? 'chat-tool-preview-thinking-text' : 'chat-tool-preview-name';
+        detail.textContent = formatted.detail;
+
+        preview.appendChild(detail);
         content.appendChild(preview);
         elements.deckChatScroller.scrollTop = elements.deckChatScroller.scrollHeight;
     }

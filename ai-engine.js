@@ -175,7 +175,7 @@ class AIEngine {
             }
 
             if (eventName === 'tool' && parsed?.name) {
-                onToolProgress(parsed.name);
+                onToolProgress(parsed);
             } else if (eventName === 'done') {
                 finalResult = parsed;
             } else if (eventName === 'error') {

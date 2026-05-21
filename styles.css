@@ -3510,6 +3510,22 @@ body {
     min-height: 1.2em;
 }
 
+.chat-tool-preview-thinking {
+    gap: 0;
+}
+
+.chat-tool-preview-emoji {
+    font-size: 0.9rem;
+    line-height: 1;
+    flex-shrink: 0;
+}
+
+.chat-tool-preview-thinking-text {
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    font-style: italic;
+}
+
 .chat-tool-preview-label {
     font-size: 0.72rem;
     letter-spacing: 0.04em;

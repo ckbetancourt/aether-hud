@@ -665,8 +665,10 @@ function parseUpstreamError(status, text) {
 
 /**
  * Parse an SSE (Server-Sent Events) stream into accumulated text + final raw object.
- * Hermes streams OpenAI-compatible chunks:
+ * Hermes streams OpenAI-compatible chunks plus custom lifecycle events:
  *   data: {"choices":[{"delta":{"content":"Hello"}}]}
+ *   event: hermes.tool.progress
+ *   data: {"tool":"search_files","label":"…","status":"running",...}
  *   data: [DONE]
  */
 async function parseSseStream(res, signal, onStreamProgress) {
@@ -677,59 +679,95 @@ async function parseSseStream(res, signal, onStreamProgress) {
   let finalRaw = null;
   let latestToolIndex = -1;
 
+  const dispatchSseBlock = (block) => {
+    const trimmed = block.trim();
+    if (!trimmed || trimmed.startsWith(':')) return;
+
+    const lines = block.split('\n');
+    let eventName = 'message';
+    let dataLine = '';
+    for (const line of lines) {
+      if (line.startsWith('event:')) {
+        eventName = line.slice(6).trim();
+      } else if (line.startsWith('data:')) {
+        dataLine += line.slice(5).trim();
+      }
+    }
+    if (!dataLine || dataLine === '[DONE]') return;
+
+    if (eventName === 'hermes.tool.progress') {
+      try {
+        const parsed = JSON.parse(dataLine);
+        if (parsed.status === 'running' && parsed.tool && onStreamProgress) {
+          onStreamProgress({
+            name: parsed.tool,
+            label: parsed.label || parsed.tool,
+            emoji: parsed.emoji || '',
+            status: 'running',
+            toolCallId: parsed.toolCallId || null,
+          });
+        }
+      } catch {
+        /* skip malformed Hermes events */
+      }
+      return;
+    }
+
+    try {
+      const chunk = JSON.parse(dataLine);
+      finalRaw = chunk;
+      const delta = chunk.choices?.[0]?.delta;
+      if (delta?.content) {
+        content += delta.content;
+      }
+      if (delta?.tool_calls) {
+        if (!finalRaw.tool_calls) finalRaw.tool_calls = [];
+        for (const tc of delta.tool_calls) {
+          const idx = tc.index ?? finalRaw.tool_calls.length;
+          if (!finalRaw.tool_calls[idx]) {
+            finalRaw.tool_calls[idx] = { id: tc.id || '', type: 'function', function: { name: '', arguments: '' } };
+          }
+          if (tc.id) finalRaw.tool_calls[idx].id = tc.id;
+          if (tc.function?.name) {
+            finalRaw.tool_calls[idx].function.name += tc.function.name;
+            latestToolIndex = idx;
+            if (onStreamProgress) {
+              onStreamProgress({
+                name: finalRaw.tool_calls[idx].function.name,
+                label: finalRaw.tool_calls[idx].function.name,
+                status: 'running',
+                index: idx,
+              });
+            }
+          }
+          if (tc.function?.arguments) finalRaw.tool_calls[idx].function.arguments += tc.function.arguments;
+        }
+      }
+    } catch {
+      /* skip malformed chunks */
+    }
+  };
+
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
 
-    const lines = buffer.split('\n');
-    buffer = lines.pop() || '';
-
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed || !trimmed.startsWith('data:')) continue;
-      const jsonStr = trimmed.slice(5).trim();
-
-      if (jsonStr === '[DONE]') continue;
-
-      try {
-        const chunk = JSON.parse(jsonStr);
-        finalRaw = chunk; // keep last chunk as raw
-        const delta = chunk.choices?.[0]?.delta;
-        if (delta?.content) {
-          content += delta.content;
-        }
-        if (delta?.tool_calls) {
-          // accumulate tool_calls across stream chunks
-          if (!finalRaw.tool_calls) finalRaw.tool_calls = [];
-          for (const tc of delta.tool_calls) {
-            const idx = tc.index ?? finalRaw.tool_calls.length;
-            if (!finalRaw.tool_calls[idx]) {
-              finalRaw.tool_calls[idx] = { id: tc.id || '', type: 'function', function: { name: '', arguments: '' } };
-            }
-            if (tc.id) finalRaw.tool_calls[idx].id = tc.id;
-            if (tc.function?.name) {
-              finalRaw.tool_calls[idx].function.name += tc.function.name;
-              latestToolIndex = idx;
-              if (onStreamProgress) {
-                onStreamProgress({
-                  name: finalRaw.tool_calls[idx].function.name,
-                  index: idx,
-                });
-              }
-            }
-            if (tc.function?.arguments) finalRaw.tool_calls[idx].function.arguments += tc.function.arguments;
-          }
-        }
-      } catch {
-        // skip malformed chunks
-      }
+    let splitAt;
+    while ((splitAt = buffer.indexOf('\n\n')) !== -1) {
+      const block = buffer.slice(0, splitAt);
+      buffer = buffer.slice(splitAt + 2);
+      dispatchSseBlock(block);
     }
   }
+
+  if (buffer.trim()) dispatchSseBlock(buffer);
 
   if (onStreamProgress && latestToolIndex >= 0 && finalRaw?.tool_calls?.[latestToolIndex]?.function?.name) {
     onStreamProgress({
       name: finalRaw.tool_calls[latestToolIndex].function.name,
+      label: finalRaw.tool_calls[latestToolIndex].function.name,
+      status: 'running',
       index: latestToolIndex,
       final: true,
     });
@@ -885,10 +923,26 @@ async function handleHermesChat(body, emitProgress) {
   let result;
   const extraHeaders = hermesHeaders(body);
 
-  const reportTool = (name) => {
-    if (!emitProgress || !name) return;
-    emitProgress('tool', { name: String(name) });
+  const reportTool = (info) => {
+    if (!emitProgress) return;
+    if (typeof info === 'string') {
+      if (!info) return;
+      emitProgress('tool', { name: info, label: info, status: 'running' });
+      return;
+    }
+    const name = info?.name || info?.tool;
+    if (!name) return;
+    emitProgress('tool', {
+      name: String(name),
+      label: String(info?.label || name),
+      emoji: info?.emoji ? String(info.emoji) : '',
+      status: info?.status || 'running',
+    });
   };
+
+  if (emitProgress) {
+    reportTool({ name: '_thinking', label: 'Thinking…', status: 'thinking' });
+  }
 
   try {
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
