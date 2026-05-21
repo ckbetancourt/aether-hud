@@ -175,7 +175,7 @@ class JarvisHUD {
                     break;
                 case 'idle':
                 default:
-                    statusLabel.textContent = "Aether Active";
+                    statusLabel.textContent = "AETHER ACTIVE";
                     statusLabel.style.color = 'var(--text-muted)';
                     break;
             }

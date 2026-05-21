@@ -61,7 +61,7 @@
         <section class="hud-core-visualizer">
             <div class="orb-container">
                 <canvas id="jarvisCanvas"></canvas>
-                <div class="hud-orb-label" id="hudOrbLabel">Aether is active</div>
+                <div class="hud-orb-label" id="hudOrbLabel">AETHER ACTIVE</div>
             </div>
         </section>
 
@@ -79,11 +79,15 @@
             <button class="hud-circle-btn mic-btn" id="voiceRecognitionBtn" title="Activate voice telemetry mode">
                 <i data-lucide="mic" style="width: 18px; height: 18px;"></i>
             </button>
+
+            <span class="hud-pill-divider" aria-hidden="true"></span>
             
             <!-- Sleek Disconnect Button -->
             <button class="hud-disconnect-btn" id="disconnectBtn" title="Clear current session logs">
                 Disconnect
             </button>
+
+            <span class="hud-pill-divider" aria-hidden="true"></span>
             
             <!-- Speech TTS Sound Mute -->
             <button class="hud-circle-btn active" id="speechSynthesisToggle" title="Toggle vocal synthesized replies">
@@ -104,32 +108,38 @@
     </div>
 
     <!-- RIGHT CHAT COLUMN (layout column; collapses in-place, not overlay) -->
-    <aside class="chat-column" id="chatColumn" aria-label="Chat">
+    <aside class="chat-column glass-panel" id="chatColumn" aria-label="Chat">
         <div class="chat-column-header">
             <span class="chat-column-title">
-                <i data-lucide="message-square" style="width:14px; height:14px; vertical-align:middle; margin-right:6px;"></i>
+                <i data-lucide="message-square" style="width:14px; height:14px;"></i>
                 DIRECT CHANNEL
             </span>
-            <button class="settings-gear-btn chat-column-close" id="closeChatDeckBtn" title="Collapse chat panel" type="button">
-                <i data-lucide="panel-right-close" style="width:16px; height:16px;"></i>
-            </button>
+            <div class="chat-column-header-actions">
+                <button class="settings-gear-btn" id="chatSplitViewBtn" title="Split view" type="button">
+                    <i data-lucide="columns-2" style="width:16px; height:16px;"></i>
+                </button>
+                <button class="settings-gear-btn composer-refresh-btn" id="composerRefreshBtn" type="button" title="Refresh chats from Hermes">
+                    <i data-lucide="refresh-cw" style="width:14px; height:14px;"></i>
+                </button>
+                <button class="settings-gear-btn chat-column-close" id="closeChatDeckBtn" title="Collapse chat panel" type="button">
+                    <i data-lucide="panel-right-close" style="width:16px; height:16px;"></i>
+                </button>
+            </div>
         </div>
         <div class="chat-messages" id="deckChatScroller">
             <!-- Populated dynamically with conversational bubbles -->
         </div>
         <div class="chat-composer">
-            <textarea class="chat-composer-input" id="deckChatInputField" rows="3" placeholder="Message Aether…"></textarea>
-            <div class="chat-composer-footer">
-                <span class="chat-composer-hint">Enter to send · Shift+Enter for newline</span>
-                <div class="chat-composer-actions">
-                    <button class="composer-refresh-btn" id="composerRefreshBtn" type="button" title="Refresh chats from Hermes">
-                        <i data-lucide="refresh-cw" style="width:12px; height:12px;"></i>
-                    </button>
-                    <button class="deck-send-btn" id="deckSendMessageBtn" type="button" title="Send message">
-                        <i data-lucide="arrow-up" style="width:14px; height:14px;"></i>
-                    </button>
-                </div>
+            <div class="chat-composer-row">
+                <textarea class="chat-composer-input" id="deckChatInputField" rows="1" placeholder="Message Aether…"></textarea>
+                <button class="composer-attach-btn" id="composerAttachBtn" type="button" title="Attach file">
+                    <i data-lucide="paperclip" style="width:16px; height:16px;"></i>
+                </button>
+                <button class="deck-send-btn" id="deckSendMessageBtn" type="button" title="Send message">
+                    <i data-lucide="arrow-up" style="width:14px; height:14px;"></i>
+                </button>
             </div>
+            <span class="chat-composer-hint">Enter to send · Shift+Enter for newline</span>
         </div>
     </aside>
 
@@ -189,106 +199,132 @@
          SETTING MODAL OVERLAY
          ========================================== -->
     <div class="modal-overlay" id="settingsModal">
-        <div class="modal-content glass-panel" style="background: var(--bg-surface-solid); border: 1px solid var(--border-glow);">
+        <div class="modal-content glass-panel" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle">
             <div class="modal-title-bar">
-                <h2>Aether Systems Configs</h2>
-                <button class="modal-close" id="closeSettingsBtn">&times;</button>
+                <div>
+                    <span class="modal-kicker">Aether HUD</span>
+                    <h2 id="settingsModalTitle">Systems Configs</h2>
+                </div>
+                <button class="modal-close" id="closeSettingsBtn" type="button" aria-label="Close settings">&times;</button>
+            </div>
+
+            <div class="settings-tabs" role="tablist" aria-label="Settings sections">
+                <button class="settings-tab active" type="button" role="tab" id="settingsTabAppearance" aria-selected="true" aria-controls="settingsPanelAppearance" data-settings-tab="appearance">Appearance</button>
+                <button class="settings-tab" type="button" role="tab" id="settingsTabSpeech" aria-selected="false" aria-controls="settingsPanelSpeech" data-settings-tab="speech">Speech</button>
+                <button class="settings-tab" type="button" role="tab" id="settingsTabRuntime" aria-selected="false" aria-controls="settingsPanelRuntime" data-settings-tab="runtime">Runtime</button>
+                <button class="settings-tab" type="button" role="tab" id="settingsTabResponse" aria-selected="false" aria-controls="settingsPanelResponse" data-settings-tab="response">Response</button>
             </div>
             
             <div class="modal-body">
-                <div class="form-group">
-                    <label>Appearance</label>
-                    <div class="color-mode-row" id="colorModeRow" role="group" aria-label="Appearance mode"></div>
-                    <div style="font-size: 0.68rem; color: var(--text-dim); margin-top: 2px;">
-                        GUI surfaces and readability. HUD accent swatches control orb and highlight colors.
+                <section class="settings-panel active" id="settingsPanelAppearance" role="tabpanel" aria-labelledby="settingsTabAppearance" data-settings-panel="appearance">
+                    <div class="settings-panel-heading">
+                        <h3>Appearance</h3>
+                        <p>Control HUD contrast, surface tone, and readability.</p>
                     </div>
-                </div>
+                    <div class="form-group">
+                        <label>Color mode</label>
+                        <div class="color-mode-row" id="colorModeRow" role="group" aria-label="Appearance mode"></div>
+                        <div class="form-hint">HUD accent swatches in the chat drawer control orb and highlight colors.</div>
+                    </div>
+                </section>
 
-                <div class="form-group">
-                    <label for="ttsProvider">Speech engine</label>
-                    <select class="form-select" id="ttsProvider">
-                        <option value="browser">Browser (built-in)</option>
-                        <option value="elevenlabs">ElevenLabs</option>
-                        <option value="omnivoice">OmniVoice (local)</option>
-                    </select>
-                </div>
+                <section class="settings-panel" id="settingsPanelSpeech" role="tabpanel" aria-labelledby="settingsTabSpeech" data-settings-panel="speech" hidden>
+                    <div class="settings-panel-heading">
+                        <h3>Speech</h3>
+                        <p>Choose voice output, preview voices, and tune replay behavior.</p>
+                    </div>
+                    <div class="form-group">
+                        <label for="ttsProvider">Speech engine</label>
+                        <select class="form-select" id="ttsProvider">
+                            <option value="browser">Browser (built-in)</option>
+                            <option value="elevenlabs">ElevenLabs</option>
+                            <option value="omnivoice">OmniVoice (local)</option>
+                        </select>
+                    </div>
 
-                <div class="form-group" id="omnivoiceInstructGroup" hidden>
-                    <label for="omnivoiceInstruct">Voice design instruct</label>
-                    <input type="text" class="form-select" id="omnivoiceInstruct"
-                        placeholder="female, low pitch, british accent"
-                        autocomplete="off" />
-                    <div style="font-size: 0.68rem; color: var(--text-dim); margin-top: 2px;">
-                        Used when no clone sample is selected. Ignored when a sample is chosen.
+                    <div class="form-group" id="omnivoiceInstructGroup" hidden>
+                        <label for="omnivoiceInstruct">Voice design instruct</label>
+                        <input type="text" class="form-select" id="omnivoiceInstruct"
+                            placeholder="female, low pitch, british accent"
+                            autocomplete="off" />
+                        <div class="form-hint">Used when no clone sample is selected. Ignored when a sample is chosen.</div>
                     </div>
-                </div>
 
-                <div class="form-group">
-                    <label for="synthVoice">Speech voice</label>
-                    <div class="voice-select-row">
-                        <select class="form-select" id="synthVoice"></select>
-                        <button type="button" class="voice-preview-btn" id="voicePreviewBtn" title="Play voice sample">
-                            <i data-lucide="volume-2" style="width:16px; height:16px;"></i>
-                        </button>
+                    <div class="form-group">
+                        <label for="synthVoice">Speech voice</label>
+                        <div class="voice-select-row">
+                            <select class="form-select" id="synthVoice"></select>
+                            <button type="button" class="voice-preview-btn" id="voicePreviewBtn" title="Play voice sample">
+                                <i data-lucide="volume-2" style="width:16px; height:16px;"></i>
+                            </button>
+                        </div>
+                        <div class="form-hint" id="ttsProviderHint">Uses your browser&apos;s built-in speech synthesis (no model download).</div>
                     </div>
-                    <div id="ttsProviderHint" style="font-size: 0.68rem; color: var(--text-dim); margin-top: 2px;">
-                        Uses your browser&apos;s built-in speech synthesis (no model download).
-                    </div>
-                </div>
 
-                <div class="form-group">
-                    <label for="voiceInputBehavior">Microphone Voice Behavior</label>
-                    <select class="form-select" id="voiceInputBehavior">
-                        <option value="auto">Auto-detect (Fill Chat when open, Send when closed)</option>
-                        <option value="chat">Always insert into Chat Input</option>
-                        <option value="llm">Always send directly to LLM</option>
-                    </select>
-                    <div style="font-size: 0.68rem; color: var(--text-dim); margin-top: 2px;">
-                        Control whether spoken audio immediately queries Aether or populates the composer for review.
-                    </div>
-                </div>
+                    <div class="settings-grid-compact">
+                        <div class="form-group">
+                            <label for="synthSpeed">Telemetry vocal speed</label>
+                            <div class="range-control">
+                                <input type="range" id="synthSpeed" min="0.5" max="2" step="0.1" value="1.0">
+                                <span id="synthSpeedVal">1.0x</span>
+                            </div>
+                        </div>
 
-                <div class="form-group">
-                    <label for="hermesProfileSelect">Hermes Runtime Profile</label>
-                    <select class="form-select" id="hermesProfileSelect">
-                        <option value="">Hermes default profile</option>
-                    </select>
-                    <div id="hermesStatusText" style="font-size: 0.68rem; color: var(--text-dim); margin-top: 2px;">
-                        Hermes mode is detected from the local Aether server.
+                        <div class="form-group">
+                            <label for="ttsReplayCacheSize">Replay history size</label>
+                            <div class="range-control">
+                                <input type="range" id="ttsReplayCacheSize" min="1" max="20" step="1" value="5">
+                                <span id="ttsReplayCacheSizeVal">5</span>
+                            </div>
+                            <div class="form-hint">Keeps the last N spoken replies for replay.</div>
+                        </div>
                     </div>
-                </div>
-                
-                <div class="form-group">
-                    <label for="ttsReplayCacheSize">TTS replay history size</label>
-                    <div style="display: flex; align-items: center; gap: 12px;">
-                        <input type="range" id="ttsReplayCacheSize" min="1" max="20" step="1" value="5" style="flex-grow: 1; accent-color: var(--accent-primary);">
-                        <span id="ttsReplayCacheSizeVal" style="font-family: var(--font-mono); font-size: 0.8rem; width: 24px;">5</span>
-                    </div>
-                    <div style="font-size: 0.68rem; color: var(--text-dim); margin-top: 2px;">
-                        Keeps the last N spoken replies for replay. Oldest is removed when full.
-                    </div>
-                </div>
+                </section>
 
-                <div class="form-group">
-                    <label for="synthSpeed">Telemetry Vocal Speed</label>
-                    <div style="display: flex; align-items: center; gap: 12px;">
-                        <input type="range" id="synthSpeed" min="0.5" max="2" step="0.1" value="1.0" style="flex-grow: 1; accent-color: var(--accent-primary);">
-                        <span id="synthSpeedVal" style="font-family: var(--font-mono); font-size: 0.8rem; width: 30px;">1.0x</span>
+                <section class="settings-panel" id="settingsPanelRuntime" role="tabpanel" aria-labelledby="settingsTabRuntime" data-settings-panel="runtime" hidden>
+                    <div class="settings-panel-heading">
+                        <h3>Runtime</h3>
+                        <p>Select how Aether routes voice input and which Hermes profile is active.</p>
                     </div>
-                </div>
+                    <div class="form-group">
+                        <label for="voiceInputBehavior">Microphone voice behavior</label>
+                        <select class="form-select" id="voiceInputBehavior">
+                            <option value="auto">Auto-detect (Fill Chat when open, Send when closed)</option>
+                            <option value="chat">Always insert into Chat Input</option>
+                            <option value="llm">Always send directly to LLM</option>
+                        </select>
+                        <div class="form-hint">Control whether spoken audio queries Aether immediately or populates the composer for review.</div>
+                    </div>
 
-                <div class="form-group">
-                    <label for="simulationSpeed">AI Typewriting Delay</label>
-                    <div style="display: flex; align-items: center; gap: 12px;">
-                        <input type="range" id="simulationSpeed" min="1" max="10" step="1" value="5" style="flex-grow: 1; accent-color: var(--accent-primary);">
-                        <span id="simulationSpeedVal" style="font-family: var(--font-mono); font-size: 0.8rem; width: 30px;">Normal</span>
+                    <div class="form-group">
+                        <label for="hermesProfileSelect">Hermes runtime profile</label>
+                        <select class="form-select" id="hermesProfileSelect">
+                            <option value="">Hermes default profile</option>
+                        </select>
+                        <div class="form-hint" id="hermesStatusText">Hermes mode is detected from the local Aether server.</div>
                     </div>
-                </div>
+                </section>
+
+                <section class="settings-panel" id="settingsPanelResponse" role="tabpanel" aria-labelledby="settingsTabResponse" data-settings-panel="response" hidden>
+                    <div class="settings-panel-heading">
+                        <h3>Response</h3>
+                        <p>Tune response rendering and streaming feel.</p>
+                    </div>
+                    <div class="form-group">
+                        <label for="simulationSpeed">AI typewriting delay</label>
+                        <div class="range-control">
+                            <input type="range" id="simulationSpeed" min="1" max="10" step="1" value="5">
+                            <span id="simulationSpeedVal">Normal</span>
+                        </div>
+                    </div>
+                </section>
             </div>
             
-            <button class="action-btn btn-primary" id="saveSettingsBtn">
-                Save configurations
-            </button>
+            <div class="modal-actions">
+                <button class="action-btn btn-primary" id="saveSettingsBtn" type="button">
+                    Save configurations
+                </button>
+            </div>
         </div>
     </div>
 

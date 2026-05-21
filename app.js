@@ -263,6 +263,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (e.target === elements.settingsModal) closeSettingsModal();
         });
 
+        document.querySelectorAll('[data-settings-tab]').forEach((tab) => {
+            tab.addEventListener('click', () => activateSettingsTab(tab.dataset.settingsTab));
+        });
+
         document.querySelectorAll('.accent-swatch').forEach((swatch) => {
             swatch.addEventListener('click', () => {
                 const themeId = swatch.getAttribute('data-accent-theme');
@@ -542,7 +546,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             console.error("Aether telemetry failure: ", err);
             const errMsg = `[AETHER ERROR] Telemetry routing failed. Error: ${err.message}`;
             consoleLogNode.innerHTML = `<span style="color:var(--error);">${errMsg}</span>`;
-            bubbleNode.innerHTML = `<span style="color:var(--error);">${errMsg}</span>`;
+            const errorContent = ensureAssistantBubbleStructure(bubbleNode);
+            if (errorContent) {
+                errorContent.innerHTML = `<span style="color:var(--error);">${errMsg}</span>`;
+            }
             clearAssistantBubbleToolPreview(bubbleNode);
             visualizer.setState('idle');
         }
@@ -666,14 +673,21 @@ document.addEventListener('DOMContentLoaded', async () => {
         const row = ensureAssistantBubbleRow(bubbleNode);
         if (!row) return;
 
-        let btn = row.querySelector('.replay-tts-btn');
+        const footer = bubbleNode.querySelector('.bubble-footer') || createBubbleFooter();
+        if (!footer.parentNode) {
+            bubbleNode.appendChild(footer);
+        }
+
+        row.querySelectorAll(':scope > .replay-tts-btn').forEach((outsideBtn) => outsideBtn.remove());
+
+        let btn = footer.querySelector('.replay-tts-btn');
         if (!btn) {
             btn = document.createElement('button');
             btn.type = 'button';
             btn.className = 'replay-tts-btn';
             btn.title = 'Replay spoken audio';
             btn.innerHTML = '<i data-lucide="volume-2" style="width:14px;height:14px;"></i>';
-            row.appendChild(btn);
+            footer.prepend(btn);
         }
 
         btn.dataset.replayId = replayId;
@@ -689,7 +703,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         };
 
         if (typeof lucide !== 'undefined') {
-            lucide.createIcons({ root: row });
+            lucide.createIcons({ root: bubbleNode });
         }
     }
 
@@ -709,14 +723,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             ensureAssistantBubbleRow(bubbleNode);
 
-            bubbleNode.className = 'chat-bubble assistant-bubble';
-            bubbleNode.innerHTML = '';
+            const contentEl = ensureAssistantBubbleStructure(bubbleNode);
+            contentEl.replaceChildren();
             const bubbleText = document.createElement('div');
             bubbleText.className = 'assistant-stream-body';
             const bubbleCursor = document.createElement('span');
             bubbleCursor.className = 'typing-cursor';
-            bubbleNode.appendChild(bubbleText);
-            bubbleNode.appendChild(bubbleCursor);
+            contentEl.appendChild(bubbleText);
+            contentEl.appendChild(bubbleCursor);
 
             scrollConsoleBottom();
             elements.deckChatScroller.scrollTop = elements.deckChatScroller.scrollHeight;
@@ -1516,12 +1530,73 @@ document.addEventListener('DOMContentLoaded', async () => {
        G. Settings Dialog Form Controllers
        ========================================================================== */
 
+    function formatBubbleTimestamp(date = new Date()) {
+        return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    }
+
+    function createBubbleFooter(options = {}) {
+        const { showReadReceipt = false, timestamp = formatBubbleTimestamp() } = options;
+        const footer = document.createElement('div');
+        footer.className = 'bubble-footer';
+
+        const time = document.createElement('span');
+        time.className = 'bubble-timestamp';
+        time.textContent = timestamp;
+        footer.appendChild(time);
+
+        if (showReadReceipt) {
+            const receipt = document.createElement('span');
+            receipt.className = 'bubble-read-receipt';
+            receipt.innerHTML = '<i data-lucide="check-check"></i>';
+            footer.appendChild(receipt);
+        }
+
+        return footer;
+    }
+
+    function createAssistantBubbleIcon() {
+        const icon = document.createElement('div');
+        icon.className = 'bubble-icon';
+        icon.innerHTML = '<i data-lucide="hexagon"></i>';
+        return icon;
+    }
+
+    function ensureAssistantBubbleStructure(bubbleNode) {
+        if (!bubbleNode) return null;
+
+        let content = bubbleNode.querySelector('.bubble-content');
+        if (content) return content;
+
+        bubbleNode.className = 'chat-bubble assistant-bubble';
+        bubbleNode.replaceChildren();
+        bubbleNode.appendChild(createAssistantBubbleIcon());
+
+        content = document.createElement('div');
+        content.className = 'bubble-content';
+        bubbleNode.appendChild(content);
+        bubbleNode.appendChild(createBubbleFooter());
+        return content;
+    }
+
+    function refreshBubbleIcons(root) {
+        if (typeof lucide !== 'undefined') {
+            lucide.createIcons({ root: root || elements.deckChatScroller });
+        }
+    }
+
     function appendUserChatBubble(text) {
         const div = document.createElement('div');
         div.className = 'chat-bubble user-bubble';
-        div.textContent = text;
+
+        const content = document.createElement('div');
+        content.className = 'bubble-content';
+        content.textContent = text;
+        div.appendChild(content);
+        div.appendChild(createBubbleFooter({ showReadReceipt: true }));
+
         elements.deckChatScroller.appendChild(div);
         elements.deckChatScroller.scrollTop = elements.deckChatScroller.scrollHeight;
+        refreshBubbleIcons(div);
         return div;
     }
 
@@ -1531,23 +1606,35 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (messageIndex !== null && messageIndex !== undefined) {
             row.dataset.messageIndex = String(messageIndex);
         }
+
         const div = document.createElement('div');
         div.className = 'chat-bubble assistant-bubble';
+        div.appendChild(createAssistantBubbleIcon());
+
+        const content = document.createElement('div');
+        content.className = 'bubble-content';
         if (initialText === '...') {
-            div.innerHTML = '<em style="opacity:0.7">…</em>';
+            content.innerHTML = '<em style="opacity:0.7">…</em>';
         } else {
-            div.innerHTML = parseConsoleMarkdown(initialText);
+            content.innerHTML = parseConsoleMarkdown(initialText);
         }
+        div.appendChild(content);
+        div.appendChild(createBubbleFooter());
+
         row.appendChild(div);
         elements.deckChatScroller.appendChild(row);
         elements.deckChatScroller.scrollTop = elements.deckChatScroller.scrollHeight;
+        refreshBubbleIcons(row);
         return div;
     }
 
     function setAssistantBubbleToolPreview(bubbleNode, toolName) {
         if (!bubbleNode || !toolName) return;
         bubbleNode.classList.add('assistant-bubble-tool-active');
-        bubbleNode.replaceChildren();
+
+        const content = ensureAssistantBubbleStructure(bubbleNode);
+        if (!content) return;
+        content.replaceChildren();
 
         const preview = document.createElement('div');
         preview.className = 'chat-tool-preview';
@@ -1563,7 +1650,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         preview.appendChild(label);
         preview.appendChild(name);
-        bubbleNode.appendChild(preview);
+        content.appendChild(preview);
         elements.deckChatScroller.scrollTop = elements.deckChatScroller.scrollHeight;
     }
 
@@ -1620,6 +1707,22 @@ document.addEventListener('DOMContentLoaded', async () => {
         elements.omnivoiceInstructGroup.hidden = provider !== 'omnivoice';
     }
 
+    function activateSettingsTab(tabId) {
+        const targetTab = tabId || 'appearance';
+        document.querySelectorAll('[data-settings-tab]').forEach((tab) => {
+            const active = tab.dataset.settingsTab === targetTab;
+            tab.classList.toggle('active', active);
+            tab.setAttribute('aria-selected', active ? 'true' : 'false');
+            tab.tabIndex = active ? 0 : -1;
+        });
+
+        document.querySelectorAll('[data-settings-panel]').forEach((panel) => {
+            const active = panel.dataset.settingsPanel === targetTab;
+            panel.classList.toggle('active', active);
+            panel.hidden = !active;
+        });
+    }
+
     function openSettingsModal() {
         if (elements.ttsProvider) {
             elements.ttsProvider.value = getTtsProvider();
@@ -1661,6 +1764,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         refreshHermesIntegration();
 
         populateVoicesList();
+        activateSettingsTab('appearance');
         lucide.createIcons();
 
         elements.settingsModal.classList.add('open');
@@ -1941,7 +2045,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 }
             };
 
-            return `<pre><div class="code-header" style="padding:4px 8px; font-size:0.6rem;">${cleanLang.toUpperCase()}<button class="copy-btn" id="${copyId}" onclick="window['${copyId}']()" style="font-size:0.6rem;"><i data-lucide="copy" style="width:10px; height:10px;"></i> Copy</button></div><code>${cleanCode}</code></pre>`;
+            return `<pre><div class="code-header">${cleanLang.toUpperCase()}<button type="button" class="copy-btn" id="${copyId}" onclick="window['${copyId}']()"><i data-lucide="copy" style="width:10px; height:10px;"></i> Copy</button></div><code>${cleanCode}</code></pre>`;
         });
 
         // Inline Code ticks (`code`)
