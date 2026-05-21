@@ -85,6 +85,23 @@ If the dashboard is not running, the HUD still works with locally cached archive
 
 Docs: [Hermes Web Dashboard](https://hermes-agent.nousresearch.com/docs/user-guide/features/web-dashboard)
 
+## Model picker in the HUD
+
+The bottom control pill shows the **current model**. Click it to open a Hermes-style picker (provider → model, search filter, custom model name).
+
+| Capability | Requires |
+|------------|----------|
+| Full provider + curated model lists | `hermes dashboard` **or** installed Hermes CLI (`~/.hermes/hermes-agent`) |
+| Switch model | Dashboard **or** Hermes CLI (writes `~/.hermes/config.yaml`) |
+| Fallback list when dashboard is offline | Reads actual model from `config.yaml` via Hermes CLI; gateway `/v1/models` only advertises `hermes-agent` |
+
+**Persist globally** (checkbox in the picker, default off):
+
+- **Checked**: writes to `config.yaml` — applies to new gateway sessions (Hermes dashboard behavior).
+- **Unchecked**: session-only preference in the HUD; inference still updates via config when switching through the gateway API (same practical constraint as the Hermes Models page vs in-chat `/model`).
+
+Recommended: run both `hermes gateway` and `hermes dashboard` for the full experience.
+
 ## `/aether` slash command
 
 Install the skill (separate from API wiring):

@@ -258,6 +258,44 @@ class AIEngine {
         return data;
     }
 
+    async getHermesModelOptions() {
+        const baseUrl = this.resolveLlmBackendBaseUrl();
+        if (!baseUrl) {
+            return { available: false, providers: [], reason: 'No local backend URL configured.' };
+        }
+        const response = await fetch(`${baseUrl}/api/hermes/model/options`);
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok && !data.providers) {
+            throw new Error(data.error || data.message || `HTTP ${response.status}`);
+        }
+        return data;
+    }
+
+    async switchHermesModel({ provider, model, sessionId = null, lastHermesSessionId = null, sessionIds = null }) {
+        const baseUrl = this.resolveLlmBackendBaseUrl();
+        if (!baseUrl) {
+            throw new Error('No local backend URL configured.');
+        }
+        const response = await fetch(`${baseUrl}/api/hermes/model/switch`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                provider,
+                model,
+                sessionId: sessionId || null,
+                lastHermesSessionId: lastHermesSessionId || null,
+                sessionIds: Array.isArray(sessionIds) ? sessionIds : null,
+            }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.ok) {
+            const err = new Error(data.error || data.message || `HTTP ${response.status}`);
+            if (data.hint) err.hint = data.hint;
+            throw err;
+        }
+        return data;
+    }
+
     /**
      * Run trigger logic for widgets based on message content
      */

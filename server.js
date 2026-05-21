@@ -92,13 +92,233 @@ async function fetchHermesModelsPayload() {
   }
 }
 
-async function resolveHermesModel() {
+async function fetchHermesDashboardJson(pathOrUrl, options = {}) {
+  const url = pathOrUrl.startsWith('http')
+    ? pathOrUrl
+    : `${HERMES_DASHBOARD_URL}${pathOrUrl.startsWith('/') ? pathOrUrl : `/${pathOrUrl}`}`;
+  const init = {
+    method: options.method || 'GET',
+    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+  };
+  if (options.body !== undefined) {
+    init.body = typeof options.body === 'string' ? options.body : JSON.stringify(options.body);
+  }
+  const res = await fetch(url, init);
+  const text = await res.text();
+  let data = {};
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = { detail: text };
+    }
+  }
+  if (!res.ok) {
+    const err = new Error(data.detail || data.error || `HTTP ${res.status} from ${url}`);
+    err.statusCode = res.status;
+    throw err;
+  }
+  return data;
+}
+
+async function resolveHermesModel(sessionId) {
   if (HERMES_MODEL_OVERRIDE) return HERMES_MODEL_OVERRIDE;
-  if (cachedHermesModel) return cachedHermesModel;
+  const configModel = readHermesConfigModel();
+  if (configModel?.model) {
+    cachedHermesModel = configModel.model;
+    return configModel.model;
+  }
+  if (cachedHermesModel && cachedHermesModel !== HERMES_MODEL_FALLBACK) {
+    return cachedHermesModel;
+  }
   const probe = await fetchHermesModelsPayload();
   const discovered = probe.ok ? pickFirstHermesModel(probe.data) : null;
   cachedHermesModel = discovered || HERMES_MODEL_FALLBACK;
   return cachedHermesModel;
+}
+
+function readConfiguredHermesModelFields() {
+  const configModel = readHermesConfigModel();
+  return {
+    model: configModel?.model || '',
+    provider: configModel?.provider || '',
+  };
+}
+
+function buildFallbackModelOptions(status) {
+  const configured = readConfiguredHermesModelFields();
+  const modelList = Array.isArray(status?.models)
+    ? status.models.map((entry) => modelIdFromEntry(entry)).filter(Boolean)
+    : [];
+  const currentModel =
+    configured.model || status?.model || cachedHermesModel || HERMES_MODEL_FALLBACK;
+  if (currentModel && !modelList.includes(currentModel)) {
+    modelList.unshift(currentModel);
+  }
+  const providerSlug = configured.provider || status?.provider || 'hermes';
+  return {
+    model: currentModel,
+    provider: providerSlug,
+    providers: [
+      {
+        slug: providerSlug,
+        name: providerSlug === 'hermes' ? 'Hermes Gateway' : providerSlug,
+        models: modelList.length ? modelList : [currentModel],
+        total_models: modelList.length || 1,
+        is_current: true,
+        warning: 'Limited model list — install Hermes CLI or run `hermes dashboard` for full picker.',
+      },
+    ],
+    source: 'status-fallback',
+    hint: 'Run `hermes dashboard` or ensure Hermes Python env is available for full provider lists.',
+  };
+}
+
+async function fetchHermesModelOptions() {
+  if (!IS_HERMES_BACKEND) {
+    return {
+      available: false,
+      model: '',
+      provider: '',
+      providers: [],
+      reason: 'AETHER_BACKEND is not set to hermes.',
+    };
+  }
+
+  try {
+    const payload = await fetchHermesDashboardJson('/api/model/options');
+    return {
+      ...payload,
+      available: true,
+      source: 'dashboard',
+    };
+  } catch (dashboardErr) {
+    try {
+      const payload = fetchHermesModelOptionsViaPython();
+      if (payload?.providers?.length) {
+        return {
+          ...payload,
+          available: true,
+          source: 'hermes-cli',
+          dashboardError: dashboardErr.message || 'Hermes dashboard unreachable.',
+        };
+      }
+    } catch (pythonErr) {
+      /* fall through to status fallback */
+    }
+
+    const status = await probeHermesStatus();
+    if (!status.connected) {
+      return {
+        available: false,
+        model: status.model || '',
+        provider: status.provider || '',
+        providers: [],
+        source: 'unavailable',
+        error: dashboardErr.message || 'Hermes model options unavailable.',
+        hint: 'Start hermes gateway and ensure Hermes CLI is installed, then retry.',
+      };
+    }
+    return {
+      ...buildFallbackModelOptions(status),
+      available: true,
+      dashboardError: dashboardErr.message || 'Hermes dashboard unreachable.',
+    };
+  }
+}
+
+async function handleHermesModelSwitch(body) {
+  if (!IS_HERMES_BACKEND) {
+    const err = new Error('Hermes backend is disabled.');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const provider = String(body?.provider || '').trim();
+  const model = String(body?.model || '').trim();
+  const sessionIds = collectHermesSessionIds(body);
+  const previousModel = readHermesConfigModel()?.model || cachedHermesModel || '';
+
+  if (!provider || !model) {
+    const err = new Error('provider and model are required.');
+    err.statusCode = 400;
+    throw err;
+  }
+  if (/\s/.test(model)) {
+    const err = new Error('Model IDs cannot contain spaces.');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  let resolvedModel = model;
+  let resolvedProvider = provider;
+  let switchWarning = '';
+  let dashboardError = null;
+
+  try {
+    await fetchHermesDashboardJson('/api/model/set', {
+      method: 'POST',
+      body: { scope: 'main', provider, model },
+    });
+  } catch (err) {
+    dashboardError = err;
+  }
+
+  try {
+    // Always validate + persist through Hermes CLI so config.yaml is authoritative.
+    const switched = applyHermesModelSwitch(provider, model, true);
+    resolvedModel = switched.model || model;
+    resolvedProvider = switched.provider || provider;
+    switchWarning = switched.warning || '';
+  } catch (pythonErr) {
+    const err = new Error(
+      dashboardError
+        ? `Model switch failed. Dashboard: ${dashboardError.message || 'unreachable'}. CLI: ${pythonErr.message || 'unavailable'}.`
+        : pythonErr.message || 'Hermes model switch failed.'
+    );
+    err.statusCode = 503;
+    err.hint = 'Run `hermes dashboard` or ensure Hermes CLI is installed at ~/.hermes/hermes-agent.';
+    throw err;
+  }
+
+  const cfg = readHermesConfigModel();
+  if (cfg?.model) resolvedModel = cfg.model;
+  if (cfg?.provider) resolvedProvider = cfg.provider;
+  cachedHermesModel = resolvedModel;
+
+  const sessionRefresh = forceRefreshHermesSessionsForModelSwitch({
+    sessionIds,
+    model: resolvedModel,
+    provider: resolvedProvider,
+    previousModel,
+  });
+
+  return {
+    ok: true,
+    model: resolvedModel,
+    provider: resolvedProvider,
+    scope: 'global',
+    sessionInvalidated: sessionRefresh.cleared > 0,
+    sessionsCleared: sessionRefresh.cleared,
+    switchNotesAdded: sessionRefresh.notes,
+    warning: switchWarning || null,
+  };
+}
+
+function collectHermesSessionIds(body) {
+  const ids = new Set();
+  const add = (value) => {
+    const id = String(value || '').trim();
+    if (id) ids.add(id);
+  };
+  add(body?.sessionId);
+  add(body?.hermesSessionId);
+  add(body?.activeSessionId);
+  add(body?.lastHermesSessionId);
+  if (Array.isArray(body?.sessionIds)) {
+    for (const value of body.sessionIds) add(value);
+  }
+  return [...ids];
 }
 
 function hermesProfileFields() {
@@ -136,6 +356,135 @@ const hermesStateDb = (() => {
     return null;
   }
 })();
+
+/** Writable handle for model-switch session cache invalidation */
+const hermesStateDbWrite = (() => {
+  try {
+    const db = new Database(HERMES_STATE_DB_PATH, { fileMustExist: true });
+    db.pragma('journal_mode = WAL');
+    return db;
+  } catch (e) {
+    console.warn(`Hermes state.db write handle unavailable: ${e.message}`);
+    return null;
+  }
+})();
+
+function invalidateHermesSessionForModelSwitch(sessionId, model) {
+  if (!hermesStateDbWrite || !sessionId) return false;
+  try {
+    const result = hermesStateDbWrite
+      .prepare(
+        `UPDATE sessions
+         SET model = ?, system_prompt = NULL
+         WHERE id = ?`
+      )
+      .run(String(model), String(sessionId));
+    return result.changes > 0;
+  } catch (e) {
+    console.warn('[hermes/model/switch] failed to invalidate session cache:', e.message);
+    return false;
+  }
+}
+
+function appendHermesModelSwitchNote(sessionId, newModel, provider, previousModel) {
+  if (!hermesStateDbWrite || !sessionId || !newModel) return false;
+  try {
+    const exists = hermesStateDbWrite.prepare('SELECT 1 AS ok FROM sessions WHERE id = ?').get(String(sessionId));
+    if (!exists) return false;
+
+    const note = `[Note: model was just switched from ${previousModel || 'previous model'} to ${newModel} via ${provider || 'provider'}. Adjust your self-identification accordingly.]`;
+    const ts = Date.now() / 1000;
+    hermesStateDbWrite
+      .prepare(
+        `INSERT INTO messages (session_id, role, content, timestamp)
+         VALUES (?, 'user', ?, ?)`
+      )
+      .run(String(sessionId), note, ts);
+    hermesStateDbWrite
+      .prepare(
+        `UPDATE sessions
+         SET message_count = COALESCE(message_count, 0) + 1
+         WHERE id = ?`
+      )
+      .run(String(sessionId));
+    return true;
+  } catch (e) {
+    console.warn('[hermes/model/switch] failed to append switch note:', e.message);
+    return false;
+  }
+}
+
+function forceRefreshHermesSessionsForModelSwitch({ sessionIds, model, provider, previousModel }) {
+  let cleared = 0;
+  let notes = 0;
+
+  for (const sessionId of sessionIds) {
+    if (invalidateHermesSessionForModelSwitch(sessionId, model)) cleared += 1;
+    if (appendHermesModelSwitchNote(sessionId, model, provider, previousModel)) notes += 1;
+  }
+
+  if (hermesStateDbWrite && model && sessionIds.length > 0) {
+    try {
+      const placeholders = sessionIds.map(() => '?').join(', ');
+      const result = hermesStateDbWrite
+        .prepare(
+          `UPDATE sessions
+           SET model = ?, system_prompt = NULL
+           WHERE id IN (${placeholders})
+             AND system_prompt IS NOT NULL
+             AND system_prompt != ''
+             AND system_prompt NOT LIKE ?`
+        )
+        .run(String(model), ...sessionIds, `%Model: ${model}%`);
+      cleared += result.changes;
+    } catch (e) {
+      console.warn('[hermes/model/switch] stale prompt sweep failed:', e.message);
+    }
+  }
+
+  return { cleared, notes };
+}
+
+/** Clear stale cached system prompts when config.yaml and session row disagree. */
+function syncHermesSessionModelWithConfig(sessionId) {
+  if (!hermesStateDbWrite || !hermesStateDb || !sessionId) return false;
+  const config = readHermesConfigModel();
+  const configModel = String(config?.model || '').trim();
+  if (!configModel) return false;
+
+  try {
+    const row = hermesStateDb
+      .prepare('SELECT model, system_prompt FROM sessions WHERE id = ?')
+      .get(String(sessionId));
+    if (!row) return false;
+
+    const sessionModel = String(row.model || '').trim();
+    const cachedPrompt = row.system_prompt;
+    const hasCachedPrompt = cachedPrompt != null && cachedPrompt !== '';
+    if (!hasCachedPrompt) return false;
+
+    const modelMismatch = sessionModel && sessionModel !== configModel;
+    const promptMismatch =
+      cachedPrompt.includes('Model:') && !cachedPrompt.includes(`Model: ${configModel}`);
+
+    if (!modelMismatch && !promptMismatch) return false;
+
+    const result = hermesStateDbWrite
+      .prepare('UPDATE sessions SET model = ?, system_prompt = NULL WHERE id = ?')
+      .run(configModel, String(sessionId));
+
+    if (result.changes > 0 && process.env.AETHER_DEBUG === '1') {
+      console.log(
+        `[hermes/chat] cleared stale session prompt for ${sessionId}: ` +
+          `session=${sessionModel || '(unset)'} config=${configModel}`
+      );
+    }
+    return result.changes > 0;
+  } catch (e) {
+    console.warn('[hermes/chat] session model sync failed:', e.message);
+    return false;
+  }
+}
 
 function hermesSessionsList(limit = 25) {
   if (!hermesStateDb) return [];
@@ -177,6 +526,11 @@ function hermesSessionMessages(sessionId, limit = 200) {
 }
 
 const userStore = require('./lib/user-store');
+const {
+  readHermesConfigModel,
+  fetchHermesModelOptionsViaPython,
+  applyHermesModelSwitch,
+} = require('./lib/hermes-model');
 
 /**
  * Fetch Hermes profiles by running `hermes profile list` and parsing the output table.
@@ -511,7 +865,11 @@ async function handleHermesChat(body, emitProgress) {
     throw err;
   }
 
-  const model = await resolveHermesModel();
+  let sessionId = body.sessionId || body.hermesSessionId || null;
+  if (sessionId) {
+    syncHermesSessionModelWithConfig(sessionId);
+  }
+  const model = await resolveHermesModel(sessionId);
   const useStream = requestStream !== false; // default true
 
   if (process.env.AETHER_DEBUG === '1') {
@@ -525,7 +883,6 @@ async function handleHermesChat(body, emitProgress) {
   ];
 
   let result;
-  let sessionId = body.sessionId || body.hermesSessionId || null;
   const extraHeaders = hermesHeaders(body);
 
   const reportTool = (name) => {
@@ -610,6 +967,7 @@ async function handleHermesChat(body, emitProgress) {
         null,
       profile: body.hermesProfile || HERMES_PROFILE || null,
       model,
+      provider: readHermesConfigModel()?.provider || null,
       streaming: useStream,
     },
   };
@@ -652,13 +1010,26 @@ async function probeHermesStatus() {
 
     const data = probe.data;
     const models = Array.isArray(data.data) ? data.data.slice(0, 12) : [];
+    const configured = readConfiguredHermesModelFields();
     const discovered = pickFirstHermesModel(data);
-    if (!HERMES_MODEL_OVERRIDE && discovered) {
+    if (!HERMES_MODEL_OVERRIDE && configured.model) {
+      cachedHermesModel = configured.model;
+    } else if (!HERMES_MODEL_OVERRIDE && discovered) {
       cachedHermesModel = discovered;
     }
     const model =
-      HERMES_MODEL_OVERRIDE || discovered || cachedHermesModel || HERMES_MODEL_FALLBACK;
-    const modelSource = HERMES_MODEL_OVERRIDE ? 'env' : discovered ? 'hermes' : 'fallback';
+      HERMES_MODEL_OVERRIDE ||
+      configured.model ||
+      discovered ||
+      cachedHermesModel ||
+      HERMES_MODEL_FALLBACK;
+    const modelSource = HERMES_MODEL_OVERRIDE
+      ? 'env'
+      : configured.model
+        ? 'config'
+        : discovered
+          ? 'hermes'
+          : 'fallback';
     const sessionsProbe = await probeHermesSessionsList();
 
     return {
@@ -668,6 +1039,7 @@ async function probeHermesStatus() {
       baseUrl: HERMES_API_BASE_URL,
       sessionsListUrl: sessionsProbe.url,
       model,
+      provider: configured.provider || null,
       modelSource,
       ...profileFields,
       capabilities: {
@@ -856,6 +1228,23 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (req.method === 'POST' && pathname === '/api/hermes/model/switch') {
+    try {
+      const body = await readBody(req);
+      const result = await handleHermesModelSwitch(body || {});
+      sendJson(res, 200, result);
+    } catch (e) {
+      const status = e.statusCode || (e instanceof SyntaxError ? 400 : 500);
+      console.error('[api/hermes/model/switch]', e.message || e);
+      sendJson(res, status, {
+        ok: false,
+        error: e.message || 'Model switch failed',
+        hint: e.hint || null,
+      });
+    }
+    return;
+  }
+
   if (req.method === 'POST' && pathname === '/api/chat') {
     try {
       const body = await readBody(req);
@@ -960,6 +1349,21 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/hermes/status') {
       const status = await probeHermesStatus();
       sendJson(res, status.connected || !status.enabled ? 200 : 503, status);
+      return;
+    }
+
+    if (pathname === '/api/hermes/model/options') {
+      try {
+        const options = await fetchHermesModelOptions();
+        sendJson(res, options.available ? 200 : 503, options);
+      } catch (e) {
+        console.error('[api/hermes/model/options]', e.message || e);
+        sendJson(res, 502, {
+          available: false,
+          providers: [],
+          error: e.message || 'Hermes model options unavailable',
+        });
+      }
       return;
     }
 

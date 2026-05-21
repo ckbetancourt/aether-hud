@@ -63,6 +63,31 @@ flowchart TD
 
 Legacy alias: `actions` → `idleActions`.
 
+### Neural web profiles (`webProfile`)
+
+Each avatar form can override `DEFAULT_WEB_PROFILE` in `avatarBehaviorProfiles`. The web rebuilds on avatar form change via `rebuildWebForForm()`.
+
+| Field | Role |
+|-------|------|
+| `topology` | `feedforward` (LLM columns), `scatter` (ghost cloud), `grid` (rigid columns) |
+| `stateMultipliers` | Per-state `expansion` / `opacity` multipliers on base web targets |
+| `connectionMode` | `layered`, `proximity`, or `both` |
+| `sweepMode` | `feedforward`, `radial`, or `scanline` |
+| `nodeDrift` | Floating node motion amplitude |
+| `colorMix` | Blend primary/secondary with white for ghosty tints |
+| `showLabels` / `showTelemetry` | Node label and thinking telemetry readouts |
+
+**Visibility:** Hidden during `speaking` and faded in `post-talk`. Rendered at scene center (does not follow avatar roam).
+
+| Form | Web character |
+|------|----------------|
+| **classic-blob** | Default feedforward LLM graph, full telemetry, feedforward sweeps (~2s) |
+| **nova** | Softer layered graph, radial burst sweeps, higher random hub flicker, no telemetry |
+| **wisp** | Scattered ghost cloud, dashed proximity links, white/lavender tint, floating drift, low opacity |
+| **eve** | Tight grid, EVE-themed labels, scanline sweeps, crisp lines, minimal glow |
+
+Tool progress during thinking triggers `triggerLayerSweep()` + `triggerWebBurst()` for **all** forms.
+
 ---
 
 ## State flow (Hermes chat)
@@ -89,11 +114,13 @@ TTS off: typewriter finish → setState('idle') if still thinking
 | Phase | Actions |
 |-------|---------|
 | Idle | `soft-pulse`, `lobe-drift`, `web-flicker`, `core-shimmer`, `ring-tick`, `settle-sigh`, `orbit-wobble`, `node-cluster`, `halo-breathe` |
-| Thinking | `web-surge`, `scan-sweep`, `lobe-compute` + periodic layer sweeps every ~2s |
+| Thinking | `web-surge`, `scan-sweep`, `lobe-compute` + feedforward layer sweeps every ~2s |
 | Speaking | `rim-flare`, `micro-pulse` |
 | Post-talk | `settle-sigh` (3600ms canvas relax overlay) |
 
 **Canvas overlays:** `applyBlobActionOverlay()` — modulates lobes, web, scale, shimmer, ring pulse, laser sweep boost.
+
+**Neural web:** Default feedforward LLM graph with full telemetry labels.
 
 ---
 
@@ -108,6 +135,8 @@ TTS off: typewriter finish → setState('idle') if still thinking
 
 Existing idle: `glance`, `ear-perk`, `bounce`, `cheek-pulse`, `arm-wiggle`, `double-blink`.
 
+**Neural web:** Softer layered graph, radial burst sweeps, playful hub flicker.
+
 ---
 
 ## Wisp
@@ -118,6 +147,8 @@ Existing idle: `glance`, `ear-perk`, `bounce`, `cheek-pulse`, `arm-wiggle`, `dou
 | Thinking | `swirl-think`, `dim-gather`, `spark-orbit` | `swirl-think` only — no state-level drift duplicate |
 | Speaking | `spark-accent` | spark peaks with speech energy |
 | Post-talk | `spark-fade` (2500ms) | sparks dim, body sinks |
+
+**Neural web:** Scattered ghost cloud — always-on phantom halos, dashed proximity links, floating drift, lavender/white mist. Visible in idle and thinking.
 
 ---
 
@@ -132,6 +163,8 @@ Existing idle: `glance`, `ear-perk`, `bounce`, `cheek-pulse`, `arm-wiggle`, `dou
 
 **Expression:** `[data-expression="thinking"]` styles eye glow.
 
+**Neural web:** Tight grid, EVE telemetry labels, horizontal scanline sweeps.
+
 ---
 
 ## Hermes tool burst mapping
@@ -144,6 +177,8 @@ Existing idle: `glance`, `ear-perk`, `bounce`, `cheek-pulse`, `arm-wiggle`, `dou
 | shell/exec/run | layer sweep | `ring-calibrate` |
 | read/file/write | `web-surge` | profile-specific |
 | default | `web-surge` + sweep | `scan-pulse` / `ear-flick` / `spark-orbit` |
+
+All forms also receive profile-specific `triggerLayerSweep()` + `triggerWebBurst()` on tool progress.
 
 ---
 

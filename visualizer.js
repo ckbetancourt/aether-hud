@@ -7,6 +7,43 @@
  * - Audio active warping and pulsing scaling states
  */
 
+const DEFAULT_WEB_LABELS = {
+    0: ['IN_TOKN', 'POS_EMB', 'VOC_IN', 'ATT_IN', 'CTX_VEC', 'SEN_EMB', 'LAT_IN', 'SRC_VEC'],
+    1: ['Q_PROJ', 'K_PROJ', 'V_PROJ', 'FFN_UP', 'FFN_GAT', 'RE_LU', 'GEL_U', 'LN_RMS', 'SOFT_M', 'DOT_PR', 'MHA_01', 'MHA_02'],
+    2: ['FFN_DN', 'O_PROJ', 'ATT_OUT', 'RES_ADD', 'LN_RMS2', 'DROPOUT', 'CONV_1D', 'ATT_H2', 'ATT_H3', 'MHA_03', 'MHA_04', 'OUT_PROJ'],
+    3: ['TOK_OUT', 'LOGITS', 'PROB_S', 'DEC_OUT', 'SOFT_MX', 'OUT_VEC', 'LAT_OUT', 'END_TOK'],
+};
+
+const DEFAULT_WEB_PROFILE = {
+    topology: 'feedforward',
+    layers: [8, 12, 12, 8],
+    layerXPositions: [-1.8, -0.6, 0.6, 1.8],
+    labels: DEFAULT_WEB_LABELS,
+    stateMultipliers: {
+        idle: { expansion: 1, opacity: 1 },
+        listening: { expansion: 1, opacity: 1 },
+        thinking: { expansion: 1, opacity: 1 },
+        'post-talk': { expansion: 1, opacity: 1 },
+    },
+    lineStyle: 'solid',
+    lineAlpha: 0.08,
+    lineWidth: 0.35,
+    nodeGlow: 6,
+    colorMix: { primary: 1, secondary: 1, white: 0 },
+    showLabels: true,
+    showTelemetry: true,
+    connectionMode: 'layered',
+    nodeDrift: 0,
+    sweepMode: 'feedforward',
+    sweepSpeed: 0.038,
+    sweepIntervalMs: 2000,
+    thinkingPulseRate: 18,
+    randomFlicker: 0.025,
+    proximityLinks: false,
+    proximityDistance: 0.55,
+    verticalSpread: 2.4,
+};
+
 class JarvisHUD {
     constructor(canvasId) {
         this.canvas = document.getElementById(canvasId);
@@ -42,7 +79,6 @@ class JarvisHUD {
         this.webOpacity = 0.25;
         this.sweepY = 0;
         this.sweepDirection = 1;
-        this.initWebNodes();
 
         // Dynamic Shape Morphing parameters (lobes, weights, squash/stretch)
         this.harmonicLobe1 = 3.0;
@@ -107,9 +143,9 @@ class JarvisHUD {
             { id: 'th-stage-pendulum', layer: 'stage', intensity: 'subtle', weight: 1.15 },
             { id: 'th-stage-slow-scan', layer: 'stage', intensity: 'subtle', weight: 1.1 },
             { id: 'th-stage-spiral-drift', layer: 'stage', intensity: 'dynamic', weight: 1.05 },
-            { id: 'th-stage-bob-weave', layer: 'stage', intensity: 'dynamic', weight: 1.0 },
+            { id: 'th-stage-bob-weave', layer: 'stage', intensity: 'dynamic', weight: 0.55 },
             { id: 'th-stage-wide-sweep', layer: 'stage', intensity: 'dynamic', weight: 0.95 },
-            { id: 'th-stage-orbit-fast', layer: 'stage', intensity: 'dynamic', weight: 0.9 },
+            { id: 'th-stage-orbit-fast', layer: 'stage', intensity: 'dynamic', weight: 0.35 },
             { id: 'th-body-soft-drift', layer: 'body', target: 'float', intensity: 'subtle', weight: 1.5, forms: ['nova', 'wisp', 'eve'] },
             { id: 'th-body-gentle-pulse', layer: 'body', target: 'float', intensity: 'subtle', weight: 1.3, forms: ['nova', 'wisp', 'eve'] },
             { id: 'th-body-compute-rock', layer: 'body', target: 'float', intensity: 'subtle', weight: 1.2, forms: ['nova', 'eve'] },
@@ -157,7 +193,7 @@ class JarvisHUD {
                 speakingActionRange: [500, 1200],
                 postTalkAction: 'settle-sigh',
                 postTalkDuration: 4200,
-                stageRoam: { thinkAmp: 1.15, thinkSpeed: 0.92, thinkRotate: 0.6 },
+                stageRoam: { thinkAmp: 1.0, thinkSpeed: 0.58, thinkRotate: 0.45, thinkMotionScale: 0.52 },
                 idleActions: [
                     ['soft-pulse', 1.6],
                     ['lobe-drift', 1.4],
@@ -181,6 +217,7 @@ class JarvisHUD {
                     ['rim-flare', 1.6],
                     ['micro-pulse', 1.2],
                 ],
+                webProfile: {},
             },
             nova: {
                 blinkRange: [70, 165],
@@ -195,7 +232,7 @@ class JarvisHUD {
                 speakingActionRange: [500, 1200],
                 postTalkAction: 'exhale-settle',
                 postTalkDuration: 3200,
-                stageRoam: { thinkAmp: 1.05, thinkSpeed: 1.08, thinkRotate: 1.15 },
+                stageRoam: { thinkAmp: 0.95, thinkSpeed: 0.62, thinkRotate: 0.75, thinkMotionScale: 0.52 },
                 idleActions: [
                     ['glance', 1.8],
                     ['ear-perk', 1.6],
@@ -219,6 +256,25 @@ class JarvisHUD {
                     ['nod-beat', 1.5],
                     ['ear-twitch', 1.2],
                 ],
+                webProfile: {
+                    layers: [7, 10, 10, 7],
+                    layerXPositions: [-1.6, -0.55, 0.55, 1.6],
+                    verticalSpread: 2.7,
+                    stateMultipliers: {
+                        idle: { expansion: 1.05, opacity: 0.82 },
+                        thinking: { expansion: 1.08, opacity: 0.85 },
+                        listening: { expansion: 1.02, opacity: 0.78 },
+                    },
+                    lineAlpha: 0.065,
+                    nodeGlow: 8,
+                    showTelemetry: false,
+                    nodeDrift: 0.04,
+                    sweepMode: 'radial',
+                    sweepSpeed: 0.032,
+                    sweepIntervalMs: 2400,
+                    thinkingPulseRate: 14,
+                    randomFlicker: 0.045,
+                },
             },
             wisp: {
                 blinkRange: [95, 220],
@@ -233,7 +289,7 @@ class JarvisHUD {
                 speakingActionRange: [500, 1200],
                 postTalkAction: 'spark-fade',
                 postTalkDuration: 3400,
-                stageRoam: { thinkAmp: 1.2, thinkSpeed: 1.18, thinkRotate: 1.35 },
+                stageRoam: { thinkAmp: 1.05, thinkSpeed: 0.65, thinkRotate: 0.85, thinkMotionScale: 0.5 },
                 idleActions: [
                     ['spark-burst', 2.1],
                     ['slow-swirl', 1.4],
@@ -255,6 +311,35 @@ class JarvisHUD {
                 speakingActions: [
                     ['spark-accent', 1.6],
                 ],
+                webProfile: {
+                    topology: 'scatter',
+                    ghostRender: true,
+                    layers: [14, 18, 18, 14],
+                    verticalSpread: 3.1,
+                    stateMultipliers: {
+                        idle: { expansion: 1.25, opacity: 0.88 },
+                        thinking: { expansion: 1.45, opacity: 0.92 },
+                        listening: { expansion: 1.15, opacity: 0.78 },
+                        'post-talk': { expansion: 1.0, opacity: 0.65 },
+                    },
+                    lineStyle: 'dashed',
+                    lineAlpha: 0.14,
+                    lineWidth: 0.35,
+                    nodeGlow: 24,
+                    colorMix: { primary: 0.45, secondary: 0.65, white: 0.62 },
+                    showLabels: false,
+                    showTelemetry: false,
+                    connectionMode: 'proximity',
+                    nodeDrift: 0.14,
+                    sweepMode: 'radial',
+                    sweepSpeed: 0.028,
+                    sweepIntervalMs: 2200,
+                    thinkingPulseRate: 22,
+                    randomFlicker: 0.07,
+                    proximityLinks: true,
+                    proximityDistance: 1.05,
+                    ghostAmbient: 0.28,
+                },
             },
             eve: {
                 blinkRange: [110, 240],
@@ -269,7 +354,7 @@ class JarvisHUD {
                 speakingActionRange: [500, 1200],
                 postTalkAction: 'power-down',
                 postTalkDuration: 3600,
-                stageRoam: { thinkAmp: 0.95, thinkSpeed: 0.88, thinkRotate: 0.75 },
+                stageRoam: { thinkAmp: 0.88, thinkSpeed: 0.55, thinkRotate: 0.5, thinkMotionScale: 0.54 },
                 idleActions: [
                     ['head-tilt', 1.8],
                     ['visor-scan', 1.8],
@@ -299,9 +384,35 @@ class JarvisHUD {
                     ['bar-flash', 1.5],
                     ['ring-echo', 1.2],
                 ],
+                webProfile: {
+                    topology: 'grid',
+                    layers: [8, 10, 10, 8],
+                    layerXPositions: [-1.5, -0.5, 0.5, 1.5],
+                    verticalSpread: 2.1,
+                    labels: {
+                        0: ['VISOR', 'GYRO', 'SYNC', 'SCAN', 'LIDAR', 'BEAM', 'TRACE', 'LOCK'],
+                        1: ['CAL_01', 'CAL_02', 'AXIS_X', 'AXIS_Y', 'FOV', 'RPM', 'TILT', 'YAW', 'PITCH', 'ROLL'],
+                        2: ['PROC_A', 'PROC_B', 'HUD_01', 'HUD_02', 'DATA', 'SYNC', 'BEAM', 'FOCUS', 'LOCK', 'TARGET'],
+                        3: ['OUT_A', 'OUT_B', 'STATUS', 'ALERT', 'MODE', 'HOLD', 'ARM', 'READY'],
+                    },
+                    stateMultipliers: {
+                        thinking: { expansion: 1.05, opacity: 0.9 },
+                    },
+                    lineAlpha: 0.1,
+                    lineWidth: 0.4,
+                    nodeGlow: 3,
+                    colorMix: { primary: 1, secondary: 0.85, white: 0.08 },
+                    sweepMode: 'scanline',
+                    sweepSpeed: 0.048,
+                    sweepIntervalMs: 1600,
+                    thinkingPulseRate: 12,
+                    randomFlicker: 0.018,
+                },
             },
         };
+        this.activeWebProfile = null;
         this.avatarBehavior = this.createAvatarBehavior(this.avatarForm);
+        this.rebuildWebForForm();
         this.creatureBlinkTimer = this.randomInRange(40, 120);
         this.creatureBlinkAmount = 0;
         this.creatureEyeDrift = { x: 0, y: 0 };
@@ -369,6 +480,7 @@ class JarvisHUD {
         this.avatarForm = nextForm;
         if (formChanged) {
             this.resetAvatarBehavior();
+            this.rebuildWebForForm();
         }
         this.syncCreatureAvatarShell();
         this.syncAvatarLabelPlacement(document.getElementById('hudOrbLabel'));
@@ -387,6 +499,83 @@ class JarvisHUD {
 
     getAvatarBehaviorProfile(form = this.avatarForm) {
         return this.avatarBehaviorProfiles?.[form] || this.avatarBehaviorProfiles?.nova || null;
+    }
+
+    getWebProfile(form = this.avatarForm) {
+        const profile = this.getAvatarBehaviorProfile(form);
+        const overrides = profile?.webProfile || {};
+        const merged = {
+            ...DEFAULT_WEB_PROFILE,
+            ...overrides,
+            colorMix: { ...DEFAULT_WEB_PROFILE.colorMix, ...(overrides.colorMix || {}) },
+            stateMultipliers: {
+                ...DEFAULT_WEB_PROFILE.stateMultipliers,
+                ...(overrides.stateMultipliers || {}),
+            },
+        };
+        if (overrides.labels) {
+            merged.labels = overrides.labels;
+        }
+        return merged;
+    }
+
+    rebuildWebForForm() {
+        this.initWebNodes(this.getWebProfile());
+    }
+
+    mixWebColor(themeColor, secondaryColor, colorMix = DEFAULT_WEB_PROFILE.colorMix) {
+        const mix = colorMix || DEFAULT_WEB_PROFILE.colorMix;
+        const parse = (hex) => {
+            let c = String(hex || '#ffffff').replace('#', '');
+            if (c.length === 3) c = c[0] + c[0] + c[1] + c[1] + c[2] + c[2];
+            const num = parseInt(c, 16) || 0xffffff;
+            return [(num >> 16) & 255, (num >> 8) & 255, num & 255];
+        };
+        const [pr, pg, pb] = parse(themeColor);
+        const [sr, sg, sb] = parse(secondaryColor);
+        const wr = 255;
+        const wg = 255;
+        const wb = 255;
+        const primaryW = mix.primary ?? 1;
+        const secondaryW = mix.secondary ?? 1;
+        const whiteW = mix.white ?? 0;
+        const total = primaryW + secondaryW + whiteW || 1;
+        const r = Math.round((pr * primaryW + sr * secondaryW + wr * whiteW) / total);
+        const g = Math.round((pg * primaryW + sg * secondaryW + wg * whiteW) / total);
+        const b = Math.round((pb * primaryW + sb * secondaryW + wb * whiteW) / total);
+        return `${r}, ${g}, ${b}`;
+    }
+
+    pushWebNode(nodeIndexRef, layer, baseX, baseY, labels, l, i, profile) {
+        let size = Math.random() * 2.5 + 1.8;
+        if (profile.topology !== 'scatter' && (l === 1 || l === 2)) {
+            if (i % 4 === 0) size = Math.random() * 2.5 + 4.5;
+            else if (i % 3 === 0) size = Math.random() * 1.0 + 1.2;
+        } else if (profile.topology === 'scatter') {
+            size = Math.random() * 3.2 + 2.4;
+        }
+
+        const layerLabels = labels[l] || [];
+        const nodeAlpha = profile.topology === 'scatter'
+            ? Math.random() * 0.25 + 0.72
+            : Math.random() * 0.35 + 0.55;
+        this.webNodes.push({
+            index: nodeIndexRef.value++,
+            layer: l,
+            baseX,
+            baseY,
+            x: baseX,
+            y: baseY,
+            baseSize: size,
+            size,
+            alpha: nodeAlpha,
+            activation: 0,
+            targetActivation: 0,
+            bias: (Math.random() * 2.0 - 1.0).toFixed(3),
+            label: profile.showLabels === false ? '' : (i < layerLabels.length ? layerLabels[i] : `NEUR_${l}_${i}`),
+            labelTimer: Math.random() * 100,
+            driftPhase: Math.random() * Math.PI * 2,
+        });
     }
 
     getProfileActionsForState(state = this.state, profile = this.getAvatarBehaviorProfile()) {
@@ -418,9 +607,10 @@ class JarvisHUD {
 
     getThinkingStageTarget(form = this.avatarForm, stageId = null) {
         const profile = this.getAvatarBehaviorProfile(form);
-        const roam = profile?.stageRoam || { thinkAmp: 1, thinkSpeed: 1, thinkRotate: 1 };
+        const roam = profile?.stageRoam || { thinkAmp: 1, thinkSpeed: 1, thinkRotate: 1, thinkMotionScale: 0.52 };
         const seed = this._stageRoamSeed;
-        const t = this.time;
+        const motionScale = roam.thinkMotionScale ?? 0.52;
+        const t = this.time * motionScale;
         const amp = roam.thinkAmp || 1;
         const speed = roam.thinkSpeed || 1;
         const rot = roam.thinkRotate || 1;
@@ -457,32 +647,32 @@ class JarvisHUD {
                 };
             case 'th-stage-bob-weave':
                 return {
-                    x: (Math.sin(t * 0.44 * speed + seed) * 0.82 + Math.sin(t * 1.6 * speed) * 0.22) * amp,
-                    y: (Math.sin(t * 0.88 * speed + seed) * 0.62 + Math.cos(t * 1.3 * speed) * 0.28) * amp,
-                    rotate: Math.sin(t * 0.52 * speed) * 12 * rot,
-                    scale: 1 + Math.abs(Math.sin(t * 1.1 * speed)) * 0.055 * amp,
+                    x: (Math.sin(t * 0.32 * speed + seed) * 0.82 + Math.sin(t * 0.85 * speed) * 0.22) * amp,
+                    y: (Math.sin(t * 0.58 * speed + seed) * 0.62 + Math.cos(t * 0.72 * speed) * 0.28) * amp,
+                    rotate: Math.sin(t * 0.38 * speed) * 12 * rot,
+                    scale: 1 + Math.abs(Math.sin(t * 0.62 * speed)) * 0.055 * amp,
                 };
             case 'th-stage-wide-sweep':
                 return {
-                    x: (Math.sin(t * 0.35 * speed + seed) * 1.18 + Math.sin(t * 0.72 * speed + seed * 1.3) * 0.48) * amp,
-                    y: (Math.cos(t * 0.41 * speed + seed * 0.7) * 0.88 + Math.sin(t * 0.29 * speed) * 0.32) * amp,
-                    rotate: (Math.sin(t * 0.34 * speed) * 10 + Math.cos(t * 0.61 * speed + seed) * 8) * rot,
-                    scale: 1 + Math.sin(t * 0.74 * speed) * 0.055 * amp,
+                    x: (Math.sin(t * 0.28 * speed + seed) * 1.18 + Math.sin(t * 0.48 * speed + seed * 1.3) * 0.48) * amp,
+                    y: (Math.cos(t * 0.32 * speed + seed * 0.7) * 0.88 + Math.sin(t * 0.22 * speed) * 0.32) * amp,
+                    rotate: (Math.sin(t * 0.26 * speed) * 10 + Math.cos(t * 0.42 * speed + seed) * 8) * rot,
+                    scale: 1 + Math.sin(t * 0.5 * speed) * 0.055 * amp,
                 };
             case 'th-stage-orbit-fast':
                 return {
-                    x: (Math.sin(t * 0.78 * speed + seed) * 0.92 + Math.sin(t * 1.85 * speed + seed * 1.4) * 0.38) * amp,
-                    y: (Math.cos(t * 0.68 * speed + seed * 0.65) * 0.82 + Math.cos(t * 1.42 * speed + seed * 1.1) * 0.34) * amp,
-                    rotate: (Math.sin(t * 0.55 * speed) * 14 + Math.cos(t * 0.92 * speed + seed) * 9) * rot,
-                    scale: 1 + Math.sin(t * 1.05 * speed) * 0.05 * amp,
+                    x: (Math.sin(t * 0.58 * speed + seed) * 0.92 + Math.sin(t * 1.1 * speed + seed * 1.4) * 0.38) * amp,
+                    y: (Math.cos(t * 0.52 * speed + seed * 0.65) * 0.82 + Math.cos(t * 0.95 * speed + seed * 1.1) * 0.34) * amp,
+                    rotate: (Math.sin(t * 0.42 * speed) * 14 + Math.cos(t * 0.68 * speed + seed) * 9) * rot,
+                    scale: 1 + Math.sin(t * 0.72 * speed) * 0.05 * amp,
                 };
             case 'th-stage-orbit':
             default:
                 return {
-                    x: (Math.sin(t * 0.52 * speed + seed) * 1.05 + Math.sin(t * 1.24 * speed + seed * 1.4) * 0.42 + Math.cos(t * 0.31 * speed) * 0.28) * amp,
-                    y: (Math.cos(t * 0.46 * speed + seed * 0.65) * 0.95 + Math.cos(t * 1.08 * speed + seed * 1.1) * 0.38 + Math.sin(t * 0.27 * speed) * 0.24) * amp,
-                    rotate: (Math.sin(t * 0.34 * speed) * 10 + Math.cos(t * 0.61 * speed + seed) * 6) * rot,
-                    scale: 1 + Math.sin(t * 0.74 * speed) * 0.045 * amp,
+                    x: (Math.sin(t * 0.42 * speed + seed) * 1.05 + Math.sin(t * 0.82 * speed + seed * 1.4) * 0.42 + Math.cos(t * 0.24 * speed) * 0.28) * amp,
+                    y: (Math.cos(t * 0.36 * speed + seed * 0.65) * 0.95 + Math.cos(t * 0.74 * speed + seed * 1.1) * 0.38 + Math.sin(t * 0.2 * speed) * 0.24) * amp,
+                    rotate: (Math.sin(t * 0.26 * speed) * 10 + Math.cos(t * 0.45 * speed + seed) * 6) * rot,
+                    scale: 1 + Math.sin(t * 0.55 * speed) * 0.045 * amp,
                 };
         }
     }
@@ -738,7 +928,7 @@ class JarvisHUD {
     }
 
     updateAvatarStageMotion(w, h) {
-        const roamScale = this.getStageRoamScale(w, h);
+        const roamScale = this.getStageRoamScale(w, h) * (this.state === 'thinking' ? 0.72 : 1);
         let target = { x: 0, y: 0, rotate: 0, scale: 1 };
         const behavior = this.avatarBehavior;
 
@@ -752,7 +942,7 @@ class JarvisHUD {
             target = this.getPostTalkStageTarget(progress, stageId);
         }
 
-        const ease = this.state === 'post-talk' ? 0.16 : this.state === 'thinking' ? 0.1 : this.state === 'idle' ? 0.05 : 0.08;
+        const ease = this.state === 'post-talk' ? 0.16 : this.state === 'thinking' ? 0.06 : this.state === 'idle' ? 0.05 : 0.08;
         target.x *= roamScale;
         target.y *= roamScale;
 
@@ -825,13 +1015,7 @@ class JarvisHUD {
     }
 
     getAvatarName() {
-        const names = {
-            'classic-blob': this.displayName || 'Aether',
-            nova: 'Nova',
-            wisp: 'Wisp',
-            eve: 'EVE',
-        };
-        return names[this.avatarForm] || this.displayName || 'Aether';
+        return this.displayName || 'Aether';
     }
 
     startSpeechMouthCue(text) {
@@ -1014,25 +1198,112 @@ class JarvisHUD {
 
 
     /**
-     * Trigger a new forward-propagating neural network signal sweep (left to right)
+     * Trigger a profile-specific neural web sweep
      */
-    triggerLayerSweep() {
-        this.feedforwardSignals.push({
-            layer: 0,
-            progress: 0,
-            speed: 0.038,
-            intensity: 1.0
-        });
-        // Light up input layer as sweep begins
-        this.webNodes.filter(n => n.layer === 0).forEach(n => {
-            n.targetActivation = Math.max(n.targetActivation, 0.85);
-        });
+    triggerLayerSweep(profile = this.getWebProfile()) {
+        const mode = profile?.sweepMode || 'feedforward';
+        const speed = profile?.sweepSpeed ?? DEFAULT_WEB_PROFILE.sweepSpeed;
+
+        if (mode === 'feedforward') {
+            this.feedforwardSignals.push({
+                mode,
+                layer: 0,
+                progress: 0,
+                speed,
+                intensity: 1.0,
+            });
+            this.webNodes.filter(n => n.layer === 0).forEach(n => {
+                n.targetActivation = Math.max(n.targetActivation, 0.85);
+            });
+            return;
+        }
+
+        if (mode === 'radial') {
+            this.feedforwardSignals.push({ mode, progress: 0, speed, intensity: 1.0 });
+            this.webNodes.filter(n => n.layer === 1 || n.layer === 2).forEach(n => {
+                if (Math.random() < 0.35) n.targetActivation = 0.65 + Math.random() * 0.35;
+            });
+            return;
+        }
+
+        if (mode === 'scanline') {
+            this.feedforwardSignals.push({ mode, progress: 0, speed, intensity: 1.0 });
+        }
+    }
+
+    triggerWebBurst(profile = this.getWebProfile(), intensity = 1) {
+        if (!this.webNodes?.length) return;
+        const burstCount = 3 + Math.floor(Math.random() * 4);
+        for (let i = 0; i < burstCount; i++) {
+            const node = this.webNodes[Math.floor(Math.random() * this.webNodes.length)];
+            node.targetActivation = 0.55 + Math.random() * 0.4 * intensity;
+        }
+    }
+
+    applyWebSignalActivations() {
+        const profile = this.activeWebProfile || this.getWebProfile();
+
+        for (let idx = this.feedforwardSignals.length - 1; idx >= 0; idx--) {
+            const signal = this.feedforwardSignals[idx];
+            signal.progress += signal.speed;
+
+            if (signal.mode === 'radial') {
+                if (signal.progress >= 1.0) {
+                    this.feedforwardSignals.splice(idx, 1);
+                    continue;
+                }
+                const radius = signal.progress * 2.6;
+                this.webNodes.forEach(node => {
+                    const dist = Math.sqrt(node.baseX * node.baseX + node.baseY * node.baseY);
+                    if (Math.abs(dist - radius) < 0.34) {
+                        node.targetActivation = Math.max(
+                            node.targetActivation,
+                            signal.intensity * (1 - Math.abs(dist - radius) / 0.34)
+                        );
+                    }
+                });
+                continue;
+            }
+
+            if (signal.mode === 'scanline') {
+                if (signal.progress >= 1.0) {
+                    this.feedforwardSignals.splice(idx, 1);
+                    continue;
+                }
+                const bandY = (signal.progress - 0.5) * (profile.verticalSpread || 2.4);
+                this.webNodes.forEach(node => {
+                    if (Math.abs(node.baseY - bandY) < 0.24) {
+                        node.targetActivation = Math.max(node.targetActivation, signal.intensity * 0.95);
+                    }
+                });
+                continue;
+            }
+
+            if (signal.progress >= 1.0) {
+                const maxLayer = (profile.layers?.length || 4) - 2;
+                if (signal.layer < maxLayer) {
+                    signal.layer += 1;
+                    signal.progress = 0;
+                } else {
+                    this.feedforwardSignals.splice(idx, 1);
+                }
+                continue;
+            }
+
+            const boost = 0.45 + (1 - signal.progress) * 0.55;
+            this.webNodes.forEach(node => {
+                if (node.layer === signal.layer || node.layer === signal.layer + 1) {
+                    node.targetActivation = Math.max(node.targetActivation, boost * signal.intensity);
+                }
+            });
+        }
     }
 
     /**
      * Drive node activation levels (movement lives on nodes, not orb bounce)
      */
     updateNodeActivations() {
+        const profile = this.activeWebProfile || this.getWebProfile();
         this.activationTick += 1;
 
         this.webNodes.forEach(node => {
@@ -1042,32 +1313,53 @@ class JarvisHUD {
 
             const act = node.activation;
             node.size = node.baseSize * (1 + act * 0.55);
-            node.x = node.baseX;
-            node.y = node.baseY;
+
+            const drift = profile.nodeDrift || 0;
+            if (drift > 0) {
+                const t = this.time + node.driftPhase;
+                node.x = node.baseX + Math.sin(t * 0.7 + node.index * 0.13) * drift;
+                node.y = node.baseY + Math.cos(t * 0.55 + node.index * 0.11) * drift * 0.85;
+            } else {
+                node.x = node.baseX;
+                node.y = node.baseY;
+            }
             node.labelTimer += 0.035;
+
+            const ghostAmbient = profile.ghostAmbient || 0;
+            if (ghostAmbient > 0) {
+                const breathe = ghostAmbient + Math.sin(this.time * 0.85 + node.index * 0.19) * (ghostAmbient * 0.45);
+                node.targetActivation = Math.max(node.targetActivation, breathe);
+            }
         });
 
-        // Feedforward sweep lights current + next layer
-        this.feedforwardSignals.forEach(sig => {
-            const boost = 0.45 + (1 - sig.progress) * 0.55;
-            this.webNodes.forEach(node => {
-                if (node.layer === sig.layer || node.layer === sig.layer + 1) {
-                    node.targetActivation = Math.max(node.targetActivation, boost * sig.intensity);
-                }
-            });
-        });
+        this.applyWebSignalActivations();
 
         const st = this.state;
+        const pulseRate = profile.thinkingPulseRate || DEFAULT_WEB_PROFILE.thinkingPulseRate;
+        const randomFlicker = profile.randomFlicker ?? DEFAULT_WEB_PROFILE.randomFlicker;
+        const layerCount = profile.layers?.length || 4;
+
         if (st === 'thinking') {
-            if (this.activationTick % 18 === 0) {
-                const layer = (Math.floor(this.activationTick / 18) % 4);
+            if (this.activationTick % pulseRate === 0) {
+                const layer = Math.floor(this.activationTick / pulseRate) % layerCount;
                 this.webNodes.filter(n => n.layer === layer).forEach(n => {
                     if (Math.random() < 0.4) n.targetActivation = 0.75 + Math.random() * 0.25;
                 });
             }
-            if (Math.random() < 0.025) {
+            if (Math.random() < randomFlicker) {
                 const hub = this.webNodes[Math.floor(Math.random() * this.webNodes.length)];
                 hub.targetActivation = 1.0;
+            }
+            if (profile.proximityLinks && Math.random() < 0.012) {
+                const anchor = this.webNodes[Math.floor(Math.random() * this.webNodes.length)];
+                this.webNodes.forEach(node => {
+                    const dx = node.baseX - anchor.baseX;
+                    const dy = node.baseY - anchor.baseY;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    if (dist < (profile.proximityDistance || 0.55) && dist > 0.01) {
+                        node.targetActivation = Math.max(node.targetActivation, 0.35 + Math.random() * 0.35);
+                    }
+                });
             }
         } else if (st === 'listening') {
             if (this.activationTick % 22 === 0) {
@@ -1075,7 +1367,7 @@ class JarvisHUD {
                     if (Math.random() < 0.5) n.targetActivation = 0.8;
                 });
             }
-        } else if (st === 'idle' && Math.random() < 0.004) {
+        } else if (st === 'idle' && Math.random() < (profile.topology === 'scatter' ? 0.018 : 0.004)) {
             const n = this.webNodes[Math.floor(Math.random() * this.webNodes.length)];
             n.targetActivation = 0.45 + Math.random() * 0.35;
         }
@@ -1101,59 +1393,44 @@ class JarvisHUD {
     }
 
     /**
-     * Generate structured feedforward neural network nodes (Input -> Hidden 1 -> Hidden 2 -> Output)
+     * Generate structured neural network nodes for the active avatar web profile
      */
-    initWebNodes() {
+    initWebNodes(profile = this.getWebProfile()) {
         this.webNodes = [];
         this.feedforwardSignals = [];
-        
-        // Define LLM-style network layer counts
-        const layers = [8, 12, 12, 8];
-        const layerXPositions = [-1.8, -0.6, 0.6, 1.8];
-        const nodeLabels = {
-            0: ['IN_TOKN', 'POS_EMB', 'VOC_IN', 'ATT_IN', 'CTX_VEC', 'SEN_EMB', 'LAT_IN', 'SRC_VEC'],
-            1: ['Q_PROJ', 'K_PROJ', 'V_PROJ', 'FFN_UP', 'FFN_GAT', 'RE_LU', 'GEL_U', 'LN_RMS', 'SOFT_M', 'DOT_PR', 'MHA_01', 'MHA_02'],
-            2: ['FFN_DN', 'O_PROJ', 'ATT_OUT', 'RES_ADD', 'LN_RMS2', 'DROPOUT', 'CONV_1D', 'ATT_H2', 'ATT_H3', 'MHA_03', 'MHA_04', 'OUT_PROJ'],
-            3: ['TOK_OUT', 'LOGITS', 'PROB_S', 'DEC_OUT', 'SOFT_MX', 'OUT_VEC', 'LAT_OUT', 'END_TOK']
-        };
+        this.activeWebProfile = profile;
 
-        let nodeIndex = 0;
-        for (let l = 0; l < layers.length; l++) {
+        const layers = profile.layers || DEFAULT_WEB_PROFILE.layers;
+        const layerXPositions = profile.layerXPositions || DEFAULT_WEB_PROFILE.layerXPositions;
+        const labels = profile.labels || DEFAULT_WEB_LABELS;
+        const verticalSpread = profile.verticalSpread ?? DEFAULT_WEB_PROFILE.verticalSpread;
+        const nodeIndexRef = { value: 0 };
+        const layerCount = layers.length;
+        const arcBulge = profile.topology === 'grid' ? 0.02 : 0.1;
+
+        if (profile.topology === 'scatter') {
+            const totalNodes = layers.reduce((sum, count) => sum + count, 0);
+            for (let i = 0; i < totalNodes; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const radius = Math.sqrt(Math.random()) * 2.45;
+                const baseX = Math.cos(angle) * radius;
+                const baseY = Math.sin(angle) * radius * 0.88;
+                const layer = Math.min(
+                    layerCount - 1,
+                    Math.floor(((baseX + 2.45) / 4.9) * layerCount)
+                );
+                this.pushWebNode(nodeIndexRef, layer, baseX, baseY, labels, layer, i, profile);
+            }
+            return;
+        }
+
+        for (let l = 0; l < layerCount; l++) {
             const count = layers[l];
-            const baseX = layerXPositions[l];
-            const labels = nodeLabels[l] || [];
-
+            const baseX = layerXPositions[l] ?? layerXPositions[layerXPositions.length - 1];
             for (let i = 0; i < count; i++) {
-                // Distribute vertically with nice spacing
-                const baseY = count > 1 ? (i / (count - 1) - 0.5) * 2.4 : 0;
-                
-                // Add a subtle organic arc (bulging slightly outward at the center)
-                const arcX = baseX * (1.0 + (1.0 - Math.abs(baseY) * 0.15) * 0.1);
-                
-                // Variable neuron bias sizes (Input/Output are standard, hidden hubs can be large or small)
-                let size = Math.random() * 2.5 + 1.8;
-                if (l === 1 || l === 2) {
-                    // Hidden layers have a few highly active hub nodes (bias weights)
-                    if (i % 4 === 0) size = Math.random() * 2.5 + 4.5; // Large hub
-                    else if (i % 3 === 0) size = Math.random() * 1.0 + 1.2; // Small node
-                }
-
-                this.webNodes.push({
-                    index: nodeIndex++,
-                    layer: l,
-                    baseX: arcX,
-                    baseY: baseY,
-                    x: arcX,
-                    y: baseY,
-                    baseSize: size,
-                    size: size,
-                    alpha: Math.random() * 0.35 + 0.55,
-                    activation: 0,
-                    targetActivation: 0,
-                    bias: (Math.random() * 2.0 - 1.0).toFixed(3),
-                    label: i < labels.length ? labels[i] : `NEUR_${l}_${i}`,
-                    labelTimer: Math.random() * 100
-                });
+                const baseY = count > 1 ? (i / (count - 1) - 0.5) * verticalSpread : 0;
+                const arcX = baseX * (1.0 + (1.0 - Math.abs(baseY) * 0.15) * arcBulge);
+                this.pushWebNode(nodeIndexRef, l, arcX, baseY, labels, l, i, profile);
             }
         }
     }
@@ -1372,13 +1649,6 @@ class JarvisHUD {
                 targetWeight4 = 0.32;
                 targetStretchX = 1.02 + Math.sin(mp * 1.4) * 0.04;
                 targetStretchY = 0.99 + Math.cos(mp * 1.3) * 0.03;
-                if (this.avatarForm === 'classic-blob') {
-                    const sweepNow = performance.now();
-                    if (sweepNow - this._lastThinkingSweepAt > 2000) {
-                        this.triggerLayerSweep();
-                        this._lastThinkingSweepAt = sweepNow;
-                    }
-                }
                 break;
             case 'speaking': {
                 const voiceEnvelope = this._audioReactive?.envelope ?? 0;
@@ -1477,6 +1747,14 @@ class JarvisHUD {
         targetStretchY = blobTargets.targetStretchY;
         noiseAmp += blobTargets.noiseAmpBoost || 0;
 
+        const webProfile = this.getWebProfile();
+        const webStateKey = this.state === 'post-talk' ? 'post-talk' : this.state;
+        const webMul = webProfile.stateMultipliers?.[webStateKey]
+            || webProfile.stateMultipliers?.idle
+            || { expansion: 1, opacity: 1 };
+        targetWebExp *= webMul.expansion ?? 1;
+        targetWebOp *= webMul.opacity ?? 1;
+
         // RENDER STEP 2: Subtle Laser Sweep (background scanner layer)
         this.drawLaserSweep(w, h, primaryColor);
 
@@ -1515,13 +1793,17 @@ class JarvisHUD {
             this.drawDataRing(avatarCenterX, avatarCenterY, avatarRadius, primaryColor);
         }
 
-        if (this.state === 'thinking' && Math.random() < 0.016) {
-            this.triggerLayerSweep();
+        if (this.state === 'thinking' && webProfile.sweepIntervalMs) {
+            const sweepNow = performance.now();
+            if (sweepNow - this._lastThinkingSweepAt > webProfile.sweepIntervalMs) {
+                this.triggerLayerSweep(webProfile);
+                this._lastThinkingSweepAt = sweepNow;
+            }
         }
 
         // RENDER STEP 4: Layered Neural Network — fixed to scene center so avatar roam does not drag the web
         if (showNeuralWeb) {
-            this.drawNeuralWeb(sceneCenterX, sceneCenterY, avatarRadius, primaryColor, secondaryColor);
+            this.drawNeuralWeb(sceneCenterX, sceneCenterY, avatarRadius, primaryColor, secondaryColor, webProfile);
         }
 
         // RENDER STEP 5: Central avatar form
@@ -1939,9 +2221,11 @@ class JarvisHUD {
             }
         }
         if (!this.isCreatureAvatar()) {
-            this.triggerLayerSweep();
             this.triggerBlobActionEffects(burstAction);
         }
+        const webProfile = this.getWebProfile();
+        this.triggerLayerSweep(webProfile);
+        this.triggerWebBurst(webProfile, burstAction === 'web-surge' ? 1.2 : 1);
     }
 
     applyBlobActionOverlay(targets) {
@@ -3569,62 +3853,133 @@ class JarvisHUD {
     }
 
     /**
-     * Renders the sprawling layered feedforward neural network representing matrix projections
+     * Renders the sprawling layered neural network representing matrix projections
      */
-    drawNeuralWeb(cx, cy, activeRadius, themeColor, secondaryColor) {
+    drawNeuralWeb(cx, cy, activeRadius, themeColor, secondaryColor, profile = this.activeWebProfile || this.getWebProfile()) {
         const scale = activeRadius * this.webExpansion * 1.5;
+        const lineColor = this.mixWebColor(themeColor, secondaryColor, profile.colorMix);
+        const accentColor = this.mixWebColor(secondaryColor, themeColor, profile.colorMix);
+        const maxLayer = (profile.layers?.length || 4) - 1;
+        const connectionMode = profile.connectionMode || 'layered';
+        const lineAlphaBase = profile.lineAlpha ?? DEFAULT_WEB_PROFILE.lineAlpha;
+        const lineWidthBase = profile.lineWidth ?? DEFAULT_WEB_PROFILE.lineWidth;
+        const dashed = profile.lineStyle === 'dashed';
+        const isGhostWeb = profile.ghostRender || profile.topology === 'scatter';
 
-        // 1. Draw connection lines from Layer N to Layer N+1 (Matrix connection weights)
-        for (let i = 0; i < this.webNodes.length; i++) {
-            const nodeA = this.webNodes[i];
-            const screenAX = cx + nodeA.x * scale;
-            const screenAY = cy + nodeA.y * scale;
-            const actA = nodeA.activation;
+        if (dashed) {
+            this.ctx.setLineDash([4, 7]);
+        }
 
-            if (nodeA.layer < 3) {
-                const nextLayerNodes = this.webNodes.filter(n => n.layer === nodeA.layer + 1);
-                
-                nextLayerNodes.forEach(nodeB => {
-                    const hashVal = Math.sin(nodeA.index * 12.9898 + nodeB.index * 78.233) * 43758.5453;
-                    const weight = (hashVal - Math.floor(hashVal));
-                    const actB = nodeB.activation;
-                    const pathActivation = Math.max(actA, actB);
+        if (isGhostWeb) {
+            const mistRadius = scale * 2.35;
+            const mistGrad = this.ctx.createRadialGradient(cx, cy, scale * 0.2, cx, cy, mistRadius);
+            mistGrad.addColorStop(0, `rgba(${lineColor}, ${this.webOpacity * 0.14})`);
+            mistGrad.addColorStop(0.55, `rgba(${accentColor}, ${this.webOpacity * 0.06})`);
+            mistGrad.addColorStop(1, 'rgba(0,0,0,0)');
+            this.ctx.fillStyle = mistGrad;
+            this.ctx.beginPath();
+            this.ctx.arc(cx, cy, mistRadius, 0, Math.PI * 2);
+            this.ctx.fill();
+        }
 
-                    const screenBX = cx + nodeB.x * scale;
-                    const screenBY = cy + nodeB.y * scale;
+        const drawConnection = (screenAX, screenAY, screenBX, screenBY, weight, pathActivation) => {
+            let baseAlpha = lineAlphaBase * weight;
+            if (pathActivation > 0.15) {
+                baseAlpha = (lineAlphaBase + pathActivation * 0.35) * weight;
+            } else if (this.state === 'thinking' || this.state === 'speaking') {
+                if (weight > 0.65) baseAlpha = (lineAlphaBase + 0.06) * weight;
+            } else if (isGhostWeb) {
+                baseAlpha = lineAlphaBase * weight * 0.85;
+            }
 
-                    let baseAlpha = 0.08 * weight;
-                    if (pathActivation > 0.15) {
-                        baseAlpha = (0.08 + pathActivation * 0.35) * weight;
-                    } else if (this.state === 'thinking' || this.state === 'speaking') {
-                        if (weight > 0.65) baseAlpha = 0.14 * weight;
-                    }
+            const lineAlpha = baseAlpha * this.webOpacity;
+            this.ctx.strokeStyle = `rgba(${lineColor}, ${lineAlpha})`;
+            this.ctx.lineWidth = lineWidthBase + weight * 0.75 + pathActivation * 1.2;
+            this.ctx.beginPath();
+            this.ctx.moveTo(screenAX, screenAY);
+            this.ctx.lineTo(screenBX, screenBY);
+            this.ctx.stroke();
+        };
 
-                    const lineAlpha = baseAlpha * this.webOpacity;
-                    this.ctx.strokeStyle = `rgba(${this.hexToRgb(themeColor)}, ${lineAlpha})`;
-                    this.ctx.lineWidth = 0.35 + weight * 0.75 + pathActivation * 1.2;
-                    
-                    this.ctx.beginPath();
-                    this.ctx.moveTo(screenAX, screenAY);
-                    this.ctx.lineTo(screenBX, screenBY);
-                    this.ctx.stroke();
-                });
+        if (connectionMode === 'layered' || connectionMode === 'both') {
+            for (let i = 0; i < this.webNodes.length; i++) {
+                const nodeA = this.webNodes[i];
+                const screenAX = cx + nodeA.x * scale;
+                const screenAY = cy + nodeA.y * scale;
+                const actA = nodeA.activation;
+
+                if (nodeA.layer < maxLayer) {
+                    const nextLayerNodes = this.webNodes.filter(n => n.layer === nodeA.layer + 1);
+
+                    nextLayerNodes.forEach(nodeB => {
+                        const hashVal = Math.sin(nodeA.index * 12.9898 + nodeB.index * 78.233) * 43758.5453;
+                        const weight = (hashVal - Math.floor(hashVal));
+                        const actB = nodeB.activation;
+                        const pathActivation = Math.max(actA, actB);
+                        const screenBX = cx + nodeB.x * scale;
+                        const screenBY = cy + nodeB.y * scale;
+                        drawConnection(screenAX, screenAY, screenBX, screenBY, weight, pathActivation);
+                    });
+                }
             }
         }
 
-        // 2. Update and draw active layer-propagation sweeps safely using a backward loop
+        if ((connectionMode === 'proximity' || connectionMode === 'both') && profile.proximityLinks) {
+            const proxDist = profile.proximityDistance || DEFAULT_WEB_PROFILE.proximityDistance;
+            for (let i = 0; i < this.webNodes.length; i++) {
+                const nodeA = this.webNodes[i];
+                const screenAX = cx + nodeA.x * scale;
+                const screenAY = cy + nodeA.y * scale;
+                for (let j = i + 1; j < this.webNodes.length; j++) {
+                    const nodeB = this.webNodes[j];
+                    const dx = nodeA.x - nodeB.x;
+                    const dy = nodeA.y - nodeB.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    if (dist > proxDist) continue;
+                    const weight = 1 - dist / proxDist;
+                    const pathActivation = Math.max(nodeA.activation, nodeB.activation);
+                    const screenBX = cx + nodeB.x * scale;
+                    const screenBY = cy + nodeB.y * scale;
+                    const linkWeight = isGhostWeb ? weight * 0.9 : weight * 0.65;
+                    drawConnection(screenAX, screenAY, screenBX, screenBY, linkWeight, Math.max(pathActivation, isGhostWeb ? 0.18 : 0));
+                }
+            }
+        }
+
+        if (dashed) {
+            this.ctx.setLineDash([]);
+        }
+
+        // Draw active sweep particles
         for (let idx = this.feedforwardSignals.length - 1; idx >= 0; idx--) {
             const signal = this.feedforwardSignals[idx];
-            signal.progress += signal.speed;
 
-            if (signal.progress >= 1.0) {
-                if (signal.layer < 2) {
-                    signal.layer += 1;
-                    signal.progress = 0;
-                } else {
-                    this.feedforwardSignals.splice(idx, 1);
-                    continue;
+            if (signal.mode === 'radial') {
+                const radius = signal.progress * 2.6 * scale;
+                this.ctx.strokeStyle = `rgba(${accentColor}, ${this.webOpacity * (isGhostWeb ? 0.5 : 0.35)})`;
+                this.ctx.lineWidth = isGhostWeb ? 2.2 : 1.2;
+                this.ctx.beginPath();
+                this.ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+                this.ctx.stroke();
+                if (isGhostWeb) {
+                    this.ctx.strokeStyle = `rgba(255, 255, 255, ${this.webOpacity * 0.18})`;
+                    this.ctx.lineWidth = 5;
+                    this.ctx.beginPath();
+                    this.ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+                    this.ctx.stroke();
                 }
+                continue;
+            }
+
+            if (signal.mode === 'scanline') {
+                const bandY = cy + (signal.progress - 0.5) * (profile.verticalSpread || 2.4) * scale;
+                this.ctx.strokeStyle = `rgba(${accentColor}, ${this.webOpacity * 0.45})`;
+                this.ctx.lineWidth = 1.4;
+                this.ctx.beginPath();
+                this.ctx.moveTo(cx - scale * 2.4, bandY);
+                this.ctx.lineTo(cx + scale * 2.4, bandY);
+                this.ctx.stroke();
+                continue;
             }
 
             const layerANodes = this.webNodes.filter(n => n.layer === signal.layer);
@@ -3641,13 +3996,12 @@ class JarvisHUD {
                     if (weight > 0.55) {
                         const screenBX = cx + nodeB.x * scale;
                         const screenBY = cy + nodeB.y * scale;
-
                         const px = screenAX + (screenBX - screenAX) * signal.progress;
                         const py = screenAY + (screenBY - screenAY) * signal.progress;
 
                         this.ctx.shadowBlur = 5;
                         this.ctx.shadowColor = secondaryColor;
-                        this.ctx.fillStyle = `rgba(${this.hexToRgb(secondaryColor)}, ${this.webOpacity * 0.9})`;
+                        this.ctx.fillStyle = `rgba(${accentColor}, ${this.webOpacity * 0.9})`;
                         this.ctx.beginPath();
                         this.ctx.arc(px, py, 1.4 + weight * 0.8, 0, Math.PI * 2);
                         this.ctx.fill();
@@ -3657,27 +4011,43 @@ class JarvisHUD {
             });
         }
 
-        // 3. Draw structured layers (size/brightness = activation, not position bounce)
+        const nodeGlow = profile.nodeGlow ?? DEFAULT_WEB_PROFILE.nodeGlow;
+
         this.webNodes.forEach((node) => {
             const screenX = cx + node.x * scale;
             const screenY = cy + node.y * scale;
             const act = node.activation;
             const nodeAlpha = (node.alpha * (0.45 + act * 0.55)) * this.webOpacity;
 
-            if (act > 0.2) {
-                this.ctx.shadowBlur = 6 + act * 14;
-                this.ctx.shadowColor = themeColor;
+            if (isGhostWeb) {
+                const haloR = node.size * (3.2 + act * 1.4);
+                const haloGrad = this.ctx.createRadialGradient(screenX, screenY, 0, screenX, screenY, haloR);
+                haloGrad.addColorStop(0, `rgba(255, 255, 255, ${nodeAlpha * 0.42})`);
+                haloGrad.addColorStop(0.35, `rgba(${lineColor}, ${nodeAlpha * 0.22})`);
+                haloGrad.addColorStop(1, 'rgba(0,0,0,0)');
+                this.ctx.fillStyle = haloGrad;
+                this.ctx.beginPath();
+                this.ctx.arc(screenX, screenY, haloR, 0, Math.PI * 2);
+                this.ctx.fill();
             }
 
-            this.ctx.fillStyle = `rgba(${this.hexToRgb(themeColor)}, ${nodeAlpha})`;
+            if (act > 0.2 || isGhostWeb) {
+                this.ctx.shadowBlur = nodeGlow + act * (nodeGlow * 0.8);
+                this.ctx.shadowColor = isGhostWeb ? 'rgba(255,255,255,0.85)' : themeColor;
+            }
+
+            const coreAlpha = isGhostWeb
+                ? Math.max(nodeAlpha * 0.55, this.webOpacity * 0.12)
+                : nodeAlpha;
+            this.ctx.fillStyle = `rgba(${lineColor}, ${coreAlpha})`;
             this.ctx.beginPath();
-            this.ctx.arc(screenX, screenY, node.size, 0, Math.PI * 2);
+            this.ctx.arc(screenX, screenY, node.size * (isGhostWeb ? 1.15 : 1), 0, Math.PI * 2);
             this.ctx.fill();
             this.ctx.shadowBlur = 0;
 
-            if (act > 0.25 || node.baseSize > 3.0) {
+            if (act > 0.25 || node.baseSize > 3.0 || isGhostWeb) {
                 const ringAlpha = nodeAlpha * (0.35 + act * 0.65);
-                this.ctx.strokeStyle = `rgba(${this.hexToRgb(secondaryColor)}, ${ringAlpha})`;
+                this.ctx.strokeStyle = `rgba(${accentColor}, ${ringAlpha * (isGhostWeb ? 0.75 : 1)})`;
                 this.ctx.lineWidth = 0.6 + act * 1.4;
                 this.ctx.beginPath();
                 this.ctx.arc(screenX, screenY, node.size * (1.8 + act * 0.8), 0, Math.PI * 2);
@@ -3685,55 +4055,51 @@ class JarvisHUD {
             }
 
             if (act > 0.5) {
-                this.ctx.strokeStyle = `rgba(${this.hexToRgb(themeColor)}, ${act * 0.5 * this.webOpacity})`;
+                this.ctx.strokeStyle = `rgba(${lineColor}, ${act * 0.5 * this.webOpacity})`;
                 this.ctx.lineWidth = 0.5;
                 this.ctx.beginPath();
                 this.ctx.arc(screenX, screenY, node.size * 3.2, 0, Math.PI * 2);
                 this.ctx.stroke();
             }
 
-            // Dynamic leaders and activation data in thinking mode
-            if (node.label && this.webOpacity > 0.4) {
-                if (this.state === 'thinking' && this.webOpacity > 0.5) {
-                    const dirX = node.baseX >= 0 ? 1 : -1;
-                    const dirY = node.baseY >= 0 ? 1 : -1;
+            if (!node.label || profile.showLabels === false || this.webOpacity <= 0.4) return;
 
-                    const line1 = 10;
-                    const line2 = 35;
+            if (this.state === 'thinking' && this.webOpacity > 0.5 && profile.showTelemetry !== false) {
+                const dirX = node.baseX >= 0 ? 1 : -1;
+                const dirY = node.baseY >= 0 ? 1 : -1;
+                const line1 = 10;
+                const line2 = 35;
+                const pt1X = screenX + dirX * (node.size * 2.2);
+                const pt1Y = screenY;
+                const pt2X = pt1X + dirX * line1;
+                const pt2Y = pt1Y + dirY * line1;
+                const pt3X = pt2X + dirX * line2;
+                const pt3Y = pt2Y;
 
-                    const pt1X = screenX + dirX * (node.size * 2.2);
-                    const pt1Y = screenY;
-                    const pt2X = pt1X + dirX * line1;
-                    const pt2Y = pt1Y + dirY * line1;
-                    const pt3X = pt2X + dirX * line2;
-                    const pt3Y = pt2Y;
+                if (act > 0.35 || node.index % 7 === 0) {
+                    this.ctx.strokeStyle = `rgba(${lineColor}, ${nodeAlpha * 0.35})`;
+                    this.ctx.lineWidth = 0.7;
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(screenX, screenY);
+                    this.ctx.lineTo(pt2X, pt2Y);
+                    this.ctx.lineTo(pt3X, pt3Y);
+                    this.ctx.stroke();
 
-                    if (act > 0.35 || node.index % 7 === 0) {
-                        this.ctx.strokeStyle = `rgba(${this.hexToRgb(themeColor)}, ${nodeAlpha * 0.35})`;
-                        this.ctx.lineWidth = 0.7;
-                        this.ctx.beginPath();
-                        this.ctx.moveTo(screenX, screenY);
-                        this.ctx.lineTo(pt2X, pt2Y);
-                        this.ctx.lineTo(pt3X, pt3Y);
-                        this.ctx.stroke();
+                    this.ctx.font = '600 7px "Fira Code", monospace';
+                    this.ctx.fillStyle = `rgba(${accentColor}, ${nodeAlpha * 0.75})`;
+                    this.ctx.textAlign = dirX > 0 ? 'left' : 'right';
 
-                        this.ctx.font = '600 7px "Fira Code", monospace';
-                        this.ctx.fillStyle = `rgba(${this.hexToRgb(secondaryColor)}, ${nodeAlpha * 0.75})`;
-                        this.ctx.textAlign = dirX > 0 ? 'left' : 'right';
+                    const liveWeight = (Math.sin(node.labelTimer * 3) * 0.5 + parseFloat(node.bias) * 0.5).toFixed(3);
+                    const sign = liveWeight >= 0 ? '+' : '';
+                    const telemetryText = `${node.label} [w: ${sign}${liveWeight}]`;
 
-                        // Change weight values dynamically in thinking mode
-                        const liveWeight = (Math.sin(node.labelTimer * 3) * 0.5 + parseFloat(node.bias) * 0.5).toFixed(3);
-                        const sign = liveWeight >= 0 ? '+' : '';
-                        const telemetryText = `${node.label} [w: ${sign}${liveWeight}]`;
-                        
-                        this.ctx.fillText(telemetryText, pt2X + dirX * 3, pt2Y - 3);
-                    }
-                } else if (act > 0.2 || node.index % 6 === 0) {
-                    this.ctx.font = '500 7px "Fira Code", monospace';
-                    this.ctx.fillStyle = `rgba(${this.hexToRgb(themeColor)}, ${nodeAlpha * 0.5})`;
-                    this.ctx.textAlign = 'center';
-                    this.ctx.fillText(node.label, screenX, screenY - node.size * 2.5);
+                    this.ctx.fillText(telemetryText, pt2X + dirX * 3, pt2Y - 3);
                 }
+            } else if (act > 0.2 || node.index % 6 === 0) {
+                this.ctx.font = '500 7px "Fira Code", monospace';
+                this.ctx.fillStyle = `rgba(${lineColor}, ${nodeAlpha * 0.5})`;
+                this.ctx.textAlign = 'center';
+                this.ctx.fillText(node.label, screenX, screenY - node.size * 2.5);
             }
         });
     }

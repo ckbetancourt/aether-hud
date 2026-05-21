@@ -84,9 +84,9 @@
 
             <span class="hud-pill-divider" aria-hidden="true"></span>
             
-            <!-- Sleek Disconnect Button -->
-            <button class="hud-disconnect-btn" id="disconnectBtn" title="Clear current session logs">
-                Disconnect
+            <!-- Hermes model switcher -->
+            <button class="hud-model-btn" id="modelBtn" type="button" title="Switch model (Hermes)">
+                <span class="hud-model-btn-label" id="modelBtnLabel">hermes-agent</span>
             </button>
 
             <span class="hud-pill-divider" aria-hidden="true"></span>
@@ -353,6 +353,49 @@
             </div>
         </div>
     </div>
+
+    <!-- ==========================================
+         MODEL PICKER MODAL
+         ========================================== -->
+    <div class="modal-overlay" id="modelPickerModal">
+        <div class="modal-content model-picker-content glass-panel" role="dialog" aria-modal="true" aria-labelledby="modelPickerTitle">
+            <div class="modal-title-bar">
+                <div>
+                    <span class="modal-kicker">Hermes</span>
+                    <h2 id="modelPickerTitle">Switch Model</h2>
+                    <p class="model-picker-current" id="modelPickerCurrent">current: (loading…)</p>
+                </div>
+                <button class="modal-close" id="closeModelPickerBtn" type="button" aria-label="Close model picker">&times;</button>
+            </div>
+
+            <div class="model-picker-search-wrap">
+                <input type="search" class="form-select model-picker-search" id="modelPickerSearch" placeholder="Filter providers and models…" autocomplete="off" />
+            </div>
+
+            <div class="model-picker-hint" id="modelPickerHint" hidden></div>
+            <div class="model-picker-error" id="modelPickerError" hidden></div>
+
+            <div class="model-picker-columns">
+                <div class="model-picker-column">
+                    <div class="model-picker-column-title">Providers</div>
+                    <div class="model-picker-list" id="modelPickerProviders" role="listbox" aria-label="Providers"></div>
+                </div>
+                <div class="model-picker-column">
+                    <div class="model-picker-column-title">Models</div>
+                    <div class="model-picker-list" id="modelPickerModels" role="listbox" aria-label="Models"></div>
+                </div>
+            </div>
+
+            <div class="modal-actions model-picker-actions">
+                <div class="model-picker-action-buttons">
+                    <button class="action-btn btn-secondary" id="cancelModelPickerBtn" type="button">Cancel</button>
+                    <button class="action-btn btn-primary" id="confirmModelPickerBtn" type="button" disabled>Switch</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast-stack" id="toastStack" aria-live="polite" aria-atomic="false"></div>
 
     <!-- Script References -->
     <script src="user-data.js"></script>

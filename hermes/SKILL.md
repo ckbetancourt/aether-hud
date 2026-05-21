@@ -42,3 +42,5 @@ Aether talks to Hermes through the **gateway API** (`hermes gateway`, default `h
 ## Behavior
 
 Aether provides browser speech input, TTS, and HUD rendering. Hermes provides profiles, tools, APIs, memory, and sessions.
+
+Use the **model button** in the bottom control pill to switch Hermes models (same curated lists as `/model` when the dashboard is running).

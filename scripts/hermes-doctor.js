@@ -194,7 +194,20 @@ async function main() {
     warn(`sessions list check failed: HTTP ${sessions.status || 'error'} ${sessions.error || sessions.text || ''}`);
   }
 
-  console.log('\n6. Aether HUD server');
+  console.log('\n6. Hermes dashboard model picker');
+  const modelOptionsUrl = `${HERMES_DASHBOARD_URL}/api/model/options`;
+  warn('Required for HUD model switching: hermes dashboard');
+  const modelOptions = await probeUrl(modelOptionsUrl, null);
+  if (modelOptions.ok) {
+    pass(`model options reachable (${modelOptionsUrl})`);
+  } else if (modelOptions.status === 0) {
+    warn(`cannot reach ${modelOptionsUrl} — HUD model picker falls back to gateway status list`);
+    warn('model switching requires: hermes dashboard');
+  } else {
+    warn(`model options check failed: HTTP ${modelOptions.status || 'error'} ${modelOptions.error || modelOptions.text || ''}`);
+  }
+
+  console.log('\n7. Aether HUD server');
   const aetherStatus = await probeUrl(`http://127.0.0.1:${process.env.PORT || 8787}/api/hermes/status`);
   if (aetherStatus.ok) {
     pass('Aether server running — open http://localhost:8787');

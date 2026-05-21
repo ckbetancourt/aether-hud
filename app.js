@@ -138,6 +138,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const state = {
         sessions: loadSavedSessions(),
         activeSessionId: AetherUserData.getItem('aether_active_session_id') || null,
+        lastHermesSessionId: AetherUserData.getItem('aether_last_hermes_session_id') || null,
         activeHermesProfile: AetherUserData.getItem('aether_hermes_profile') || '',
         hermesStatus: null,
         isVoiceActive: false,
@@ -151,6 +152,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     state.globalAccentTheme = loadGlobalAccentTheme();
     state.globalColorMode = loadColorMode();
     state.avatarForm = loadAvatarForm();
+    AetherUserData.removeItem('aether_session_model_prefs');
+
+    const modelPickerState = {
+        providers: [],
+        currentModel: '',
+        currentProvider: '',
+        selectedSlug: '',
+        selectedModel: '',
+        query: '',
+        loading: false,
+        applying: false,
+        source: '',
+    };
 
     // 2. Instantiate Systems
     const ai = new AIEngine();
@@ -179,7 +193,18 @@ document.addEventListener('DOMContentLoaded', async () => {
         settingsModal: document.getElementById('settingsModal'),
         
         voiceRecognitionBtn: document.getElementById('voiceRecognitionBtn'),
-        disconnectBtn: document.getElementById('disconnectBtn'),
+        modelBtn: document.getElementById('modelBtn'),
+        modelBtnLabel: document.getElementById('modelBtnLabel'),
+        modelPickerModal: document.getElementById('modelPickerModal'),
+        closeModelPickerBtn: document.getElementById('closeModelPickerBtn'),
+        cancelModelPickerBtn: document.getElementById('cancelModelPickerBtn'),
+        confirmModelPickerBtn: document.getElementById('confirmModelPickerBtn'),
+        modelPickerSearch: document.getElementById('modelPickerSearch'),
+        modelPickerCurrent: document.getElementById('modelPickerCurrent'),
+        modelPickerHint: document.getElementById('modelPickerHint'),
+        modelPickerError: document.getElementById('modelPickerError'),
+        modelPickerProviders: document.getElementById('modelPickerProviders'),
+        modelPickerModels: document.getElementById('modelPickerModels'),
         speechSynthesisToggle: document.getElementById('speechSynthesisToggle'),
         historyDrawerToggle: document.getElementById('historyDrawerToggle'),
         historyDrawerCloseBtn: document.getElementById('historyDrawerCloseBtn'),
@@ -221,6 +246,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         composerRefreshBtn: document.getElementById('composerRefreshBtn'),
         avatarFormRow: document.getElementById('avatarFormRow'),
         displayNameInput: document.getElementById('displayNameInput'),
+        toastStack: document.getElementById('toastStack'),
     };
 
     // Initialize speech mute UI button state
@@ -352,23 +378,27 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         });
 
-        // Disconnect reset session
-        elements.disconnectBtn.addEventListener('click', () => {
-            speech.stopSpeaking();
+        // Model picker
+        elements.modelBtn?.addEventListener('click', openModelPicker);
+        elements.closeModelPickerBtn?.addEventListener('click', closeModelPicker);
+        elements.cancelModelPickerBtn?.addEventListener('click', closeModelPicker);
+        elements.confirmModelPickerBtn?.addEventListener('click', confirmModelSwitch);
+        elements.modelPickerModal?.addEventListener('click', (e) => {
+            if (e.target === elements.modelPickerModal) closeModelPicker();
+        });
+        elements.modelPickerSearch?.addEventListener('input', () => {
+            modelPickerState.query = elements.modelPickerSearch.value || '';
+            modelPickerState.selectedModel = '';
+            renderModelPickerProviders();
+            renderModelPickerModels();
+            updateModelPickerConfirmState();
+        });
 
-            appendSystemConsoleLine("[ALERT] Disconnected. Session cleared.");
-
-            const sessIndex = state.sessions.findIndex(s => s.id === state.activeSessionId);
-            if (sessIndex !== -1) {
-                state.sessions[sessIndex].messages = [];
-                schedulePersistSessions();
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && elements.modelPickerModal?.classList.contains('open')) {
+                e.preventDefault();
+                closeModelPicker();
             }
-
-            elements.consoleScroller.innerHTML = `<div class="console-log-line system-line">[SYSTEM] Client connection active. Telemetries initialized.</div>
-            <div class="console-log-line">Welcome back. Awaiting next command instructions...</div>`;
-
-            elements.deckChatScroller.innerHTML = '';
-            appendAssistantChatBubble("Active session cleared. Direct channel active. Awaiting inputs...");
         });
 
         // Voice mic recognition triggers
@@ -616,6 +646,56 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
 
+    function showToast(title, message = '', options = {}) {
+        const stack = elements.toastStack;
+        if (!stack || !title) return null;
+
+        const {
+            variant = 'info',
+            durationMs = 4200,
+        } = options;
+
+        const toast = document.createElement('div');
+        toast.className = `toast ${variant}`;
+        toast.setAttribute('role', 'status');
+
+        const iconName = variant === 'error'
+            ? 'alert-circle'
+            : variant === 'warning'
+                ? 'alert-triangle'
+                : 'sparkles';
+
+        toast.innerHTML = `
+            <i data-lucide="${iconName}" class="toast-icon" aria-hidden="true"></i>
+            <div class="toast-body">
+                <div class="toast-title">${escapeHtml(title)}</div>
+                ${message ? `<div class="toast-message">${escapeHtml(message)}</div>` : ''}
+            </div>
+        `;
+
+        stack.appendChild(toast);
+        if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [toast] });
+
+        requestAnimationFrame(() => {
+            toast.classList.add('visible');
+        });
+
+        const hideTimer = window.setTimeout(() => {
+            toast.classList.add('hiding');
+            toast.classList.remove('visible');
+            window.setTimeout(() => toast.remove(), 240);
+        }, durationMs);
+
+        toast.addEventListener('click', () => {
+            window.clearTimeout(hideTimer);
+            toast.classList.add('hiding');
+            toast.classList.remove('visible');
+            window.setTimeout(() => toast.remove(), 240);
+        });
+
+        return toast;
+    }
+
     function appendSystemConsoleLine(text) {
         const line = document.createElement('div');
         line.className = 'console-log-line';
@@ -651,6 +731,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (sessionIndex === -1 || !hermes) return;
         
         const hermesSessionId = hermes.sessionId || hermes.conversationId || null;
+        if (hermesSessionId) {
+            state.lastHermesSessionId = hermesSessionId;
+            AetherUserData.setItem('aether_last_hermes_session_id', hermesSessionId);
+        }
         
         // If we got a Hermes session ID and the current session has a sess_ prefix,
         // replace the session ID with the canonical Hermes ID
@@ -1545,6 +1629,347 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
 
+    function truncateModelLabel(model, maxLen = 22) {
+        const text = String(model || 'hermes-agent').trim() || 'hermes-agent';
+        if (text.length <= maxLen) return text;
+        return `${text.slice(0, maxLen - 1)}…`;
+    }
+
+    function getResolvedHermesModel() {
+        return {
+            model: state.hermesStatus?.model || modelPickerState.currentModel || 'hermes-agent',
+            provider: state.hermesStatus?.provider || modelPickerState.currentProvider || '',
+        };
+    }
+
+    function syncHermesModelDisplay(model, provider) {
+        if (model) {
+            modelPickerState.currentModel = String(model);
+        }
+        if (provider) {
+            modelPickerState.currentProvider = String(provider);
+        }
+        if (model || provider) {
+            state.hermesStatus = {
+                ...(state.hermesStatus || {}),
+                ...(model ? { model: String(model) } : {}),
+                ...(provider ? { provider: String(provider) } : {}),
+            };
+        }
+        updateModelPickerCurrentLine();
+        updateModelButton();
+    }
+
+    function updateModelButton() {
+        if (!elements.modelBtnLabel) return;
+        const { model } = getResolvedHermesModel();
+        elements.modelBtnLabel.textContent = truncateModelLabel(model);
+        if (elements.modelBtn) {
+            elements.modelBtn.title = `Switch model (Hermes) — ${model}`;
+        }
+    }
+
+    function setModelPickerError(message) {
+        if (!elements.modelPickerError) return;
+        if (message) {
+            elements.modelPickerError.hidden = false;
+            elements.modelPickerError.textContent = message;
+        } else {
+            elements.modelPickerError.hidden = true;
+            elements.modelPickerError.textContent = '';
+        }
+    }
+
+    function setModelPickerHint(message) {
+        if (!elements.modelPickerHint) return;
+        if (message) {
+            elements.modelPickerHint.hidden = false;
+            elements.modelPickerHint.textContent = message;
+        } else {
+            elements.modelPickerHint.hidden = true;
+            elements.modelPickerHint.textContent = '';
+        }
+    }
+
+    function getFilteredProviders() {
+        const needle = modelPickerState.query.trim().toLowerCase();
+        if (!needle) return modelPickerState.providers;
+        return modelPickerState.providers.filter((p) => {
+            return (
+                p.name?.toLowerCase().includes(needle) ||
+                p.slug?.toLowerCase().includes(needle) ||
+                (p.models || []).some((m) => m.toLowerCase().includes(needle))
+            );
+        });
+    }
+
+    function getSelectedProvider() {
+        return modelPickerState.providers.find((p) => p.slug === modelPickerState.selectedSlug) || null;
+    }
+
+    function getFilteredModels(provider) {
+        const models = provider?.models || [];
+        const needle = modelPickerState.query.trim().toLowerCase();
+        if (!needle) return models;
+        return models.filter((m) => m.toLowerCase().includes(needle));
+    }
+
+    function getCustomModelCandidate(provider) {
+        const query = modelPickerState.query.trim();
+        if (!query || !provider) return '';
+        const exact = (provider.models || []).some((m) => m === query);
+        if (exact) return '';
+        return query;
+    }
+
+    function renderModelPickerProviders() {
+        if (!elements.modelPickerProviders) return;
+        const providers = getFilteredProviders();
+        if (modelPickerState.loading) {
+            elements.modelPickerProviders.innerHTML = '<div class="model-picker-empty">loading…</div>';
+            return;
+        }
+        if (!providers.length) {
+            elements.modelPickerProviders.innerHTML = '<div class="model-picker-empty">no providers match</div>';
+            return;
+        }
+        elements.modelPickerProviders.innerHTML = providers
+            .map((p) => {
+                const active = p.slug === modelPickerState.selectedSlug ? ' active' : '';
+                const currentTag = p.is_current ? '<span class="model-picker-tag">current</span>' : '';
+                const count = p.total_models ?? p.models?.length ?? 0;
+                const needsSetup = p.authenticated === false;
+                const suffix = needsSetup
+                    ? (p.auth_type === 'api_key' && p.key_env ? '(no key)' : '(needs setup)')
+                    : `${count} models`;
+                return `<button type="button" class="model-picker-item${active}" data-provider-slug="${escapeHtml(p.slug)}">
+                    <div class="model-picker-item-title">${escapeHtml(p.name || p.slug)} ${currentTag}</div>
+                    <div class="model-picker-item-meta">${escapeHtml(p.slug)} · ${escapeHtml(String(suffix))}</div>
+                </button>`;
+            })
+            .join('');
+
+        elements.modelPickerProviders.querySelectorAll('[data-provider-slug]').forEach((btn) => {
+            btn.addEventListener('click', () => {
+                const slug = btn.getAttribute('data-provider-slug') || '';
+                const provider = modelPickerState.providers.find((p) => p.slug === slug);
+                if (provider?.authenticated === false && !provider?.models?.length) {
+                    setModelPickerHint(
+                        provider.warning ||
+                            `Run \`hermes model\` to configure ${provider.name || slug}.`
+                    );
+                    return;
+                }
+                modelPickerState.selectedSlug = slug;
+                modelPickerState.selectedModel = '';
+                if (provider?.warning) setModelPickerHint(provider.warning);
+                renderModelPickerProviders();
+                renderModelPickerModels();
+                updateModelPickerConfirmState();
+            });
+        });
+    }
+
+    function renderModelPickerModels() {
+        if (!elements.modelPickerModels) return;
+        const provider = getSelectedProvider();
+        if (!provider) {
+            elements.modelPickerModels.innerHTML = '<div class="model-picker-empty">pick a provider →</div>';
+            return;
+        }
+        if (provider.warning) {
+            setModelPickerHint(provider.warning);
+        }
+
+        const models = getFilteredModels(provider);
+        const customModel = getCustomModelCandidate(provider);
+        let html = '';
+
+        if (customModel) {
+            const active = modelPickerState.selectedModel === customModel ? ' active' : '';
+            html += `<button type="button" class="model-picker-item model-picker-item-model model-picker-custom${active}" data-model-id="${escapeHtml(customModel)}">
+                <div class="model-picker-item-title">Use "${escapeHtml(customModel)}" as custom model</div>
+            </button>`;
+        }
+
+        if (!models.length && !customModel) {
+            html += '<div class="model-picker-empty">no models listed for this provider</div>';
+        } else {
+            html += models
+                .map((m) => {
+                    const active = m === modelPickerState.selectedModel ? ' active' : '';
+                    const isCurrent =
+                        m === modelPickerState.currentModel &&
+                        provider.slug === modelPickerState.currentProvider;
+                    const currentTag = isCurrent ? '<span class="model-picker-tag">current</span>' : '';
+                    return `<button type="button" class="model-picker-item model-picker-item-model${active}" data-model-id="${escapeHtml(m)}">
+                        <div class="model-picker-item-title">${escapeHtml(m)} ${currentTag}</div>
+                    </button>`;
+                })
+                .join('');
+        }
+
+        elements.modelPickerModels.innerHTML = html;
+        elements.modelPickerModels.querySelectorAll('[data-model-id]').forEach((btn) => {
+            btn.addEventListener('click', () => {
+                modelPickerState.selectedModel = btn.getAttribute('data-model-id') || '';
+                renderModelPickerModels();
+                updateModelPickerConfirmState();
+            });
+            btn.addEventListener('dblclick', () => {
+                modelPickerState.selectedModel = btn.getAttribute('data-model-id') || '';
+                renderModelPickerModels();
+                updateModelPickerConfirmState();
+                confirmModelSwitch();
+            });
+        });
+    }
+
+    function updateModelPickerConfirmState() {
+        const provider = getSelectedProvider();
+        const canConfirm = Boolean(provider && modelPickerState.selectedModel && !modelPickerState.applying);
+        if (elements.confirmModelPickerBtn) {
+            elements.confirmModelPickerBtn.disabled = !canConfirm;
+        }
+    }
+
+    function updateModelPickerCurrentLine() {
+        if (!elements.modelPickerCurrent) return;
+        const { model, provider } = getResolvedHermesModel();
+        const providerSuffix = provider ? ` · ${provider}` : '';
+        elements.modelPickerCurrent.textContent = `current: ${model || '(unknown)'}${providerSuffix}`;
+    }
+
+    async function loadModelPickerOptions() {
+        modelPickerState.loading = true;
+        setModelPickerError('');
+        renderModelPickerProviders();
+        renderModelPickerModels();
+
+        try {
+            const data = await ai.getHermesModelOptions();
+            modelPickerState.providers = Array.isArray(data.providers) ? data.providers : [];
+            modelPickerState.currentModel = String(data.model || state.hermesStatus?.model || '');
+            modelPickerState.currentProvider = String(data.provider || state.hermesStatus?.provider || '');
+            modelPickerState.source = data.source || '';
+            modelPickerState.selectedSlug =
+                modelPickerState.providers.find((p) => p.is_current)?.slug ||
+                modelPickerState.providers[0]?.slug ||
+                '';
+            modelPickerState.selectedModel = '';
+
+            if (data.hint || data.dashboardError) {
+                if (data.source === 'hermes-cli') {
+                    setModelPickerHint(
+                        data.dashboardError
+                            ? 'Full lists loaded from Hermes CLI (dashboard offline).'
+                            : ''
+                    );
+                } else {
+                    setModelPickerHint(data.hint || data.dashboardError);
+                }
+            } else if (data.source === 'status-fallback') {
+                setModelPickerHint('Limited list from gateway status. Run `hermes dashboard` for full provider lists.');
+            } else {
+                setModelPickerHint('');
+            }
+
+            if (!data.available && !modelPickerState.providers.length) {
+                setModelPickerError(data.error || 'Model options unavailable.');
+            }
+
+            syncHermesModelDisplay(modelPickerState.currentModel, modelPickerState.currentProvider);
+        } catch (err) {
+            setModelPickerError(err.message || 'Failed to load model options.');
+            elements.modelPickerProviders.innerHTML = '<div class="model-picker-empty">failed to load</div>';
+            elements.modelPickerModels.innerHTML = '<div class="model-picker-empty">—</div>';
+        } finally {
+            modelPickerState.loading = false;
+            renderModelPickerProviders();
+            renderModelPickerModels();
+            updateModelPickerConfirmState();
+        }
+    }
+
+    async function openModelPicker() {
+        if (!elements.modelPickerModal) return;
+        modelPickerState.query = '';
+        modelPickerState.applying = false;
+        if (elements.modelPickerSearch) elements.modelPickerSearch.value = '';
+        setModelPickerError('');
+        setModelPickerHint('');
+        updateModelPickerCurrentLine();
+        elements.modelPickerModal.classList.add('open');
+        await loadModelPickerOptions();
+        elements.modelPickerSearch?.focus();
+    }
+
+    function closeModelPicker() {
+        elements.modelPickerModal?.classList.remove('open');
+        modelPickerState.applying = false;
+        updateModelPickerConfirmState();
+    }
+
+    async function confirmModelSwitch() {
+        const provider = getSelectedProvider();
+        if (!provider || !modelPickerState.selectedModel || modelPickerState.applying) return;
+
+        modelPickerState.applying = true;
+        setModelPickerError('');
+        updateModelPickerConfirmState();
+
+        const sessionIds = [...new Set([
+            state.activeSessionId,
+            state.lastHermesSessionId,
+        ].filter(Boolean))];
+        try {
+            const result = await ai.switchHermesModel({
+                provider: provider.slug,
+                model: modelPickerState.selectedModel,
+                sessionId: state.activeSessionId,
+                lastHermesSessionId: state.lastHermesSessionId,
+                sessionIds,
+            });
+
+            syncHermesModelDisplay(
+                result.model || modelPickerState.selectedModel,
+                result.provider || provider.slug,
+            );
+            const switchedModel = result.model || modelPickerState.selectedModel;
+            const switchedProvider = result.provider || provider.slug;
+            const switchLine = `[AGENT] Model switched: ${switchedModel} · Provider: ${switchedProvider}`;
+            appendSystemConsoleLine(switchLine);
+            showToast(
+                `Switched to ${switchedModel}`,
+                'Session cache refreshed. Ask again on your next message to confirm.',
+            );
+            if (result.sessionInvalidated !== false) {
+                appendSystemConsoleLine('[AGENT] Session prompt cache cleared — new model active on your next message.');
+            } else if (sessionIds.length) {
+                appendSystemConsoleLine('[AGENT] Model saved, but no matching Hermes session row was found to refresh.');
+            }
+            if (result.warning) {
+                appendSystemConsoleLine(`[AGENT] ${result.warning}`);
+                showToast('Model switch warning', result.warning, { variant: 'warning', durationMs: 5200 });
+            }
+            closeModelPicker();
+        } catch (err) {
+            const hint = err.hint ? ` ${err.hint}` : '';
+            setModelPickerError(`${err.message || 'Model switch failed.'}${hint}`);
+        } finally {
+            modelPickerState.applying = false;
+            updateModelPickerConfirmState();
+        }
+    }
+
+    function escapeHtml(value) {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
+
     function updateHermesStatusUi(status) {
         updateHermesProfileBadge();
         if (!elements.activeStatusBadge) return;
@@ -1569,6 +1994,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                 elements.hermesStatusText.textContent = 'Hermes mode is disabled. Set AETHER_BACKEND=hermes on the server to use the bridge.';
             }
         }
+
+        updateModelButton();
     }
 
     async function populateHermesProfilesList() {
