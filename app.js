@@ -182,6 +182,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         skillsCounts: null,
         hermesStatus: null,
         isVoiceActive: false,
+        isVoiceConnecting: false,
+        voiceSessionId: 0,
+        voiceListenSession: null,
+        voiceTranscriptParts: [],
+        voiceInterimTranscript: '',
         isVoiceOutputSpeaking: false,
         speechEnabled: JSON.parse(AetherUserData.getItem('aether_speech_enabled') ?? 'true'),
         memory: JSON.parse(AetherUserData.getItem('aether_memory') || '{}'),
@@ -1893,14 +1898,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     function updateMicButtonTitle() {
-        if (!elements.voiceRecognitionBtn) return;
+        if (!elements.voiceRecognitionBtn || state.isVoiceActive || state.isVoiceConnecting) return;
         const behavior = AetherUserData.getItem('aether_voice_input_behavior') || 'auto';
         const isChatCollapsed = elements.hudShell?.classList.contains('chat-collapsed');
-        
+        const cancelHint = ' Tap again while listening to cancel.';
+
         if (behavior === 'llm' || (behavior === 'auto' && isChatCollapsed)) {
-            elements.voiceRecognitionBtn.title = `Speak directly to ${getDisplayName()} (Voice-to-LLM Mode)`;
+            elements.voiceRecognitionBtn.title =
+                `Tap to speak to ${getDisplayName()} (sends when you finish)${cancelHint}`;
         } else {
-            elements.voiceRecognitionBtn.title = "Speak to type in Chat input (Speech-to-Text Mode)";
+            elements.voiceRecognitionBtn.title =
+                `Tap to speak into chat (review before sending)${cancelHint}`;
         }
     }
 
@@ -2741,8 +2749,8 @@ document.addEventListener('DOMContentLoaded', async () => {
        C. Native Web Voice Mode Control
        ========================================================================== */
     function toggleVoiceMode() {
-        if (state.isVoiceActive) {
-            stopVoiceMode();
+        if (state.isVoiceActive || state.isVoiceConnecting) {
+            requestStopVoiceMode();
         } else {
             startVoiceMode();
         }
@@ -2752,75 +2760,183 @@ document.addEventListener('DOMContentLoaded', async () => {
         const btn = elements.voiceRecognitionBtn;
         if (!btn) return;
 
+        const connecting = state.isVoiceConnecting;
         const listening = state.isVoiceActive;
-        btn.classList.toggle('active-mic', listening);
+        btn.classList.toggle('is-listening', listening);
+        btn.classList.toggle('is-connecting', connecting && !listening);
+        btn.classList.toggle('is-off', !listening && !connecting);
         btn.setAttribute('aria-pressed', listening ? 'true' : 'false');
+        btn.setAttribute(
+            'aria-label',
+            listening
+                ? 'Listening — tap to stop'
+                : (connecting ? 'Starting microphone' : 'Tap to speak'),
+        );
+
+        const label = btn.querySelector('.hud-voice-input-label');
+        if (label) {
+            if (listening) label.textContent = 'Listening';
+            else if (connecting) label.textContent = 'Starting';
+            else label.textContent = 'Speak';
+        }
+
+        const icon = btn.querySelector('i');
+        if (icon) {
+            icon.setAttribute('data-lucide', listening ? 'audio-lines' : 'mic');
+        }
 
         if (listening) {
-            btn.title = 'Listening… tap to stop';
+            btn.title = 'Listening… tap again to stop and send';
+        } else if (connecting) {
+            btn.title = 'Starting microphone…';
         } else {
             updateMicButtonTitle();
         }
+
+        if (typeof lucide !== 'undefined') {
+            lucide.createIcons({ root: btn });
+        }
+    }
+
+    function getVoiceTranscriptText() {
+        const finals = state.voiceTranscriptParts.join(' ').trim();
+        const interim = String(state.voiceInterimTranscript || '').trim();
+        return (finals && interim) ? `${finals} ${interim}`.trim() : (finals || interim);
+    }
+
+    function clearVoiceTranscriptState() {
+        state.voiceTranscriptParts = [];
+        state.voiceInterimTranscript = '';
+    }
+
+    function deliverVoiceTranscript(transcript) {
+        const trimmed = String(transcript || '').trim();
+        if (!trimmed) {
+            showToast('No speech detected', 'Tap Speak and try again.', { durationMs: 2600 });
+            return;
+        }
+
+        appendSystemConsoleLine(`[VOICE] Transcribed: "${trimmed}"`);
+
+        const behavior = AetherUserData.getItem('aether_voice_input_behavior') || 'auto';
+        const isChatCollapsed = elements.hudShell?.classList.contains('chat-collapsed');
+
+        if (behavior === 'llm' || (behavior === 'auto' && isChatCollapsed)) {
+            submitDirectTextCommand(trimmed);
+        } else {
+            if (isChatCollapsed) {
+                expandChatColumn();
+            }
+            const currentVal = elements.deckChatInputField.value.trim();
+            if (currentVal) {
+                elements.deckChatInputField.value = `${currentVal} ${trimmed}`;
+            } else {
+                elements.deckChatInputField.value = trimmed;
+            }
+            elements.deckChatInputField.focus();
+            resizeChatComposerInput();
+            appendSystemConsoleLine('[SYSTEM] Transcribed text inserted into chat composer.');
+        }
+    }
+
+    function finishVoiceSession(sessionId, { cancelled = false, error = '' } = {}) {
+        if (sessionId !== state.voiceSessionId) return;
+        state.voiceSessionId += 1;
+
+        const transcript = getVoiceTranscriptText();
+        clearVoiceTranscriptState();
+
+        state.voiceListenSession = null;
+        state.isVoiceActive = false;
+        state.isVoiceConnecting = false;
+        syncMicButtonUi();
+
+        if (visualizer.state === 'listening') {
+            visualizer.setState('idle');
+        }
+
+        const err = String(error || '');
+        if (err && err !== 'aborted') {
+            if (err === 'no-speech') {
+                showToast('No speech detected', 'Tap Speak and try again.', { durationMs: 2600 });
+            } else if (err === 'not-allowed') {
+                showToast('Microphone blocked', 'Allow mic access for this site in browser settings.', {
+                    variant: 'error',
+                    durationMs: 4200,
+                });
+            } else if (err !== 'unsupported') {
+                appendSystemConsoleLine(`[VOICE ERROR] Capture failed: ${err}`);
+                showToast('Voice input failed', err, { variant: 'error', durationMs: 3200 });
+            }
+            return;
+        }
+
+        if (cancelled) {
+            if (transcript) appendSystemConsoleLine('[VOICE] Listening cancelled.');
+            return;
+        }
+
+        deliverVoiceTranscript(transcript);
+    }
+
+    function requestStopVoiceMode() {
+        if (!state.isVoiceActive && !state.isVoiceConnecting) return;
+        speech.stopListening();
     }
 
     function startVoiceMode() {
-        state.isVoiceActive = true;
+        const sessionId = state.voiceSessionId + 1;
+        state.voiceSessionId = sessionId;
+        state.isVoiceConnecting = true;
+        state.isVoiceActive = false;
+        clearVoiceTranscriptState();
         syncMicButtonUi();
-        
+
         speech.stopSpeaking();
         setVoiceOutputSpeaking(false);
-        visualizer.setState('listening');
 
-        appendSystemConsoleLine("[VOICE] Activating speech recognition telemetries...");
+        appendSystemConsoleLine('[VOICE] Activating speech recognition telemetries...');
 
-        speech.startListening(
-            // onStart
-            () => {
-                appendSystemConsoleLine("[VOICE] Microphone connected. Listening...");
+        const listenSession = speech.startListening({
+            onStart: () => {
+                if (sessionId !== state.voiceSessionId) return;
+                state.isVoiceConnecting = false;
+                state.isVoiceActive = true;
+                syncMicButtonUi();
+                visualizer.setState('listening');
+                appendSystemConsoleLine('[VOICE] Microphone connected. Listening…');
             },
-            // onResult
-            (transcript) => {
-                appendSystemConsoleLine(`[VOICE] Transcribed: "${transcript}"`);
-                stopVoiceMode();
-
-                const behavior = AetherUserData.getItem('aether_voice_input_behavior') || 'auto';
-                const isChatCollapsed = elements.hudShell?.classList.contains('chat-collapsed');
-
-                if (behavior === 'llm' || (behavior === 'auto' && isChatCollapsed)) {
-                    submitDirectTextCommand(transcript);
-                } else {
-                    if (isChatCollapsed) {
-                        expandChatColumn();
-                    }
-                    const currentVal = elements.deckChatInputField.value.trim();
-                    if (currentVal) {
-                        elements.deckChatInputField.value = currentVal + " " + transcript;
-                    } else {
-                        elements.deckChatInputField.value = transcript;
-                    }
-                    elements.deckChatInputField.focus();
-                    resizeChatComposerInput();
-                    appendSystemConsoleLine("[SYSTEM] Transcribed text inserted into chat composer.");
+            onFinal: (chunk) => {
+                if (sessionId !== state.voiceSessionId) return;
+                const piece = String(chunk || '').trim();
+                if (piece) state.voiceTranscriptParts.push(piece);
+            },
+            onInterim: (interim) => {
+                if (sessionId !== state.voiceSessionId) return;
+                state.voiceInterimTranscript = interim || '';
+            },
+            onEnd: () => {
+                finishVoiceSession(sessionId);
+            },
+            onError: (err) => {
+                if (sessionId !== state.voiceSessionId) return;
+                const code = String(err || '');
+                if (code === 'aborted') {
+                    finishVoiceSession(sessionId, { cancelled: true });
+                    return;
                 }
+                finishVoiceSession(sessionId, { error: code });
             },
-            // onEnd
-            () => {
-                stopVoiceMode();
-            },
-            // onError
-            (err) => {
-                console.error("Vocal recognition failure: ", err);
-                appendSystemConsoleLine(`[VOICE ERROR] Capture failed: ${err}`);
-                stopVoiceMode();
-            }
-        );
+        });
+        state.voiceListenSession = listenSession;
+
+        if (listenSession === null) {
+            finishVoiceSession(sessionId, { error: 'unsupported' });
+        }
     }
 
     function stopVoiceMode() {
-        state.isVoiceActive = false;
-        syncMicButtonUi();
-        speech.stopListening();
-        visualizer.setState('idle');
+        requestStopVoiceMode();
     }
 
     function syncSpeechToggleUi() {

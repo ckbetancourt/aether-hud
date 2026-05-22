@@ -309,6 +309,7 @@
                                 <option value="llm">Always send directly to LLM</option>
                             </select>
                             <div class="form-hint">Control whether spoken audio queries Aether immediately or populates the composer for review.</div>
+                            <div class="form-hint">The HUD mic button is tap-to-toggle: tap once to start listening, speak, then tap again to stop and send. It stays active until you tap again or finish your phrase.</div>
                         </div>
                     </section>
 
@@ -512,8 +513,9 @@
             <div class="hud-orb-label" id="hudOrbLabel">STARTING UP</div>
             <footer class="hud-controls-pill glass-panel">
             <!-- Voice input (microphone) -->
-            <button class="hud-circle-btn mic-btn" id="voiceRecognitionBtn" type="button" aria-pressed="false" title="Activate voice telemetry mode">
-                <i data-lucide="mic" style="width: 18px; height: 18px;"></i>
+            <button class="hud-voice-input-btn is-off" id="voiceRecognitionBtn" type="button" aria-pressed="false" title="Tap to speak — tap again while listening to cancel">
+                <i data-lucide="mic" class="hud-voice-input-icon"></i>
+                <span class="hud-voice-input-label" id="voiceRecognitionBtnLabel">Speak</span>
             </button>
 
             <span class="hud-pill-divider" aria-hidden="true"></span>

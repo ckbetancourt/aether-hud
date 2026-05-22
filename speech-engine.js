@@ -66,45 +66,105 @@ class SpeechEngine {
     }
 
     this.recognition = new SpeechRecognition();
-    this.recognition.continuous = false;
-    this.recognition.interimResults = false;
+    this.recognition.continuous = true;
+    this.recognition.interimResults = true;
     this.recognition.lang = 'en-US';
+    this._listenSession = 0;
   }
 
-  startListening(onStart, onResult, onEnd, onError) {
+  startListening(handlers = {}) {
+    const onStart = handlers.onStart;
+    const onFinal = handlers.onFinal;
+    const onInterim = handlers.onInterim;
+    const onEnd = handlers.onEnd;
+    const onError = handlers.onError;
+
     if (!this.recognition) {
-      onError('Speech recognition is not supported in this browser. Please use Google Chrome or Microsoft Edge.');
-      return;
+      if (onError) onError('Speech recognition is not supported in this browser. Please use Google Chrome or Microsoft Edge.');
+      return null;
     }
 
+    const session = ++this._listenSession;
+
     this.recognition.onstart = () => {
+      if (session !== this._listenSession) return;
       if (onStart) onStart();
     };
 
     this.recognition.onresult = (event) => {
-      const transcript = event.results[0][0].transcript;
-      if (onResult) onResult(transcript);
+      if (session !== this._listenSession) return;
+      let interim = '';
+      for (let i = event.resultIndex; i < event.results.length; i += 1) {
+        const piece = event.results[i][0]?.transcript || '';
+        if (event.results[i].isFinal) {
+          if (onFinal && piece) onFinal(piece);
+        } else {
+          interim += piece;
+        }
+      }
+      if (onInterim) onInterim(interim.trim());
     };
 
     this.recognition.onerror = (event) => {
-      if (onError) onError(event.error);
+      if (session !== this._listenSession) return;
+      if (onError) onError(event.error || 'unknown');
     };
 
     this.recognition.onend = () => {
+      if (session !== this._listenSession) return;
       if (onEnd) onEnd();
     };
 
     try {
       this.recognition.start();
     } catch (e) {
+      if (/already started/i.test(String(e?.message || e))) {
+        try {
+          this.recognition.stop();
+        } catch (_) {
+          /* ignore */
+        }
+        window.setTimeout(() => {
+          if (session !== this._listenSession) return;
+          try {
+            this.recognition.start();
+          } catch (retryErr) {
+            this._listenSession += 1;
+            if (onError) onError(String(retryErr?.message || retryErr || 'Microphone start failed.'));
+          }
+        }, 120);
+        return session;
+      }
+      this._listenSession += 1;
       console.error('Speech Recognition start failed: ', e);
       if (onError) onError('Microphone already active or permission denied.');
     }
+
+    return session;
   }
 
   stopListening() {
     if (this.recognition) {
-      this.recognition.stop();
+      try {
+        this.recognition.stop();
+      } catch (_) {
+        try {
+          this.recognition.abort();
+        } catch (_) {
+          /* ignore */
+        }
+      }
+    }
+  }
+
+  cancelListening() {
+    this._listenSession += 1;
+    if (this.recognition) {
+      try {
+        this.recognition.abort();
+      } catch (_) {
+        /* ignore */
+      }
     }
   }
 
