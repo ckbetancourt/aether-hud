@@ -18,6 +18,65 @@
             }
         })();
     </script>
+    <style>
+        /* Hard refresh: HUD layout without chat until app boot finishes */
+        #hudShell.boot-loading {
+            padding: 0 !important;
+        }
+        #hudShell.boot-loading .chat-column {
+            flex: 0 0 0 !important;
+            width: 0 !important;
+            min-width: 0 !important;
+            opacity: 0 !important;
+            pointer-events: none !important;
+            overflow: hidden !important;
+            border-width: 0 !important;
+        }
+        .hud-boot-splash {
+            position: absolute;
+            inset: 0;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 25;
+            pointer-events: none;
+        }
+        #hudShell.boot-loading .hud-boot-splash {
+            display: flex;
+        }
+        .hud-boot-splash-card {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+            padding: 22px 30px;
+            border-radius: 14px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            background: rgba(0, 0, 0, 0.42);
+        }
+        .hud-boot-spinner {
+            width: 26px;
+            height: 26px;
+            border: 2px solid rgba(255, 255, 255, 0.12);
+            border-top-color: #e63946;
+            border-radius: 50%;
+            animation: hudBootSpin 0.85s linear infinite;
+        }
+        @keyframes hudBootSpin {
+            to { transform: rotate(360deg); }
+        }
+        .hud-boot-title {
+            font-size: 0.72rem;
+            font-weight: 700;
+            letter-spacing: 0.16em;
+            text-transform: uppercase;
+            color: rgba(255, 255, 255, 0.92);
+        }
+        .hud-boot-sub {
+            font-size: 0.78rem;
+            color: rgba(255, 255, 255, 0.55);
+        }
+    </style>
     <link rel="stylesheet" href="styles.css">
     <!-- Lucide Icons CDN -->
     <script src="https://unpkg.com/lucide@latest"></script>
@@ -32,7 +91,7 @@
     <!-- ==========================================
          HOLOGRAPHIC H.U.D. INTERFACE CONTAINER
          ========================================== -->
-    <div class="hud-shell" id="hudShell">
+    <div class="hud-shell boot-loading chat-collapsed" id="hudShell">
     <div class="hud-container hud-main" id="hudMain">
 
         <!-- 1. TOP HEADER STATUS BAR -->
@@ -45,9 +104,9 @@
             <div class="hud-status-area">
                 <span class="badge badge-model" id="activeProfileBadge">HERMES-DEFAULT</span>
                 <div class="status-telemetry-group">
-                    <span class="badge badge-status" id="activeStatusBadge">
-                        <span class="pulse-dot"></span>
-                        CONNECTED
+                    <span class="badge badge-status is-booting" id="activeStatusBadge">
+                        <span class="pulse-dot pulse-dot-boot"></span>
+                        INITIALIZING
                     </span>
                     <span class="badge badge-telemetry" id="consoleLatency">LATENCY: 18ms</span>
                 </div>
@@ -91,9 +150,18 @@
             <span class="dashboard-splash-text" id="dashboardSplashText">Starting Hermes dashboard…</span>
         </div>
 
+        <!-- Boot splash: visible while .boot-loading is on the shell -->
+        <div class="hud-boot-splash" id="hudBootSplash" aria-live="polite" aria-busy="true">
+            <div class="hud-boot-splash-card">
+                <div class="hud-boot-spinner" aria-hidden="true"></div>
+                <span class="hud-boot-title" id="bootSplashTitle">Starting Aether</span>
+                <span class="hud-boot-sub" id="bootSplashSub">Loading interface…</span>
+            </div>
+        </div>
+
         <!-- 4. BOTTOM STATUS + CONTROL PILL -->
         <div class="hud-bottom-area">
-            <div class="hud-orb-label" id="hudOrbLabel">AETHER ACTIVE</div>
+            <div class="hud-orb-label" id="hudOrbLabel">STARTING UP</div>
             <footer class="hud-controls-pill glass-panel">
             <!-- Voice Recognition microphone -->
             <button class="hud-circle-btn mic-btn" id="voiceRecognitionBtn" title="Activate voice telemetry mode">

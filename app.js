@@ -267,6 +267,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         newChatBtn: document.getElementById('newChatBtn'),
 
         hudShell: document.getElementById('hudShell'),
+        hudBootSplash: document.getElementById('hudBootSplash'),
+        bootSplashTitle: document.getElementById('bootSplashTitle'),
+        bootSplashSub: document.getElementById('bootSplashSub'),
 
         // Terminal Console Log widgets
         consoleLatency: document.getElementById('consoleLatency'),
@@ -327,6 +330,25 @@ document.addEventListener('DOMContentLoaded', async () => {
         return `Welcome. I am ${getDisplayName()}. Press Space to open chat or use the mic to coordinate telemetries.`;
     }
 
+    function setBootStatus(subtitle, title = 'Starting Aether') {
+        if (elements.bootSplashSub && subtitle) {
+            elements.bootSplashSub.textContent = subtitle;
+        }
+        if (elements.bootSplashTitle && title) {
+            elements.bootSplashTitle.textContent = title;
+        }
+        if (elements.activeStatusBadge) {
+            elements.activeStatusBadge.classList.add('is-booting');
+            elements.activeStatusBadge.innerHTML = '<span class="pulse-dot pulse-dot-boot"></span> INITIALIZING';
+        }
+        if (elements.hudOrbLabel) {
+            elements.hudOrbLabel.textContent = 'STARTING UP';
+            elements.hudOrbLabel.style.color = 'var(--text-muted)';
+        }
+    }
+
+    setBootStatus('Loading your preferences…');
+
     function applyDisplayName() {
         const name = getDisplayName();
         if (elements.brandName) {
@@ -354,7 +376,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     updateWorkspacePinBadge();
     renderHistorySessions();
     startLatencyTelemetryMock();
+    setBootStatus('Connecting to Hermes…');
     await refreshHermesIntegration();
+    setBootStatus('Loading session archive…');
 
     // Load active session or spawn new (after Hermes sync so archives are current)
     if (!state.activeSessionId) {
@@ -375,6 +399,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     } else {
         expandChatColumn(false);
     }
+
+    elements.hudBootSplash?.setAttribute('aria-busy', 'false');
+    elements.hudShell?.classList.remove('boot-loading');
+    elements.activeStatusBadge?.classList.remove('is-booting');
+    updateHermesStatusUi(state.hermesStatus);
+    visualizer.setState('idle');
 
     scheduleDeferredDashboardBootstrap();
 
@@ -466,11 +496,20 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // Global shortcut: focus chat composer (expand column if collapsed)
         window.addEventListener('keydown', (e) => {
-            const activeTag = document.activeElement.tagName.toLowerCase();
-            const typingInComposer = activeTag === 'textarea' && document.activeElement === elements.deckChatInputField;
+            const activeEl = document.activeElement;
+            const activeTag = activeEl?.tagName?.toLowerCase() || '';
+            const typingInComposer = activeTag === 'textarea' && activeEl === elements.deckChatInputField;
             const collapsed = elements.hudShell?.classList.contains('chat-collapsed');
+            const typingInKanban = !!activeEl?.closest?.('.aether-kanban, .kanban-drawer-root, .ak-inline-create');
+            const typingInFormField = ['input', 'textarea', 'select'].includes(activeTag)
+                || !!activeEl?.isContentEditable
+                || !!activeEl?.closest?.('.model-picker-modal, .settings-modal, .ak-inline-create');
 
-            if (activeTag !== 'input' && activeTag !== 'textarea') {
+            if (state.kanbanMode || typingInKanban) {
+                return;
+            }
+
+            if (!typingInFormField) {
                 if (e.key === ' ' || e.key === 'Spacebar') {
                     e.preventDefault();
                     expandChatColumn();
@@ -2234,6 +2273,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                 appendSystemConsoleLine(`[AGENT] Hermes bridge connected: ${status.model || 'default model'}`);
                 // Fetch profiles and populate the dropdown
                 populateHermesProfiles();
+                if (elements.hudShell?.classList.contains('boot-loading')) {
+                    setBootStatus('Syncing Hermes sessions…');
+                }
                 await syncHermesSessions();
             } else if (status.enabled) {
                 appendSystemConsoleLine(`[AGENT] Hermes bridge unavailable: ${status.error || status.reason || 'status probe failed'}`);
@@ -3104,6 +3146,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     function updateHermesStatusUi(status) {
         updateHermesProfileBadge();
         if (!elements.activeStatusBadge) return;
+        if (elements.hudShell?.classList.contains('boot-loading')) return;
         if (status?.enabled && status.connected) {
             elements.activeStatusBadge.innerHTML = '<span class="pulse-dot"></span> HERMES';
         } else if (status?.enabled) {

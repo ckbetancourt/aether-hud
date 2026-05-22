@@ -8,7 +8,7 @@ import os
 import sys
 import traceback
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 HERMES_HOME = Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes"))
 HERMES_AGENT_ROOT = Path(os.environ.get("HERMES_AGENT_ROOT", HERMES_HOME / "hermes-agent"))
@@ -23,6 +23,22 @@ def _load_plugin_api():
         raise RuntimeError("Failed to load kanban plugin_api module spec")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
+    types_ns = {
+        "Optional": Optional,
+        "Any": Any,
+        "list": list,
+        "str": str,
+        "int": int,
+        "bool": bool,
+        "dict": dict,
+    }
+    for attr in dir(mod):
+        obj = getattr(mod, attr)
+        if isinstance(obj, type) and hasattr(obj, "model_rebuild"):
+            try:
+                obj.model_rebuild(_types_namespace=types_ns)
+            except Exception:
+                pass
     return mod
 
 
@@ -134,8 +150,51 @@ def dispatch_op(api, op: str, params: dict[str, Any]) -> dict[str, Any]:
             ),
         }
     if op == "create_task":
-        body = api.CreateTaskBody(**rest.get("body", rest))
-        return {"ok": True, **api.create_task(body, board=board)}
+        raw = dict(rest.get("body", rest))
+        title = str(raw.get("title") or "").strip()
+        if not title:
+            raise ValueError("title is required")
+        conn = api._conn(board=api._resolve_board(board))
+        try:
+            from hermes_cli import kanban_db
+
+            parents = raw.get("parents") or []
+            if isinstance(parents, str):
+                parents = [parents] if parents else []
+            skills = raw.get("skills")
+            if isinstance(skills, str):
+                skills = [s.strip() for s in skills.split(",") if s.strip()]
+
+            task_id = kanban_db.create_task(
+                conn,
+                title=title,
+                body=raw.get("body"),
+                assignee=raw.get("assignee"),
+                created_by="dashboard",
+                workspace_kind=raw.get("workspace_kind") or "scratch",
+                workspace_path=raw.get("workspace_path"),
+                tenant=raw.get("tenant"),
+                priority=int(raw.get("priority") or 0),
+                parents=list(parents),
+                triage=bool(raw.get("triage", False)),
+                idempotency_key=raw.get("idempotency_key"),
+                max_runtime_seconds=raw.get("max_runtime_seconds"),
+                skills=skills,
+            )
+            task = kanban_db.get_task(conn, task_id)
+            result: dict[str, Any] = {"ok": True, "task": api._task_dict(task) if task else None}
+            if task and task.status == "ready" and task.assignee:
+                try:
+                    from hermes_cli.kanban import _check_dispatcher_presence
+
+                    running, message = _check_dispatcher_presence()
+                    if not running and message:
+                        result["warning"] = message
+                except Exception:
+                    pass
+            return result
+        finally:
+            conn.close()
     if op == "update_task":
         body = api.UpdateTaskBody(**rest.get("body", rest))
         return {"ok": True, **api.update_task(rest["task_id"], body, board=board)}

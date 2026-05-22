@@ -349,8 +349,8 @@ class AIEngine {
         }
         const response = await fetch(url, init);
         const data = await response.json().catch(() => ({}));
-        if (!response.ok && data.ok !== true && !data.columns) {
-            throw new Error(data.error || data.message || `HTTP ${response.status}`);
+        if (!response.ok && data.ok !== true && !data.columns && !data.task) {
+            throw new Error(data.error || data.message || data.detail || `HTTP ${response.status}`);
         }
         return data;
     }
@@ -391,6 +391,25 @@ class AIEngine {
         });
     }
 
+    getNativeKanbanTaskLog(board, taskId, tail = 100000) {
+        return this.fetchKanbanNative(`/api/hermes/kanban/tasks/${encodeURIComponent(taskId)}/log`, {
+            board,
+            query: { tail: String(tail) },
+        });
+    }
+
+    addNativeKanbanLink(board, body) {
+        return this.fetchKanbanNative('/api/hermes/kanban/links', { method: 'POST', board, body });
+    }
+
+    deleteNativeKanbanLink(board, parentId, childId) {
+        return this.fetchKanbanNative('/api/hermes/kanban/links', {
+            method: 'DELETE',
+            board,
+            query: { parent_id: parentId, child_id: childId },
+        });
+    }
+
     specifyNativeKanbanTask(board, taskId, body = {}) {
         return this.fetchKanbanNative(`/api/hermes/kanban/tasks/${encodeURIComponent(taskId)}/specify`, {
             method: 'POST',
@@ -401,6 +420,22 @@ class AIEngine {
 
     decomposeNativeKanbanTask(board, taskId, body = {}) {
         return this.fetchKanbanNative(`/api/hermes/kanban/tasks/${encodeURIComponent(taskId)}/decompose`, {
+            method: 'POST',
+            board,
+            body,
+        });
+    }
+
+    reclaimNativeKanbanTask(board, taskId, body = {}) {
+        return this.fetchKanbanNative(`/api/hermes/kanban/tasks/${encodeURIComponent(taskId)}/reclaim`, {
+            method: 'POST',
+            board,
+            body,
+        });
+    }
+
+    reassignNativeKanbanTask(board, taskId, body = {}) {
+        return this.fetchKanbanNative(`/api/hermes/kanban/tasks/${encodeURIComponent(taskId)}/reassign`, {
             method: 'POST',
             board,
             body,

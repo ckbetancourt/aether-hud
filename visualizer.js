@@ -515,11 +515,12 @@ class JarvisHUD {
 
     getKanbanStageTarget() {
         const t = this.time + this._kanbanDriftPhase;
+        // Pixel offsets — kept small; kanban mode skips stage roam scaling.
         return {
-            x: Math.sin(t * 0.72) * 5 + Math.sin(t * 0.19) * 2,
-            y: Math.cos(t * 0.58) * 4 + Math.sin(t * 0.24) * 2,
-            rotate: Math.sin(t * 0.35) * 1.5,
-            scale: 1 + Math.sin(t * 0.44) * 0.02,
+            x: Math.sin(t * 0.72) * 2.5 + Math.sin(t * 0.19) * 0.8,
+            y: Math.cos(t * 0.58) * 2 + Math.sin(t * 0.24) * 0.6,
+            rotate: Math.sin(t * 0.35) * 0.9,
+            scale: 1 + Math.sin(t * 0.44) * 0.012,
         };
     }
 
@@ -964,7 +965,15 @@ class JarvisHUD {
 
         if (this.presentationMode === 'kanban') {
             target = this.getKanbanStageTarget();
-        } else if (this.state === 'thinking') {
+            const ease = 0.045;
+            this.stageMotion.x += (target.x - this.stageMotion.x) * ease;
+            this.stageMotion.y += (target.y - this.stageMotion.y) * ease;
+            this.stageMotion.rotate += (target.rotate - this.stageMotion.rotate) * ease;
+            this.stageMotion.scale += (target.scale - this.stageMotion.scale) * ease;
+            return;
+        }
+
+        if (this.state === 'thinking') {
             const stageId = behavior?.thinkingLayers?.stage || 'th-stage-orbit';
             target = this.getThinkingStageTarget(this.avatarForm, stageId);
         } else if (this.state === 'post-talk' && behavior?.actionStartedAt) {
@@ -2412,7 +2421,11 @@ class JarvisHUD {
             }
             const phaseRange = this.getActionRangeForState(this.state, profile);
             if (now >= behavior.nextPhaseActionAt && behavior.action === 'none') {
-                this.triggerPhaseAvatarAction(now);
+                if (this.presentationMode !== 'kanban' || this.state !== 'idle') {
+                    this.triggerPhaseAvatarAction(now);
+                } else {
+                    behavior.nextPhaseActionAt = now + this.randomInRange(7000, 12000);
+                }
             }
 
             if (behavior.action !== 'none') {
