@@ -636,6 +636,28 @@ class JarvisHUD {
         return Math.min(w, h) * 0.24;
     }
 
+    getLayoutMetrics(w, h) {
+        const minDim = Math.min(w, h);
+        if (this.presentationMode === 'kanban') {
+            return {
+                coreBaseRadius: minDim * 0.34,
+                hudRingScale: 0.78,
+                noiseScale: 0.58,
+                parallaxScale: 0.35,
+                compactHud: true,
+                skipBackgroundWeb: false,
+            };
+        }
+        return {
+            coreBaseRadius: Math.max(90, minDim * 0.137),
+            hudRingScale: 1,
+            noiseScale: 1,
+            parallaxScale: 1,
+            compactHud: false,
+            skipBackgroundWeb: false,
+        };
+    }
+
     getThinkingStageTarget(form = this.avatarForm, stageId = null) {
         const profile = this.getAvatarBehaviorProfile(form);
         const roam = profile?.stageRoam || { thinkAmp: 1, thinkSpeed: 1, thinkRotate: 1, thinkMotionScale: 0.52 };
@@ -1482,9 +1504,11 @@ class JarvisHUD {
     resize() {
         if (!this.canvas) return;
         const rect = this.canvas.getBoundingClientRect();
-        this.canvas.width = rect.width * window.devicePixelRatio;
-        this.canvas.height = rect.height * window.devicePixelRatio;
-        this.ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+        const dpr = window.devicePixelRatio || 1;
+        this.canvas.width = Math.max(1, Math.round(rect.width * dpr));
+        this.canvas.height = Math.max(1, Math.round(rect.height * dpr));
+        this.ctx.setTransform(1, 0, 0, 1, 0, 0);
+        this.ctx.scale(dpr, dpr);
     }
 
     /**
@@ -1602,15 +1626,19 @@ class JarvisHUD {
     animate() {
         if (!this.canvas) return;
 
-        const w = this.canvas.width / window.devicePixelRatio;
-        const h = this.canvas.height / window.devicePixelRatio;
+        const dpr = window.devicePixelRatio || 1;
+        const w = this.canvas.width / dpr;
+        const h = this.canvas.height / dpr;
+        const layout = this.getLayoutMetrics(w, h);
+        this.coreBaseRadius = layout.coreBaseRadius;
         
         // Easing interpolation for parallax coordinates (lag effect makes it feel organic!)
         this.parallaxX = this.parallaxX * 0.92 + this.mouseX * 0.08;
         this.parallaxY = this.parallaxY * 0.92 + this.mouseY * 0.08;
 
-        const sceneCenterX = w / 2 + this.parallaxX * 25;
-        const sceneCenterY = h / 2 + this.parallaxY * 25;
+        const parallaxReach = 25 * layout.parallaxScale;
+        const sceneCenterX = w / 2 + this.parallaxX * parallaxReach;
+        const sceneCenterY = h / 2 + this.parallaxY * parallaxReach;
 
         this.updateAvatarStageMotion(w, h);
 
@@ -1639,14 +1667,16 @@ class JarvisHUD {
         const glowColor = this.accentTheme.glow;
         
         // RENDER STEP 1: Drawing 3D Parallax Constellation Lattice
-        this.drawBackgroundWeb(w, h, primaryColor);
+        if (!layout.skipBackgroundWeb) {
+            this.drawBackgroundWeb(w, h, primaryColor, layout.compactHud ? 0.45 : 1);
+        }
 
         // Calculate dynamic orb sizes & undulation metrics based on state with smooth interpolation
         let targetScale = 1.0;
         let targetWebExp = 1.0;
         let targetWebOp = 0.22;
         let scaleSpeed = 0.08;
-        let noiseAmp = 18;
+        let noiseAmp = 18 * layout.noiseScale;
 
         let targetLobe1 = 3.0, targetLobe2 = 5.0, targetLobe3 = 2.0, targetLobe4 = 7.0;
         let targetWeight1 = 0.35, targetWeight2 = 0.28, targetWeight3 = 0.25, targetWeight4 = 0.22;
@@ -1830,8 +1860,15 @@ class JarvisHUD {
 
         // RENDER STEP 3: Concentric HUD Rings and Rotating Hex Data Dials (hidden while speaking)
         if (this.state !== 'speaking' || isCreature) {
-            this.drawHUDRings(avatarCenterX, avatarCenterY, avatarRadius, primaryColor, glowColor);
-            this.drawDataRing(avatarCenterX, avatarCenterY, avatarRadius, primaryColor);
+            this.drawHUDRings(
+                avatarCenterX,
+                avatarCenterY,
+                avatarRadius * layout.hudRingScale,
+                primaryColor,
+                glowColor,
+                layout.compactHud
+            );
+            this.drawDataRing(avatarCenterX, avatarCenterY, avatarRadius * layout.hudRingScale, primaryColor);
         }
 
         if (this.state === 'thinking' && webProfile.sweepIntervalMs) {
@@ -1922,7 +1959,7 @@ class JarvisHUD {
     /**
      * Renders background 3D parallax ambient constellation web
      */
-    drawBackgroundWeb(width, height, color) {
+    drawBackgroundWeb(width, height, color, opacityScale = 1) {
         this.ctx.shadowBlur = 0;
         
         // 1. Calculate projected coordinates for all nodes first
@@ -1969,7 +2006,7 @@ class JarvisHUD {
 
                 // If close enough, draw ultra-fine link
                 if (distance < 130) {
-                    const lineAlpha = (1.0 - distance / 130) * 0.08 * Math.min(pA.alpha, pB.alpha);
+                    const lineAlpha = (1.0 - distance / 130) * 0.08 * Math.min(pA.alpha, pB.alpha) * opacityScale;
                     this.ctx.strokeStyle = `rgba(${this.hexToRgb(color)}, ${lineAlpha})`;
                     this.ctx.beginPath();
                     this.ctx.moveTo(pA.x, pA.y);
@@ -1982,7 +2019,7 @@ class JarvisHUD {
         // 3. Draw nodes & optional scifi tech reticles
         projected.forEach(p => {
             if (p.x >= 0 && p.x <= width && p.y >= 0 && p.y <= height) {
-                this.ctx.globalAlpha = p.alpha;
+                this.ctx.globalAlpha = p.alpha * opacityScale;
                 
                 // Draw node core
                 this.ctx.fillStyle = color;
@@ -2015,11 +2052,15 @@ class JarvisHUD {
     /**
      * Renders counter-rotating futuristic HUD concentric circles
      */
-    drawHUDRings(cx, cy, baseRadius, themeColor, glowColor) {
+    drawHUDRings(cx, cy, baseRadius, themeColor, glowColor, compact = false) {
         this.ctx.shadowBlur = 0;
 
         const ringPulse = (this.state === 'idle' ? this.blobRingPulse : 0) || 0;
         const ringOpacityBoost = 1 + ringPulse * 0.5;
+        const outerScale = compact ? 1.22 : 1.5;
+        const coreScale = compact ? 1.12 : 1.35;
+        const tickScale = compact ? 1.18 : 1.45;
+        const crossScale = compact ? 1.28 : 1.8;
         
         // Ring Rotation Accumulator
         let speed = 0.005;
@@ -2034,7 +2075,7 @@ class JarvisHUD {
         this.ctx.strokeStyle = `rgba(${this.hexToRgb(themeColor)}, ${0.15 * ringOpacityBoost})`;
         this.ctx.lineWidth = 1;
         this.ctx.beginPath();
-        this.ctx.arc(cx, cy, baseRadius * 1.5, 0, Math.PI * 2);
+        this.ctx.arc(cx, cy, baseRadius * outerScale, 0, Math.PI * 2);
         this.ctx.stroke();
 
         // HUD Ring 2: Core border thin rotating dashes
@@ -2042,14 +2083,18 @@ class JarvisHUD {
         this.ctx.lineWidth = 1.5;
         this.ctx.setLineDash([12, 18, 4, 18]);
         this.ctx.beginPath();
-        this.ctx.arc(cx, cy, baseRadius * 1.35, this.ringRotationAngle, this.ringRotationAngle + Math.PI * 2);
+        this.ctx.arc(cx, cy, baseRadius * coreScale, this.ringRotationAngle, this.ringRotationAngle + Math.PI * 2);
         this.ctx.stroke();
         this.ctx.setLineDash([]); // Reset
+
+        if (compact) {
+            return;
+        }
 
         // HUD Ring 3: Counter-rotating outer tick marks & subdivisions
         this.ctx.strokeStyle = `rgba(${this.hexToRgb(themeColor)}, ${0.25 * ringOpacityBoost})`;
         this.ctx.lineWidth = 1;
-        const tickRadius = baseRadius * 1.45;
+        const tickRadius = baseRadius * tickScale;
         const angleStep = Math.PI / 18; // 10 degrees
 
         for (let angle = 0; angle < Math.PI * 2; angle += angleStep) {
@@ -2075,15 +2120,15 @@ class JarvisHUD {
         this.ctx.lineWidth = 1;
         this.ctx.beginPath();
         // horizontal crosshair line
-        this.ctx.moveTo(cx - baseRadius * 1.8, cy);
-        this.ctx.lineTo(cx - baseRadius * 1.55, cy);
-        this.ctx.moveTo(cx + baseRadius * 1.55, cy);
-        this.ctx.lineTo(cx + baseRadius * 1.8, cy);
+        this.ctx.moveTo(cx - baseRadius * crossScale, cy);
+        this.ctx.lineTo(cx - baseRadius * (crossScale - 0.25), cy);
+        this.ctx.moveTo(cx + baseRadius * (crossScale - 0.25), cy);
+        this.ctx.lineTo(cx + baseRadius * crossScale, cy);
         // vertical crosshair line
-        this.ctx.moveTo(cx, cy - baseRadius * 1.8);
-        this.ctx.lineTo(cx, cy - baseRadius * 1.55);
-        this.ctx.moveTo(cx, cy + baseRadius * 1.55);
-        this.ctx.lineTo(cx, cy + baseRadius * 1.8);
+        this.ctx.moveTo(cx, cy - baseRadius * crossScale);
+        this.ctx.lineTo(cx, cy - baseRadius * (crossScale - 0.25));
+        this.ctx.moveTo(cx, cy + baseRadius * (crossScale - 0.25));
+        this.ctx.lineTo(cx, cy + baseRadius * crossScale);
         this.ctx.stroke();
     }
 
