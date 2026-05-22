@@ -412,11 +412,11 @@
                     <section class="settings-panel" id="settingsPanelVault" data-settings-panel="vault" hidden>
                         <div class="settings-panel-heading">
                             <h3>Aether Vault</h3>
-                            <p>Indexed files Hermes creates — previews read from originals on disk.</p>
+                            <p>Indexed files Hermes creates during sessions. Previews read from originals on disk — nothing is copied.</p>
                         </div>
                         <div class="form-group">
-                            <button class="action-btn btn-secondary" id="settingsWorkspacesBtn" type="button">Open vault</button>
-                            <div class="form-hint">Browse Kanban task folders, pin paths to chat, and switch agent working directory. See <code>docs/VAULT.md</code>.</div>
+                            <button class="action-btn btn-secondary" id="settingsWorkspacesBtn" type="button">Open vault browser</button>
+                            <div class="form-hint">Search indexed files, preview content, pin a folder as workspace, or reveal paths in Finder. See <code>docs/VAULT.md</code>.</div>
                         </div>
                     </section>
                 </main>
@@ -425,6 +425,72 @@
             <footer class="settings-page-footer">
                 <button class="action-btn btn-primary" id="saveSettingsBtn" type="button">Save configurations</button>
             </footer>
+        </section>
+
+        <!-- Full-viewport vault browser -->
+        <section class="vault-page glass-panel" id="vaultPage" hidden aria-label="Aether Vault">
+            <header class="vault-page-header">
+                <div class="vault-page-header-start">
+                    <button type="button" class="vault-page-back" id="closeVaultBtn" aria-label="Back to HUD">
+                        <i data-lucide="arrow-left" style="width:18px; height:18px;"></i>
+                    </button>
+                    <div>
+                        <span class="modal-kicker">Hermes artifacts</span>
+                        <h2>Aether Vault</h2>
+                    </div>
+                </div>
+                <div class="vault-page-header-actions">
+                    <span class="badge badge-status" id="vaultCountBadge">0 files</span>
+                    <button type="button" class="settings-gear-btn vault-scan-btn" id="vaultScanBtn" title="Scan sessions and refresh index">
+                        <i data-lucide="refresh-cw" style="width:16px; height:16px;"></i>
+                    </button>
+                </div>
+            </header>
+
+            <div class="vault-page-toolbar">
+                <input type="search" class="form-select vault-search" id="vaultSearchInput" placeholder="Search files and paths…" autocomplete="off" />
+                <div class="vault-filter-row" role="tablist" aria-label="Vault filters">
+                    <button class="vault-filter-btn active" type="button" role="tab" data-vault-filter="all" aria-selected="true">All</button>
+                    <button class="vault-filter-btn" type="button" role="tab" data-vault-filter="text" aria-selected="false">Docs</button>
+                    <button class="vault-filter-btn" type="button" role="tab" data-vault-filter="image" aria-selected="false">Images</button>
+                    <button class="vault-filter-btn" type="button" role="tab" data-vault-filter="missing" aria-selected="false">Missing</button>
+                </div>
+            </div>
+
+            <div class="vault-page-body" id="vaultPageBody">
+                <aside class="vault-list-panel" aria-label="Indexed files">
+                    <div class="vault-list-status form-hint" id="vaultFilesStatus">Open the vault to load indexed files.</div>
+                    <div class="vault-file-list" id="vaultFileList" role="listbox" aria-label="Vault files">
+                        <div class="vault-empty-hint">Scan Hermes sessions to discover files.</div>
+                    </div>
+                </aside>
+
+                <main class="vault-preview-panel" id="vaultPreviewPanel" aria-label="File preview">
+                    <div class="vault-preview-empty" id="vaultPreviewEmpty">
+                        <i data-lucide="folder-open" style="width:28px; height:28px;"></i>
+                        <p>Select a file to preview it here.</p>
+                        <span class="form-hint">Previews read directly from the original path on disk.</span>
+                    </div>
+
+                    <div class="vault-preview-content" id="vaultPreviewContent" hidden>
+                        <div class="vault-preview-header">
+                            <button type="button" class="vault-preview-back" id="vaultPreviewBackBtn" aria-label="Back to file list">
+                                <i data-lucide="arrow-left" style="width:16px; height:16px;"></i>
+                            </button>
+                            <div class="vault-preview-heading">
+                                <h3 id="vaultPreviewTitle">File</h3>
+                                <p class="vault-preview-path" id="vaultPreviewPath"></p>
+                            </div>
+                        </div>
+                        <div class="vault-preview-actions">
+                            <button class="action-btn btn-secondary" type="button" id="vaultPreviewFinderBtn">Open in Finder</button>
+                            <button class="action-btn btn-secondary" type="button" id="vaultPreviewPinBtn">Pin folder</button>
+                            <button class="action-btn btn-secondary" type="button" id="vaultPreviewCopyPathBtn">Copy path</button>
+                        </div>
+                        <div class="vault-preview-body" id="vaultPreviewBody"></div>
+                    </div>
+                </main>
+            </div>
         </section>
 
         <!-- Dashboard bootstrap splash (sessions / model picker) -->
@@ -591,42 +657,6 @@
             </div>
         </aside>
 
-        <!-- AETHER VAULT DRAWER (Left Side) -->
-        <aside class="sidebar-drawer workspaces-drawer glass-panel" id="workspacesDrawer">
-            <div class="drawer-header">
-                <div class="hud-brand">
-                    <span class="brand-dot"></span>
-                    <span class="brand-name" style="font-size:0.95rem;">VAULT</span>
-                </div>
-                <div class="drawer-header-actions">
-                    <button class="settings-gear-btn" id="refreshHermesFilesBtn" title="Refresh vault" style="border:none; background:transparent;">
-                        <i data-lucide="refresh-cw" style="width:14px; height:14px;"></i>
-                    </button>
-                    <button class="settings-gear-btn" id="workspacesDrawerCloseBtn" style="border:none; background:transparent;">
-                        <i data-lucide="x" style="width:16px; height:16px;"></i>
-                    </button>
-                </div>
-            </div>
-
-            <div class="drawer-scroll workspace-browser-scroll">
-                <div class="form-hint hermes-files-hint vault-disclaimer" id="vaultDisclaimer">
-                    <strong>Aether Vault</strong> — index of files Hermes creates. Previews read directly from the original paths on disk.
-                </div>
-                <div class="workspace-path-mono" id="hermesFilesStatus"></div>
-                <div class="workspace-file-list workspace-tree-list vault-file-list" id="workspaceFileList">
-                    <div class="workspace-empty-hint">Open this panel to load the vault.</div>
-                </div>
-                <div class="workspace-inline-preview" id="workspaceInlinePreview" hidden>
-                    <div class="workspace-inline-preview-header">
-                        <span class="workspace-inline-preview-title" id="workspaceInlinePreviewTitle"></span>
-                        <button type="button" class="workspace-inline-preview-close" id="workspaceInlinePreviewCloseBtn" title="Close preview">&times;</button>
-                    </div>
-                    <div class="workspace-inline-preview-original" id="workspaceInlinePreviewOriginal"></div>
-                    <div class="workspace-inline-preview-body" id="workspaceInlinePreviewBody"></div>
-                </div>
-            </div>
-        </aside>
-
     <button type="button" class="hud-scrim chat-scrim" id="chatScrim" hidden aria-label="Close chat"></button>
 
     </div>
@@ -668,27 +698,6 @@
                     <button class="action-btn btn-secondary" id="cancelModelPickerBtn" type="button">Cancel</button>
                     <button class="action-btn btn-primary" id="confirmModelPickerBtn" type="button" disabled>Switch</button>
                 </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- ==========================================
-         WORKSPACE FILE VIEWER
-         ========================================== -->
-    <div class="modal-overlay" id="workspaceFileViewerModal">
-        <div class="modal-content workspace-file-viewer-content glass-panel" role="dialog" aria-modal="true" aria-labelledby="workspaceFileViewerTitle">
-            <div class="modal-title-bar">
-                <div>
-                    <span class="modal-kicker">Workspace</span>
-                    <h2 id="workspaceFileViewerTitle">File</h2>
-                    <p class="workspace-file-viewer-path" id="workspaceFileViewerPath"></p>
-                </div>
-                <button class="modal-close" id="closeWorkspaceFileViewerBtn" type="button" aria-label="Close file viewer">&times;</button>
-            </div>
-            <div class="workspace-file-viewer-body" id="workspaceFileViewerBody"></div>
-            <div class="modal-actions workspace-file-viewer-actions">
-                <button class="action-btn btn-secondary" id="workspaceFileViewerRevealBtn" type="button">Open in Finder</button>
-                <button class="action-btn btn-primary" id="workspaceFileViewerCloseBtn" type="button">Close</button>
             </div>
         </div>
     </div>

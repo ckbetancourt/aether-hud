@@ -165,6 +165,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         settingsMode: false,
         settingsSection: 'appearance',
         chatCollapsedBeforeSettings: null,
+        vaultMode: false,
+        vaultSearchQuery: '',
+        vaultFilter: 'all',
+        chatCollapsedBeforeVault: null,
         chatCollapsedBeforeKanban: null,
         workspaceFiles: [],
         workspaceViewerPath: '',
@@ -272,8 +276,25 @@ document.addEventListener('DOMContentLoaded', async () => {
         sidebarDrawer: document.getElementById('sidebarDrawer'),
         workspaceFilesBtn: document.getElementById('workspaceFilesBtn'),
         workspacesDrawerToggle: document.getElementById('workspacesDrawerToggle'),
-        workspacesDrawerCloseBtn: document.getElementById('workspacesDrawerCloseBtn'),
-        workspacesDrawer: document.getElementById('workspacesDrawer'),
+        vaultPage: document.getElementById('vaultPage'),
+        closeVaultBtn: document.getElementById('closeVaultBtn'),
+        vaultScanBtn: document.getElementById('vaultScanBtn'),
+        vaultCountBadge: document.getElementById('vaultCountBadge'),
+        vaultSearchInput: document.getElementById('vaultSearchInput'),
+        vaultFilesStatus: document.getElementById('vaultFilesStatus'),
+        vaultFileList: document.getElementById('vaultFileList'),
+        vaultPageBody: document.getElementById('vaultPageBody'),
+        vaultPreviewPanel: document.getElementById('vaultPreviewPanel'),
+        vaultPreviewEmpty: document.getElementById('vaultPreviewEmpty'),
+        vaultPreviewContent: document.getElementById('vaultPreviewContent'),
+        vaultPreviewBackBtn: document.getElementById('vaultPreviewBackBtn'),
+        vaultPreviewTitle: document.getElementById('vaultPreviewTitle'),
+        vaultPreviewPath: document.getElementById('vaultPreviewPath'),
+        vaultPreviewBody: document.getElementById('vaultPreviewBody'),
+        vaultPreviewFinderBtn: document.getElementById('vaultPreviewFinderBtn'),
+        vaultPreviewPinBtn: document.getElementById('vaultPreviewPinBtn'),
+        vaultPreviewCopyPathBtn: document.getElementById('vaultPreviewCopyPathBtn'),
+        workspacePinBadge: document.getElementById('workspacePinBadge'),
         kanbanStage: document.getElementById('kanbanStage'),
         kanbanStageStatus: document.getElementById('kanbanStageStatus'),
         kanbanStageLoading: document.getElementById('kanbanStageLoading'),
@@ -285,24 +306,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         settingsWorkspacesBtn: document.getElementById('settingsWorkspacesBtn'),
         hudCoreVisualizer: document.querySelector('.hud-core-visualizer'),
         avatarPokeTarget: document.getElementById('avatarPokeTarget'),
-        refreshHermesFilesBtn: document.getElementById('refreshHermesFilesBtn'),
-        hermesFilesStatus: document.getElementById('hermesFilesStatus'),
-        vaultDisclaimer: document.getElementById('vaultDisclaimer'),
-        workspaceInlinePreviewOriginal: document.getElementById('workspaceInlinePreviewOriginal'),
-        workspaceBreadcrumbs: document.getElementById('workspaceBreadcrumbs'),
-        workspaceInlinePreview: document.getElementById('workspaceInlinePreview'),
-        workspaceInlinePreviewTitle: document.getElementById('workspaceInlinePreviewTitle'),
-        workspaceInlinePreviewBody: document.getElementById('workspaceInlinePreviewBody'),
-        workspaceInlinePreviewCloseBtn: document.getElementById('workspaceInlinePreviewCloseBtn'),
-        workspaceFileList: document.getElementById('workspaceFileList'),
-        workspacePinBadge: document.getElementById('workspacePinBadge'),
-        workspaceFileViewerModal: document.getElementById('workspaceFileViewerModal'),
-        closeWorkspaceFileViewerBtn: document.getElementById('closeWorkspaceFileViewerBtn'),
-        workspaceFileViewerCloseBtn: document.getElementById('workspaceFileViewerCloseBtn'),
-        workspaceFileViewerRevealBtn: document.getElementById('workspaceFileViewerRevealBtn'),
-        workspaceFileViewerTitle: document.getElementById('workspaceFileViewerTitle'),
-        workspaceFileViewerPath: document.getElementById('workspaceFileViewerPath'),
-        workspaceFileViewerBody: document.getElementById('workspaceFileViewerBody'),
         skillsBtn: document.getElementById('skillsBtn'),
         saveSkillsBtn: document.getElementById('saveSkillsBtn'),
         refreshSkillsBtn: document.getElementById('refreshSkillsBtn'),
@@ -384,9 +387,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     function updateOverlayScrims() {
         const compact = isCompactViewport();
-        const drawerOpen =
-            !!elements.sidebarDrawer?.classList.contains('open') ||
-            !!elements.workspacesDrawer?.classList.contains('open');
+        const drawerOpen = !!elements.sidebarDrawer?.classList.contains('open');
         if (elements.drawerScrim) {
             const showDrawer = compact && drawerOpen;
             elements.drawerScrim.hidden = !showDrawer;
@@ -514,6 +515,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     const initialSettingsRoute = parseSettingsRoute();
     if (initialSettingsRoute) {
         enterSettingsMode(initialSettingsRoute, { fromHash: true });
+    } else {
+        const initialVaultRoute = parseVaultRoute();
+        if (initialVaultRoute) {
+            enterVaultMode(initialVaultRoute, { fromHash: true });
+        }
     }
 
     // Auto-refresh chats when returning to the tab
@@ -545,20 +551,50 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (elements.settingsWorkspacesBtn) {
             elements.settingsWorkspacesBtn.addEventListener('click', () => {
                 exitSettingsMode();
-                openWorkspaceFileBrowser();
+                enterVaultMode();
             });
         }
         if (elements.workspaceFilesBtn) {
-            elements.workspaceFilesBtn.addEventListener('click', () => openWorkspaceFileBrowser());
+            elements.workspaceFilesBtn.addEventListener('click', () => enterVaultMode());
         }
-        if (elements.workspacesDrawerCloseBtn) {
-            elements.workspacesDrawerCloseBtn.addEventListener('click', () => toggleWorkspacesDrawer(false));
+        if (elements.closeVaultBtn) {
+            elements.closeVaultBtn.addEventListener('click', () => exitVaultMode());
         }
-        if (elements.refreshHermesFilesBtn) {
-            elements.refreshHermesFilesBtn.addEventListener('click', () => refreshVault({ ingest: true }));
+        if (elements.vaultScanBtn) {
+            elements.vaultScanBtn.addEventListener('click', () => refreshVault({ ingest: true }));
         }
-        if (elements.workspaceInlinePreviewCloseBtn) {
-            elements.workspaceInlinePreviewCloseBtn.addEventListener('click', closeVaultPreview);
+        if (elements.vaultSearchInput) {
+            let vaultSearchTimer = null;
+            elements.vaultSearchInput.addEventListener('input', () => {
+                clearTimeout(vaultSearchTimer);
+                vaultSearchTimer = setTimeout(() => {
+                    state.vaultSearchQuery = elements.vaultSearchInput.value || '';
+                    renderVaultFileList();
+                }, 180);
+            });
+        }
+        document.querySelectorAll('[data-vault-filter]').forEach((btn) => {
+            btn.addEventListener('click', () => {
+                state.vaultFilter = btn.dataset.vaultFilter || 'all';
+                document.querySelectorAll('[data-vault-filter]').forEach((el) => {
+                    const active = el.dataset.vaultFilter === state.vaultFilter;
+                    el.classList.toggle('active', active);
+                    el.setAttribute('aria-selected', active ? 'true' : 'false');
+                });
+                renderVaultFileList();
+            });
+        });
+        if (elements.vaultPreviewBackBtn) {
+            elements.vaultPreviewBackBtn.addEventListener('click', () => closeVaultPreviewMobile());
+        }
+        if (elements.vaultPreviewFinderBtn) {
+            elements.vaultPreviewFinderBtn.addEventListener('click', () => revealSelectedVaultFile());
+        }
+        if (elements.vaultPreviewPinBtn) {
+            elements.vaultPreviewPinBtn.addEventListener('click', () => pinSelectedVaultFolder());
+        }
+        if (elements.vaultPreviewCopyPathBtn) {
+            elements.vaultPreviewCopyPathBtn.addEventListener('click', () => copySelectedVaultPath());
         }
         if (elements.skillsBtn) {
             elements.skillsBtn.addEventListener('click', () => enterSettingsMode('skills'));
@@ -637,25 +673,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                 }
             });
         }
-        if (elements.closeWorkspaceFileViewerBtn) {
-            elements.closeWorkspaceFileViewerBtn.addEventListener('click', closeWorkspaceFileViewer);
-        }
-        if (elements.workspaceFileViewerCloseBtn) {
-            elements.workspaceFileViewerCloseBtn.addEventListener('click', closeWorkspaceFileViewer);
-        }
-        if (elements.workspaceFileViewerRevealBtn) {
-            elements.workspaceFileViewerRevealBtn.addEventListener('click', () => {
-                if (!state.workspaceViewerPath) return;
-                ai.revealKanbanPath(state.workspaceViewerPath, state.activeKanbanBoard).catch((err) => {
-                    showToast('Open failed', err.message || 'Could not open file.', { variant: 'error' });
-                });
-            });
-        }
-        if (elements.workspaceFileViewerModal) {
-            elements.workspaceFileViewerModal.addEventListener('click', (e) => {
-                if (e.target === elements.workspaceFileViewerModal) closeWorkspaceFileViewer();
-            });
-        }
         
         // Settings triggers
         elements.settingsBtn.addEventListener('click', () => enterSettingsMode());
@@ -674,7 +691,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             });
         });
 
-        window.addEventListener('hashchange', handleSettingsHashChange);
+        window.addEventListener('hashchange', handleAppHashChange);
 
         document.querySelectorAll('[data-chat-history-tab]').forEach((tab) => {
             tab.addEventListener('click', () => activateChatHistoryTab(tab.dataset.chatHistoryTab));
@@ -707,7 +724,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 || !!activeEl?.isContentEditable
                 || !!activeEl?.closest?.('.model-picker-modal, .settings-page, .ak-inline-create');
 
-            if (state.kanbanMode || state.settingsMode || typingInKanban) {
+            if (state.kanbanMode || state.settingsMode || state.vaultMode || typingInKanban) {
                 return;
             }
 
@@ -743,9 +760,17 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
 
         document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape' && elements.workspaceFileViewerModal?.classList.contains('open')) {
+            if (e.key === 'Escape' && state.vaultMode) {
+                const activeEl = document.activeElement;
+                const activeTag = activeEl?.tagName?.toLowerCase() || '';
+                if (['input', 'textarea', 'select'].includes(activeTag)) return;
+                if (elements.vaultPageBody?.classList.contains('show-preview') && isCompactViewport()) {
+                    e.preventDefault();
+                    closeVaultPreviewMobile();
+                    return;
+                }
                 e.preventDefault();
-                closeWorkspaceFileViewer();
+                exitVaultMode();
             }
         });
 
@@ -879,9 +904,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (elements.sidebarDrawer?.classList.contains('open')) {
             toggleSidebarDrawer(false);
         }
-        if (elements.workspacesDrawer?.classList.contains('open')) {
-            toggleWorkspacesDrawer(false);
-        }
     }
 
     function toggleSidebarDrawer(forceOpen) {
@@ -890,29 +912,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             : forceOpen;
         elements.sidebarDrawer.classList.toggle('open', shouldOpen);
         elements.historyDrawerToggle.classList.toggle('active', shouldOpen);
-        if (shouldOpen) {
-            if (state.activeSessionId) {
-                activateChatHistoryTab(getChatHistoryTabForSession(state.activeSessionId));
-            }
-            if (elements.workspacesDrawer?.classList.contains('open')) {
-                toggleWorkspacesDrawer(false);
-            }
-        }
-        updateOverlayScrims();
-    }
-
-    function toggleWorkspacesDrawer(forceOpen) {
-        if (!elements.workspacesDrawer) return;
-        const shouldOpen = forceOpen === undefined
-            ? !elements.workspacesDrawer.classList.contains('open')
-            : forceOpen;
-        elements.workspacesDrawer.classList.toggle('open', shouldOpen);
-        elements.workspaceFilesBtn?.classList.toggle('active', shouldOpen);
-        if (shouldOpen) {
-            if (elements.sidebarDrawer?.classList.contains('open')) {
-                toggleSidebarDrawer(false);
-            }
-            refreshVault({ ingest: true });
+        if (shouldOpen && state.activeSessionId) {
+            activateChatHistoryTab(getChatHistoryTabForSession(state.activeSessionId));
         }
         updateOverlayScrims();
     }
@@ -924,12 +925,46 @@ document.addEventListener('DOMContentLoaded', async () => {
         updateWorkspacePinBadge();
     }
 
-    async function refreshVault(options = {}) {
-        const statusEl = elements.hermesFilesStatus;
-        const { ingest = false } = options;
-        if (elements.refreshHermesFilesBtn) {
-            elements.refreshHermesFilesBtn.classList.add('refreshing');
+    function getSelectedVaultFile() {
+        if (!state.vaultPreviewId) return null;
+        return state.vaultFiles.find((f) => f.id === state.vaultPreviewId) || null;
+    }
+
+    function getFilteredVaultFiles() {
+        let files = state.vaultFiles.filter((f) => f.id);
+        const query = state.vaultSearchQuery.trim().toLowerCase();
+        if (query) {
+            files = files.filter((file) => {
+                const haystack = [
+                    file.title,
+                    file.originalDisplayPath,
+                    file.originalPath,
+                    file.sessionId,
+                ].filter(Boolean).join(' ').toLowerCase();
+                return haystack.includes(query);
+            });
         }
+
+        if (state.vaultFilter === 'missing') {
+            files = files.filter((file) => file.originalExists === false);
+        } else if (state.vaultFilter === 'text') {
+            files = files.filter((file) => /\.(md|markdown|txt|log|json|ya?ml|csv|ts|tsx|js|jsx|py|html|css|sql)$/i.test(file.title || ''));
+        } else if (state.vaultFilter === 'image') {
+            files = files.filter((file) => /\.(png|jpe?g|gif|webp|svg|bmp|ico|avif)$/i.test(file.title || ''));
+        }
+
+        return files;
+    }
+
+    function updateVaultCountBadge(count = state.vaultFiles.length) {
+        if (!elements.vaultCountBadge) return;
+        elements.vaultCountBadge.textContent = `${count} file${count === 1 ? '' : 's'}`;
+    }
+
+    async function refreshVault(options = {}) {
+        const statusEl = elements.vaultFilesStatus;
+        const { ingest = false } = options;
+        elements.vaultScanBtn?.classList.add('refreshing');
         if (statusEl && options.showLoading !== false) {
             statusEl.textContent = ingest ? 'Scanning Hermes sessions…' : 'Loading vault…';
         }
@@ -953,6 +988,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         try {
             const result = await ai.getVaultFiles();
             state.vaultFiles = result.files || [];
+            updateVaultCountBadge(state.vaultFiles.length);
             if (statusEl) {
                 const count = state.vaultFiles.length;
                 if (ingestNote) {
@@ -960,50 +996,64 @@ document.addEventListener('DOMContentLoaded', async () => {
                 } else {
                     statusEl.textContent = count
                         ? `${count} indexed file${count === 1 ? '' : 's'}`
-                        : 'Vault empty — ask Hermes to create a file, then refresh.';
+                        : 'Vault empty — ask Hermes to create a file, then scan.';
                 }
             }
             renderVaultFileList();
+            if (state.vaultPreviewId && !state.vaultFiles.some((f) => f.id === state.vaultPreviewId)) {
+                closeVaultPreview();
+            }
         } catch (err) {
             if (statusEl) statusEl.textContent = err.message || 'Could not load vault.';
             appendSystemConsoleLine(`[VAULT] ${err.message || 'Load failed'}`);
         } finally {
-            elements.refreshHermesFilesBtn?.classList.remove('refreshing');
+            elements.vaultScanBtn?.classList.remove('refreshing');
         }
     }
 
     function renderVaultFileList() {
-        const list = elements.workspaceFileList;
+        const list = elements.vaultFileList;
         if (!list) return;
         list.replaceChildren();
-        const files = state.vaultFiles.filter((f) => f.id);
+        const files = getFilteredVaultFiles();
         if (!files.length) {
             const empty = document.createElement('div');
-            empty.className = 'workspace-empty-hint';
-            empty.textContent = 'No indexed files yet. When Hermes writes files, refresh the vault to discover them.';
+            empty.className = 'vault-empty-hint';
+            empty.textContent = state.vaultFiles.length
+                ? 'No files match the current search or filter.'
+                : 'No indexed files yet. Scan Hermes sessions to discover artifacts.';
             list.appendChild(empty);
             return;
         }
+
         const fragment = document.createDocumentFragment();
         for (const file of files) {
             const row = document.createElement('button');
             row.type = 'button';
-            row.className = 'workspace-file-row';
+            row.className = `vault-file-row${state.vaultPreviewId === file.id ? ' active' : ''}`;
             row.title = file.originalDisplayPath || file.originalPath || file.title;
+            row.setAttribute('role', 'option');
+            row.setAttribute('aria-selected', state.vaultPreviewId === file.id ? 'true' : 'false');
+
             const icon = document.createElement('span');
+            icon.className = 'vault-file-icon';
             icon.innerHTML = `<i data-lucide="${workspaceFileIconName(file)}"></i>`;
+
             const meta = document.createElement('span');
-            meta.className = 'workspace-file-meta';
+            meta.className = 'vault-file-meta';
+
             const label = document.createElement('span');
-            label.className = 'workspace-file-name';
+            label.className = 'vault-file-name';
             label.textContent = file.title || file.originalDisplayPath || 'File';
+
             const sub = document.createElement('span');
-            sub.className = 'workspace-file-size';
+            sub.className = 'vault-file-sub';
             const parts = [];
             if (file.size != null) parts.push(formatWorkspaceFileSize(file.size));
             if (file.originalDisplayPath) parts.push(file.originalDisplayPath);
-            if (!file.originalExists) parts.push('original missing');
+            if (!file.originalExists) parts.push('missing on disk');
             sub.textContent = parts.join(' · ');
+
             meta.appendChild(label);
             meta.appendChild(sub);
             row.appendChild(icon);
@@ -1017,50 +1067,70 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     function closeVaultPreview() {
         state.vaultPreviewId = '';
-        if (elements.workspaceInlinePreview) elements.workspaceInlinePreview.hidden = true;
-        if (elements.workspaceInlinePreviewBody) elements.workspaceInlinePreviewBody.replaceChildren();
-        if (elements.workspaceInlinePreviewOriginal) elements.workspaceInlinePreviewOriginal.textContent = '';
+        elements.vaultPageBody?.classList.remove('show-preview');
+        if (elements.vaultPreviewEmpty) elements.vaultPreviewEmpty.hidden = false;
+        if (elements.vaultPreviewContent) elements.vaultPreviewContent.hidden = true;
+        if (elements.vaultPreviewBody) elements.vaultPreviewBody.replaceChildren();
+        if (elements.vaultPreviewPath) elements.vaultPreviewPath.textContent = '';
+        renderVaultFileList();
+        if (state.vaultMode && !parseVaultRoute()?.fileId) {
+            syncVaultRoute(null, { replace: true });
+        }
+    }
+
+    function closeVaultPreviewMobile() {
+        closeVaultPreview();
     }
 
     async function openVaultPreview(fileId) {
         if (!fileId) return;
         state.vaultPreviewId = fileId;
         const file = state.vaultFiles.find((f) => f.id === fileId);
-        if (elements.workspaceInlinePreview) elements.workspaceInlinePreview.hidden = false;
-        if (elements.workspaceInlinePreviewTitle) {
-            elements.workspaceInlinePreviewTitle.textContent = file?.title || 'File';
+        elements.vaultPageBody?.classList.add('show-preview');
+        if (elements.vaultPreviewEmpty) elements.vaultPreviewEmpty.hidden = true;
+        if (elements.vaultPreviewContent) elements.vaultPreviewContent.hidden = false;
+        if (elements.vaultPreviewTitle) {
+            elements.vaultPreviewTitle.textContent = file?.title || 'File';
         }
-        if (elements.workspaceInlinePreviewOriginal) {
+        if (elements.vaultPreviewPath) {
             const original = file?.originalDisplayPath || file?.originalPath || '';
-            elements.workspaceInlinePreviewOriginal.textContent = original
-                ? `${original}${file?.originalExists === false ? ' (no longer on disk)' : ''}`
+            elements.vaultPreviewPath.textContent = original
+                ? `${original}${file?.originalExists === false ? ' · no longer on disk' : ''}`
                 : 'Original path unknown';
         }
-        const body = elements.workspaceInlinePreviewBody;
+        renderVaultFileList();
+
+        const body = elements.vaultPreviewBody;
         if (!body) return;
         body.replaceChildren();
         const loading = document.createElement('div');
-        loading.className = 'workspace-file-viewer-loading';
+        loading.className = 'vault-preview-loading';
         loading.textContent = 'Loading file…';
         body.appendChild(loading);
+
+        if (state.vaultMode) {
+            syncVaultRoute(fileId, { replace: true });
+        }
+
         try {
             const result = await ai.readVaultFile(fileId);
             renderVaultPreviewContent(result, fileId);
         } catch (err) {
             body.replaceChildren();
             const error = document.createElement('div');
-            error.className = 'workspace-file-viewer-error';
+            error.className = 'vault-preview-error';
             error.textContent = err.message || 'Could not read file.';
             body.appendChild(error);
         }
     }
 
     function renderVaultPreviewContent(result, fileId) {
-        const body = elements.workspaceInlinePreviewBody;
+        const body = elements.vaultPreviewBody;
         if (!body) return;
         body.replaceChildren();
         if (result.kind === 'image') {
             const img = document.createElement('img');
+            img.className = 'vault-preview-image';
             img.alt = result.name || 'Image';
             img.src = ai.vaultFileUrl(fileId);
             body.appendChild(img);
@@ -1068,22 +1138,164 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
         if (result.kind === 'text') {
             const pre = document.createElement('pre');
+            pre.className = 'vault-preview-text';
             pre.textContent = result.content || '';
             body.appendChild(pre);
             return;
         }
         const notice = document.createElement('div');
-        notice.className = 'workspace-file-viewer-binary';
-        notice.textContent = 'Binary file — open the original path in Finder if needed.';
+        notice.className = 'vault-preview-binary';
+        notice.textContent = 'Binary file — use Open in Finder to view it locally.';
         body.appendChild(notice);
     }
 
-    async function openWorkspaceFileBrowser() {
-        if (elements.workspacesDrawer?.classList.contains('open')) {
-            toggleWorkspacesDrawer(false);
+    async function revealSelectedVaultFile() {
+        const file = getSelectedVaultFile();
+        if (!file?.originalPath) return;
+        try {
+            await ai.revealKanbanPath(file.originalPath, state.activeKanbanBoard);
+        } catch (err) {
+            showToast('Open failed', err.message || 'Could not reveal file.', { variant: 'error' });
+        }
+    }
+
+    function pinSelectedVaultFolder() {
+        const file = getSelectedVaultFile();
+        if (!file?.originalPath) return;
+        const dir = file.originalPath.replace(/[/\\][^/\\]+$/, '');
+        if (!dir) return;
+        setActiveWorkspacePath(dir);
+        showToast('Workspace pinned', shortenWorkspacePath(dir), { durationMs: 2600 });
+    }
+
+    async function copySelectedVaultPath() {
+        const file = getSelectedVaultFile();
+        const pathValue = file?.originalDisplayPath || file?.originalPath;
+        if (!pathValue) return;
+        try {
+            await navigator.clipboard.writeText(pathValue);
+            showToast('Copied path', pathValue, { durationMs: 2200 });
+        } catch (err) {
+            showToast('Copy failed', err.message || 'Could not copy path.', { variant: 'error' });
+        }
+    }
+
+    function parseVaultRoute() {
+        const hash = window.location.hash || '';
+        const match = hash.match(/^#\/vault(?:\/file\/([^/?#]+))?$/i);
+        if (!match) return null;
+        return { fileId: match[1] ? decodeURIComponent(match[1]) : null };
+    }
+
+    function syncVaultRoute(fileId, { replace = false } = {}) {
+        const target = fileId ? `#/vault/file/${encodeURIComponent(fileId)}` : '#/vault';
+        if (window.location.hash === target) return;
+        if (replace) {
+            history.replaceState(null, '', target);
+        } else {
+            window.location.hash = target;
+        }
+    }
+
+    function clearVaultRoute({ replace = true } = {}) {
+        if (!window.location.hash.startsWith('#/vault')) return;
+        const base = window.location.pathname + window.location.search;
+        if (replace) {
+            history.replaceState(null, '', base);
+        } else {
+            history.pushState(null, '', base);
+        }
+    }
+
+    function enterVaultMode(route = {}, { fromHash = false } = {}) {
+        if (state.kanbanMode) {
+            exitKanbanMode();
+        }
+        if (state.settingsMode) {
+            exitSettingsMode({ fromHash: true });
+        }
+
+        const fileId = route?.fileId || null;
+
+        if (state.vaultMode) {
+            if (fileId) {
+                openVaultPreview(fileId);
+            }
+            if (!fromHash) {
+                syncVaultRoute(fileId, { replace: true });
+            }
             return;
         }
-        toggleWorkspacesDrawer(true);
+
+        if (state.chatCollapsedBeforeVault === null) {
+            state.chatCollapsedBeforeVault =
+                elements.hudShell?.classList.contains('chat-collapsed') ?? true;
+        }
+        collapseChatColumn();
+
+        state.vaultMode = true;
+        elements.hudShell?.classList.add('vault-mode');
+        elements.workspaceFilesBtn?.classList.add('active');
+        if (elements.vaultPage) {
+            elements.vaultPage.hidden = false;
+        }
+        if (elements.vaultSearchInput) {
+            elements.vaultSearchInput.value = state.vaultSearchQuery;
+        }
+
+        refreshVault({ ingest: true }).then(() => {
+            if (fileId) {
+                openVaultPreview(fileId);
+            }
+        });
+
+        if (!fromHash) {
+            syncVaultRoute(fileId);
+        }
+        lucide.createIcons();
+    }
+
+    function exitVaultMode({ fromHash = false } = {}) {
+        if (!state.vaultMode) return;
+
+        state.vaultMode = false;
+        elements.hudShell?.classList.remove('vault-mode');
+        elements.workspaceFilesBtn?.classList.remove('active');
+        if (elements.vaultPage) {
+            elements.vaultPage.hidden = true;
+        }
+        closeVaultPreview();
+
+        const restoreCollapsed = state.chatCollapsedBeforeVault;
+        state.chatCollapsedBeforeVault = null;
+        if (restoreCollapsed === false) {
+            expandChatColumn(false);
+        } else {
+            collapseChatColumn();
+        }
+
+        if (!fromHash) {
+            clearVaultRoute();
+        }
+    }
+
+    function handleAppHashChange() {
+        const settingsSection = parseSettingsRoute();
+        if (settingsSection) {
+            enterSettingsMode(settingsSection, { fromHash: true });
+            return;
+        }
+        const vaultRoute = parseVaultRoute();
+        if (vaultRoute) {
+            enterVaultMode(vaultRoute, { fromHash: true });
+            return;
+        }
+        if (state.settingsMode) {
+            exitSettingsMode({ fromHash: true });
+        }
+        if (state.vaultMode) {
+            exitVaultMode({ fromHash: true });
+        }
     }
 
     function setSkillsStatus(message, isError = false) {
@@ -1553,6 +1765,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         const { restoreOnFailure = false } = options;
         if (state.settingsMode) {
             exitSettingsMode({ fromHash: true });
+        }
+        if (state.vaultMode) {
+            exitVaultMode({ fromHash: true });
         }
         let kanbanReady = false;
         let kanbanHint = 'Run `hermes kanban init` once, then try again.';
@@ -2194,7 +2409,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
             syncReplayButtonsForSession();
 
-            if (elements.workspacesDrawer?.classList.contains('open')) {
+            if (state.vaultMode) {
                 refreshVault({ ingest: true, showLoading: false });
             }
 
@@ -3520,85 +3735,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     function workspaceFileIconName(file) {
-        const name = String(file?.relativePath || file?.name || '').toLowerCase();
+        const name = String(file?.relativePath || file?.name || file?.title || '').toLowerCase();
         if (/\.(png|jpe?g|gif|webp|svg|bmp|ico|avif)$/.test(name)) return 'image';
         if (/\.(md|markdown|txt|log)$/.test(name)) return 'file-text';
         if (/\.(json|ya?ml|toml|xml|csv)$/.test(name)) return 'file-code';
         return 'file';
-    }
-
-    function renderWorkspaceFileList() {
-        refreshVault({ ingest: false, showLoading: false });
-    }
-
-    function closeWorkspaceFileViewer() {
-        elements.workspaceFileViewerModal?.classList.remove('open');
-        state.workspaceViewerPath = '';
-        if (elements.workspaceFileViewerBody) elements.workspaceFileViewerBody.replaceChildren();
-    }
-
-    async function openWorkspaceFileViewer(filePath, displayName) {
-        if (!filePath) return;
-        state.workspaceViewerPath = filePath;
-        elements.workspaceFileViewerModal?.classList.add('open');
-        if (elements.workspaceFileViewerTitle) {
-            elements.workspaceFileViewerTitle.textContent = displayName || filePath.split('/').pop() || 'File';
-        }
-        if (elements.workspaceFileViewerPath) {
-            elements.workspaceFileViewerPath.textContent = filePath;
-        }
-        if (elements.workspaceFileViewerBody) {
-            elements.workspaceFileViewerBody.replaceChildren();
-            const loading = document.createElement('div');
-            loading.className = 'workspace-file-viewer-loading';
-            loading.textContent = 'Loading file…';
-            elements.workspaceFileViewerBody.appendChild(loading);
-        }
-
-        try {
-            const result = await ai.readWorkspaceFile(filePath, state.activeKanbanBoard);
-            renderWorkspaceFileViewerContent(result);
-        } catch (err) {
-            renderWorkspaceFileViewerError(err.message || 'Could not read file.');
-        }
-    }
-
-    function renderWorkspaceFileViewerError(message) {
-        const body = elements.workspaceFileViewerBody;
-        if (!body) return;
-        body.replaceChildren();
-        const error = document.createElement('div');
-        error.className = 'workspace-file-viewer-error';
-        error.textContent = message;
-        body.appendChild(error);
-    }
-
-    function renderWorkspaceFileViewerContent(result) {
-        const body = elements.workspaceFileViewerBody;
-        if (!body) return;
-        body.replaceChildren();
-
-        if (result.kind === 'image') {
-            const img = document.createElement('img');
-            img.className = 'workspace-file-viewer-image';
-            img.alt = result.name || 'Workspace image';
-            img.src = ai.workspaceFileUrl(result.path, state.activeKanbanBoard);
-            body.appendChild(img);
-            return;
-        }
-
-        if (result.kind === 'text') {
-            const pre = document.createElement('pre');
-            pre.className = 'workspace-file-viewer-text';
-            pre.textContent = result.content || '';
-            body.appendChild(pre);
-            return;
-        }
-
-        const notice = document.createElement('div');
-        notice.className = 'workspace-file-viewer-binary';
-        notice.textContent = 'This file cannot be previewed in the HUD. Use Open in Finder to view it locally.';
-        body.appendChild(notice);
     }
 
     function buildMessageWithWorkspaceContext(text) {
@@ -4668,6 +4809,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (state.kanbanMode) {
             exitKanbanMode();
         }
+        if (state.vaultMode) {
+            exitVaultMode({ fromHash: true });
+        }
 
         const targetSection = normalizeSettingsSection(
             section || AetherUserData.getItem('aether_settings_section') || 'appearance',
@@ -4723,17 +4867,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         if (!fromHash) {
             clearSettingsRoute();
-        }
-    }
-
-    function handleSettingsHashChange() {
-        const section = parseSettingsRoute();
-        if (section) {
-            enterSettingsMode(section, { fromHash: true });
-            return;
-        }
-        if (state.settingsMode) {
-            exitSettingsMode({ fromHash: true });
         }
     }
 
