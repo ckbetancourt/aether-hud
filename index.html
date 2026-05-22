@@ -219,6 +219,15 @@
             </div>
 
             <div class="drawer-scroll">
+                <section class="workspace-section workspace-section--list">
+                    <h3 class="section-label">Agent workspace</h3>
+                    <div class="form-hint workspace-board-hint" id="agentWorkspaceHint">Hermes gateway working directory (terminal.cwd) and recent projects.</div>
+                    <div class="workspace-default-workdir" id="agentTerminalCwd"></div>
+                    <div class="workspace-list workspace-list-scroll" id="agentWorkspaceList">
+                        <div class="workspace-empty-hint">Loading project workspaces…</div>
+                    </div>
+                </section>
+
                 <section>
                     <h3 class="section-label">Kanban board</h3>
                     <select class="form-select" id="kanbanBoardSelect" aria-label="Active Kanban board">
@@ -228,9 +237,9 @@
                     <div class="workspace-default-workdir" id="kanbanDefaultWorkdir" hidden></div>
                 </section>
 
-                <section>
+                <section class="workspace-section workspace-section--list">
                     <h3 class="section-label">Task workspaces</h3>
-                    <div class="workspace-list" id="workspaceList">
+                    <div class="workspace-list workspace-list-scroll" id="workspaceList">
                         <div class="workspace-empty-hint">Open this panel to load workspaces.</div>
                     </div>
                 </section>
@@ -241,6 +250,7 @@
                     <div class="workspace-file-list" id="workspaceFileList"></div>
                     <div class="workspace-browse-actions">
                         <button class="action-btn btn-secondary" id="workspaceRevealBtn" type="button">Open in Finder</button>
+                        <button class="action-btn btn-secondary" id="workspaceSwitchBtn" type="button">Switch agent workspace</button>
                         <button class="action-btn btn-primary" id="workspacePinBtn" type="button">Pin workspace</button>
                     </div>
                 </section>

@@ -582,10 +582,42 @@ const {
   listBoards,
   switchBoard,
   listWorkspaces,
-  browseWorkspacePath,
-  revealWorkspacePath,
+  getKanbanBrowseRoots,
   listBoardsViaCli,
 } = require('./lib/hermes-kanban.js');
+
+const {
+  listAgentWorkspaces,
+  getAgentBrowseRoots,
+  switchAgentWorkspace,
+  addUserFavorite,
+} = require('./lib/hermes-workspaces.js');
+
+const { assertBrowseAllowed, browseDirectory } = require('./lib/workspace-sandbox.js');
+
+function combinedBrowseRoots(boardSlug) {
+  const kanban = getKanbanBrowseRoots(boardSlug).roots;
+  const agent = getAgentBrowseRoots();
+  return [...new Set([...agent, ...kanban])];
+}
+
+function browseWorkspacePath(requestedPath, boardSlug) {
+  const abs = assertBrowseAllowed(requestedPath, combinedBrowseRoots(boardSlug));
+  return browseDirectory(abs);
+}
+
+function revealWorkspacePath(requestedPath, boardSlug) {
+  const abs = assertBrowseAllowed(requestedPath, combinedBrowseRoots(boardSlug));
+  const { execSync } = require('child_process');
+  if (process.platform === 'darwin') {
+    execSync(`open ${JSON.stringify(abs)}`, { timeout: 5000 });
+  } else if (process.platform === 'win32') {
+    execSync(`explorer ${JSON.stringify(abs)}`, { timeout: 5000 });
+  } else {
+    execSync(`xdg-open ${JSON.stringify(abs)}`, { timeout: 5000 });
+  }
+  return { ok: true, path: abs };
+}
 
 const {
   isElevenLabsConfigured,
@@ -1359,6 +1391,32 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (req.method === 'POST' && pathname === '/api/hermes/workspaces/agent/switch') {
+    try {
+      const body = await readBody(req);
+      const result = switchAgentWorkspace(body?.path || '');
+      sendJson(res, 200, { available: true, ...result });
+    } catch (e) {
+      const status = e.statusCode || 502;
+      console.error('[api/hermes/workspaces/agent/switch]', e.message || e);
+      sendJson(res, status, { available: false, error: e.message || 'Agent workspace switch failed' });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/api/hermes/workspaces/agent/favorite') {
+    try {
+      const body = await readBody(req);
+      const result = addUserFavorite(body?.path || '');
+      sendJson(res, 200, { available: true, ...result });
+    } catch (e) {
+      const status = e.statusCode || 400;
+      console.error('[api/hermes/workspaces/agent/favorite]', e.message || e);
+      sendJson(res, status, { available: false, error: e.message || 'Could not save workspace' });
+    }
+    return;
+  }
+
   const kanbanSwitchMatch = pathname.match(/^\/api\/hermes\/kanban\/boards\/([^/]+)\/switch$/);
   if (req.method === 'POST' && kanbanSwitchMatch) {
     const slug = decodeURIComponent(kanbanSwitchMatch[1]);
@@ -1575,6 +1633,17 @@ const server = http.createServer(async (req, res) => {
       } catch (e) {
         console.error('[api/hermes/kanban/workspaces]', e.message || e);
         sendJson(res, 502, { available: false, items: [], error: e.message, hint: KANBAN_INIT_HINT });
+      }
+      return;
+    }
+
+    if (pathname === '/api/hermes/workspaces/agent') {
+      try {
+        const result = listAgentWorkspaces();
+        sendJson(res, 200, result);
+      } catch (e) {
+        console.error('[api/hermes/workspaces/agent]', e.message || e);
+        sendJson(res, 502, { available: false, items: [], error: e.message });
       }
       return;
     }

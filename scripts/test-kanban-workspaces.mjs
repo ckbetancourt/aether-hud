@@ -17,6 +17,12 @@ async function fetchJson(path) {
 }
 
 async function main() {
+  const agent = await fetchJson('/api/hermes/workspaces/agent');
+  if (!agent.data.available || !Array.isArray(agent.data.items)) {
+    throw new Error('Agent workspaces unavailable');
+  }
+  console.log('OK agent workspaces', agent.data.items.length, 'terminal.cwd=', agent.data.terminalCwd);
+
   const boards = await fetchJson('/api/hermes/kanban/boards');
   if (!boards.data.available) {
     console.log('SKIP kanban not initialized:', boards.data.hint || boards.data.error);

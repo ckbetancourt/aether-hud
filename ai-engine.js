@@ -369,6 +369,34 @@ class AIEngine {
         return data;
     }
 
+    async getAgentWorkspaces() {
+        const baseUrl = this.resolveLlmBackendBaseUrl();
+        if (!baseUrl) return { available: false, items: [] };
+        const response = await fetch(`${baseUrl}/api/hermes/workspaces/agent`);
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(data.error || data.message || `HTTP ${response.status}`);
+        }
+        return data;
+    }
+
+    async switchAgentWorkspace(pathValue) {
+        const baseUrl = this.resolveLlmBackendBaseUrl();
+        if (!baseUrl || !pathValue) throw new Error('Path is required.');
+        const response = await fetch(`${baseUrl}/api/hermes/workspaces/agent/switch`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: pathValue }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.ok) {
+            const err = new Error(data.error || data.message || `HTTP ${response.status}`);
+            if (data.hint) err.hint = data.hint;
+            throw err;
+        }
+        return data;
+    }
+
     async getHermesModelOptions() {
         const baseUrl = this.resolveLlmBackendBaseUrl();
         if (!baseUrl) {

@@ -120,17 +120,22 @@ Docs: [Hermes API Server](https://hermes-agent.nousresearch.com/docs/user-guide/
 
 ## Workspaces in Aether
 
-Hermes **Kanban** uses *workspaces* — isolated directories where task workers read and write files (`scratch`, `dir:/path`, or `worktree`). Boards group unrelated workstreams (one Kanban DB + `workspaces/` tree per board).
+Hermes has two workspace concepts Aether surfaces:
 
-Aether reads Kanban state directly from `~/.hermes` (no Hermes dashboard token required):
+1. **Agent / project workspaces** — the gateway working directory (`terminal.cwd` in `config.yaml`), checkpoint-registered project folders, and the profile `workspace/` directory.
+2. **Kanban task workspaces** — per-task directories (`scratch`, `dir:/path`, `worktree`) grouped under Kanban boards.
+
+Aether reads both directly from `~/.hermes` (no Hermes dashboard token required):
 
 | HUD control | What it does |
 |-------------|--------------|
 | **Workspaces** button (folder icon, bottom pill) | Opens the Workspaces drawer |
-| **Board dropdown** | Lists boards and switches the active board (`~/.hermes/kanban/current`) |
-| **Task workspace list** | Shows each task’s resolved `workspace_path` plus the board default workdir |
+| **Agent workspace** list | Shows `terminal.cwd`, checkpoint projects, profile workspace |
+| **Switch agent workspace** | Sets `terminal.cwd` via `hermes config set` (restart gateway for running sessions) |
+| **Kanban board** dropdown | Lists boards and switches the active Kanban board |
+| **Task workspace list** | Kanban task paths + board default workdir |
 | **File browser** | Click a workspace to list files; click folders to drill in |
-| **Pin workspace** | Shows a badge in chat and prepends `[Workspace: /path]` to outbound messages (context-only in v1 — does not change Hermes `terminal.cwd`) |
+| **Pin workspace** | Chat badge + `[Workspace: /path]` on outbound messages |
 | **Open in Finder** | Reveals the folder in the OS file manager |
 
 **Prerequisites**
@@ -143,6 +148,8 @@ npm start
 
 **API routes** (served by Aether on port 8787):
 
+- `GET /api/hermes/workspaces/agent` — project/agent workspaces
+- `POST /api/hermes/workspaces/agent/switch` — set `terminal.cwd`
 - `GET /api/hermes/kanban/boards`
 - `POST /api/hermes/kanban/boards/:slug/switch`
 - `GET /api/hermes/kanban/workspaces?board=`

@@ -158,6 +158,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         selectedWorkspaceTitle: '',
         kanbanBoards: [],
         kanbanWorkspaces: [],
+        agentWorkspaces: [],
         workspaceBrowsePath: '',
         workspaceBrowseEntries: [],
         hermesStatus: null,
@@ -236,12 +237,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         kanbanBoardSelect: document.getElementById('kanbanBoardSelect'),
         kanbanBoardHint: document.getElementById('kanbanBoardHint'),
         kanbanDefaultWorkdir: document.getElementById('kanbanDefaultWorkdir'),
+        agentWorkspaceHint: document.getElementById('agentWorkspaceHint'),
+        agentTerminalCwd: document.getElementById('agentTerminalCwd'),
+        agentWorkspaceList: document.getElementById('agentWorkspaceList'),
         workspaceList: document.getElementById('workspaceList'),
         workspaceBrowseSection: document.getElementById('workspaceBrowseSection'),
         workspaceBrowseTitle: document.getElementById('workspaceBrowseTitle'),
         workspaceBrowsePath: document.getElementById('workspaceBrowsePath'),
         workspaceFileList: document.getElementById('workspaceFileList'),
         workspaceRevealBtn: document.getElementById('workspaceRevealBtn'),
+        workspaceSwitchBtn: document.getElementById('workspaceSwitchBtn'),
         workspacePinBtn: document.getElementById('workspacePinBtn'),
         workspacePinBadge: document.getElementById('workspacePinBadge'),
         newChatBtn: document.getElementById('newChatBtn'),
@@ -388,6 +393,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
         if (elements.workspacePinBtn) {
             elements.workspacePinBtn.addEventListener('click', () => pinSelectedWorkspace());
+        }
+        if (elements.workspaceSwitchBtn) {
+            elements.workspaceSwitchBtn.addEventListener('click', () => switchSelectedAgentWorkspace());
         }
         
         // Settings triggers
@@ -2025,26 +2033,23 @@ document.addEventListener('DOMContentLoaded', async () => {
         state.activeKanbanBoard = active;
     }
 
-    function renderWorkspaceList(items) {
-        const list = elements.workspaceList;
-        if (!list) return;
-        list.replaceChildren();
-
+    function renderWorkspaceItems(listEl, items, { onSelect, emptyText }) {
+        if (!listEl) return;
+        listEl.replaceChildren();
         if (!items.length) {
             const empty = document.createElement('div');
             empty.className = 'workspace-empty-hint';
-            empty.textContent = 'No task workspaces on this board yet.';
-            list.appendChild(empty);
+            empty.textContent = emptyText || 'No workspaces found.';
+            listEl.appendChild(empty);
             return;
         }
-
         const fragment = document.createDocumentFragment();
         for (const item of items) {
+            if (!item.path) continue;
             const btn = document.createElement('button');
             btn.type = 'button';
             btn.className = `workspace-item${state.selectedWorkspacePath === item.path ? ' active' : ''}`;
             btn.dataset.path = item.path;
-            btn.dataset.title = item.title || item.id;
 
             const title = document.createElement('span');
             title.className = 'workspace-item-title';
@@ -2052,7 +2057,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             const meta = document.createElement('span');
             meta.className = 'workspace-item-meta';
-            meta.textContent = `${item.status || 'unknown'} · ${item.workspaceKind || item.kind || 'scratch'}`;
+            const kind = item.workspaceKind || item.kind || 'workspace';
+            meta.textContent = `${item.status || kind} · ${kind}`;
 
             const pathEl = document.createElement('span');
             pathEl.className = 'workspace-item-path';
@@ -2061,15 +2067,57 @@ document.addEventListener('DOMContentLoaded', async () => {
             btn.appendChild(title);
             btn.appendChild(meta);
             btn.appendChild(pathEl);
-            btn.addEventListener('click', () => selectWorkspace(item));
+            btn.addEventListener('click', () => onSelect(item));
             fragment.appendChild(btn);
         }
-        list.appendChild(fragment);
+        listEl.appendChild(fragment);
+    }
+
+    function renderAgentWorkspaceList(items) {
+        renderWorkspaceItems(elements.agentWorkspaceList, items, {
+            emptyText: 'No project workspaces yet. Hermes registers projects when you work in a directory.',
+            onSelect: (item) => selectWorkspace(item),
+        });
+    }
+
+    function renderKanbanWorkspaceList(items) {
+        renderWorkspaceItems(elements.workspaceList, items, {
+            emptyText: 'No task workspaces on this board yet.',
+            onSelect: (item) => selectWorkspace(item),
+        });
+    }
+
+    async function refreshAgentWorkspaces() {
+        const hint = elements.agentWorkspaceHint;
+        const cwdEl = elements.agentTerminalCwd;
+        try {
+            const result = await ai.getAgentWorkspaces();
+            state.agentWorkspaces = (result.items || []).filter((item) => item.path);
+            renderAgentWorkspaceList(state.agentWorkspaces);
+
+            if (cwdEl) {
+                if (result.terminalPath) {
+                    cwdEl.hidden = false;
+                    cwdEl.textContent = `Active terminal.cwd: ${result.terminalPath}`;
+                } else if (result.terminalCwd) {
+                    cwdEl.hidden = false;
+                    cwdEl.textContent = `Active terminal.cwd: ${result.terminalCwd}`;
+                } else {
+                    cwdEl.hidden = true;
+                }
+            }
+            if (hint) {
+                hint.textContent = `${state.agentWorkspaces.length} project workspace${state.agentWorkspaces.length === 1 ? '' : 's'} (terminal.cwd, checkpoints, profile).`;
+            }
+        } catch (err) {
+            if (hint) hint.textContent = err.message || 'Failed to load agent workspaces.';
+        }
     }
 
     async function refreshKanbanWorkspaces() {
+        await refreshAgentWorkspaces();
         const hint = elements.kanbanBoardHint;
-        if (hint) hint.textContent = 'Loading Hermes Kanban workspaces…';
+        if (hint) hint.textContent = 'Loading Kanban workspaces…';
 
         try {
             const boardsResult = await ai.getKanbanBoards();
@@ -2077,7 +2125,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 if (hint) {
                     hint.textContent = boardsResult.hint || boardsResult.error || 'Kanban not initialized. Run `hermes kanban init`.';
                 }
-                renderWorkspaceList([]);
+                renderKanbanWorkspaceList([]);
                 if (elements.workspaceBrowseSection) elements.workspaceBrowseSection.hidden = true;
                 return;
             }
@@ -2090,7 +2138,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             const wsResult = await ai.getKanbanWorkspaces(current);
             state.kanbanWorkspaces = wsResult.items || [];
-            renderWorkspaceList(state.kanbanWorkspaces);
+            renderKanbanWorkspaceList(state.kanbanWorkspaces);
 
             const defaultWd = elements.kanbanDefaultWorkdir;
             if (defaultWd) {
@@ -2134,7 +2182,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (!item?.path) return;
         state.selectedWorkspacePath = item.path;
         state.selectedWorkspaceTitle = item.title || item.id;
-        renderWorkspaceList(state.kanbanWorkspaces);
+        renderAgentWorkspaceList(state.agentWorkspaces);
+        renderKanbanWorkspaceList(state.kanbanWorkspaces);
         await browseWorkspaceAt(item.path);
     }
 
@@ -2207,6 +2256,26 @@ document.addEventListener('DOMContentLoaded', async () => {
             await ai.revealKanbanPath(pathValue, state.activeKanbanBoard);
         } catch (err) {
             showToast('Reveal failed', err.message || 'Could not open folder.', { variant: 'error' });
+        }
+    }
+
+    async function switchSelectedAgentWorkspace() {
+        const pathValue = state.selectedWorkspacePath || state.workspaceBrowsePath;
+        if (!pathValue) return;
+        try {
+            const result = await ai.switchAgentWorkspace(pathValue);
+            state.activeWorkspacePath = pathValue;
+            AetherUserData.setItem('aether_active_workspace_path', pathValue);
+            updateWorkspacePinBadge();
+            await refreshAgentWorkspaces();
+            showToast(
+                'Agent workspace switched',
+                result.hint || shortenWorkspacePath(pathValue),
+                { durationMs: 5200 }
+            );
+            appendSystemConsoleLine(`[WORKSPACE] terminal.cwd → ${pathValue}`);
+        } catch (err) {
+            showToast('Switch failed', err.hint || err.message || 'Could not switch workspace.', { variant: 'error', durationMs: 6200 });
         }
     }
 
