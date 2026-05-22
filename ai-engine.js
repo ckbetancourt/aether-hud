@@ -558,10 +558,89 @@ class AIEngine {
         return data;
     }
 
-    async getHermesFiles() {
+    async ingestVault() {
+        const baseUrl = this.resolveLlmBackendBaseUrl();
+        if (!baseUrl) return { available: false };
+        const response = await fetch(`${baseUrl}/api/aether/vault/ingest`, { method: 'POST' });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(data.error || data.message || `HTTP ${response.status}`);
+        }
+        return data;
+    }
+
+    async getVaultFiles(sessionId) {
         const baseUrl = this.resolveLlmBackendBaseUrl();
         if (!baseUrl) return { available: false, files: [] };
-        const response = await fetch(`${baseUrl}/api/hermes/files`);
+        const params = new URLSearchParams();
+        if (sessionId) params.set('session_id', String(sessionId));
+        const qs = params.toString();
+        const response = await fetch(`${baseUrl}/api/aether/vault/files${qs ? `?${qs}` : ''}`);
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(data.error || data.message || `HTTP ${response.status}`);
+        }
+        return data;
+    }
+
+    async readVaultFile(id) {
+        const baseUrl = this.resolveLlmBackendBaseUrl();
+        if (!baseUrl || !id) throw new Error('Vault file id is required.');
+        const params = new URLSearchParams({ id: String(id) });
+        const response = await fetch(`${baseUrl}/api/aether/vault/file?${params}`);
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(data.error || data.message || `HTTP ${response.status}`);
+        }
+        return data;
+    }
+
+    vaultFileUrl(id) {
+        const baseUrl = this.resolveLlmBackendBaseUrl();
+        if (!baseUrl || !id) return '';
+        const params = new URLSearchParams({ id: String(id) });
+        return `${baseUrl}/api/aether/vault/file/raw?${params}`;
+    }
+
+    async listAgentDirectory(relPath = '.') {
+        const baseUrl = this.resolveLlmBackendBaseUrl();
+        if (!baseUrl) return { available: false, entries: [] };
+        const params = new URLSearchParams({ path: String(relPath || '.') });
+        const response = await fetch(`${baseUrl}/api/hermes/agent/list?${params}`);
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(data.error || data.message || `HTTP ${response.status}`);
+        }
+        return data;
+    }
+
+    async readAgentFile(relPath) {
+        const baseUrl = this.resolveLlmBackendBaseUrl();
+        if (!baseUrl || !relPath) throw new Error('Path is required.');
+        const params = new URLSearchParams({ path: String(relPath) });
+        const response = await fetch(`${baseUrl}/api/hermes/agent/file?${params}`);
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(data.error || data.message || `HTTP ${response.status}`);
+        }
+        return data;
+    }
+
+    agentFileUrl(relPath) {
+        const baseUrl = this.resolveLlmBackendBaseUrl();
+        if (!baseUrl || !relPath) return '';
+        const params = new URLSearchParams({ path: String(relPath) });
+        return `${baseUrl}/api/hermes/agent/file/raw?${params}`;
+    }
+
+    async favoriteAgentWorkspace(pathValue) {
+        const baseUrl = this.resolveLlmBackendBaseUrl();
+        if (!baseUrl || !pathValue) throw new Error('Path is required.');
+        const response = await fetch(`${baseUrl}/api/hermes/workspaces/agent/favorite`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: pathValue }),
+        });
         const data = await response.json().catch(() => ({}));
         if (!response.ok) {
             throw new Error(data.error || data.message || `HTTP ${response.status}`);

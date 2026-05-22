@@ -2760,6 +2760,36 @@ body {
     margin-bottom: 12px;
 }
 
+.skills-filter-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.skills-filter-btn {
+    border: 1px solid color-mix(in srgb, var(--accent-primary) 12%, var(--glass-card-border));
+    background: color-mix(in srgb, var(--surface-base, #0a0c12) 28%, transparent);
+    color: var(--text-muted);
+    border-radius: 999px;
+    padding: 6px 12px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.skills-filter-btn:hover {
+    color: inherit;
+    border-color: color-mix(in srgb, var(--accent-primary) 24%, var(--glass-card-border));
+}
+
+.skills-filter-btn.active {
+    color: inherit;
+    border-color: color-mix(in srgb, var(--accent-primary) 42%, transparent);
+    background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
+}
+
 .skills-search {
     flex: 1;
 }
@@ -2869,6 +2899,13 @@ body {
     cursor: pointer;
 }
 
+.skill-row-name-line {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
 .skill-row-name {
     display: block;
     font-size: 0.86rem;
@@ -2876,6 +2913,37 @@ body {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    min-width: 0;
+    flex: 1;
+}
+
+.skill-source-badge {
+    flex-shrink: 0;
+    padding: 2px 7px;
+    border-radius: 999px;
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    border: 1px solid transparent;
+}
+
+.skill-source-badge.is-builtin {
+    color: color-mix(in srgb, var(--accent-primary) 88%, white);
+    background: color-mix(in srgb, var(--accent-primary) 14%, transparent);
+    border-color: color-mix(in srgb, var(--accent-primary) 24%, transparent);
+}
+
+.skill-source-badge.is-hub {
+    color: #8fd19e;
+    background: rgba(76, 175, 80, 0.12);
+    border-color: rgba(76, 175, 80, 0.24);
+}
+
+.skill-source-badge.is-local {
+    color: #d4b86a;
+    background: rgba(212, 184, 106, 0.12);
+    border-color: rgba(212, 184, 106, 0.24);
 }
 
 .skill-row-desc {
@@ -3114,8 +3182,177 @@ body {
     flex-direction: column;
 }
 
+.workspace-browser-scroll {
+    gap: 10px;
+}
+
+.workspace-spaces-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+.workspace-spaces-label {
+    font-size: 0.68rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.45);
+    flex: 0 0 auto;
+}
+
+.workspace-space-select {
+    flex: 1 1 120px;
+    min-width: 0;
+    font-size: 0.82rem;
+    padding: 6px 8px;
+}
+
+.workspace-spaces-actions {
+    display: inline-flex;
+    gap: 4px;
+}
+
+.workspace-space-action-btn {
+    width: 28px;
+    height: 28px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.03);
+    color: rgba(255, 255, 255, 0.55);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+
+.workspace-space-action-btn:hover {
+    color: rgba(255, 255, 255, 0.85);
+    border-color: rgba(255, 255, 255, 0.16);
+}
+
+.workspace-space-action-btn svg {
+    width: 14px;
+    height: 14px;
+}
+
+.workspace-breadcrumbs {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.74rem;
+    color: rgba(255, 255, 255, 0.5);
+    min-height: 20px;
+}
+
+.workspace-breadcrumb-btn {
+    border: none;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.62);
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 4px;
+    font: inherit;
+}
+
+.workspace-breadcrumb-btn:hover,
+.workspace-breadcrumb-btn.is-current {
+    color: var(--accent-primary, #ff4436);
+}
+
+.workspace-breadcrumb-sep {
+    opacity: 0.35;
+    user-select: none;
+}
+
+.workspace-tree-list {
+    flex: 1;
+    max-height: none;
+    min-height: 140px;
+}
+
+.workspace-inline-preview {
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    padding-top: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-height: 120px;
+    max-height: 40vh;
+}
+
+.workspace-inline-preview-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.workspace-inline-preview-title {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.82);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.workspace-inline-preview-close {
+    border: none;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.45);
+    font-size: 1.1rem;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0 4px;
+}
+
+.workspace-inline-preview-body {
+    overflow: auto;
+    flex: 1;
+    min-height: 0;
+    font-size: 0.78rem;
+    line-height: 1.45;
+}
+
+.workspace-inline-preview-body pre {
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.workspace-inline-preview-body img {
+    max-width: 100%;
+    border-radius: 8px;
+}
+
 .hermes-files-hint {
     margin-bottom: 8px;
+}
+
+.vault-disclaimer {
+    line-height: 1.45;
+}
+
+.vault-disclaimer strong {
+    color: rgba(255, 255, 255, 0.82);
+}
+
+.workspace-inline-preview-original {
+    font-size: 0.68rem;
+    color: rgba(255, 255, 255, 0.42);
+    word-break: break-all;
+    line-height: 1.35;
+    padding: 0 2px 6px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    margin-bottom: 6px;
+}
+
+.vault-file-list .vault-original-missing {
+    color: rgba(255, 180, 100, 0.75);
+    font-size: 0.68rem;
 }
 
 .hermes-files-list {
@@ -3534,6 +3771,11 @@ body {
     border-color: var(--swatch-active-border);
     box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.08), 0 0 12px color-mix(in srgb, var(--swatch-primary) 55%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.32);
     transform: scale(1.1);
+}
+
+.chat-history-tabs {
+    margin: 0 18px 12px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 /* Historical records */

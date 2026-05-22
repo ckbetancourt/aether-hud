@@ -194,7 +194,7 @@
             </button>
 
             <!-- Workspace file browser -->
-            <button class="hud-circle-btn" id="workspaceFilesBtn" type="button" title="Hermes files">
+            <button class="hud-circle-btn" id="workspaceFilesBtn" type="button" title="Aether Vault">
                 <i data-lucide="folder-open" style="width: 18px; height: 18px;"></i>
             </button>
 
@@ -274,36 +274,36 @@
                     </button>
                 </div>
             </div>
+
+            <div class="chat-history-tabs settings-tabs" role="tablist" aria-label="Chat categories">
+                <button class="settings-tab active" type="button" role="tab" id="chatHistoryTabAether" aria-selected="true" aria-controls="chatHistoryList" data-chat-history-tab="aether">Aether</button>
+                <button class="settings-tab" type="button" role="tab" id="chatHistoryTabHermes" aria-selected="false" aria-controls="chatHistoryList" data-chat-history-tab="hermes">Hermes</button>
+            </div>
             
             <div class="drawer-scroll">
-                
-
                 <section>
-                    <h3 class="section-label">Chats</h3>
                     <div class="chat-history-list" id="chatHistoryList">
                         <!-- Populated by JavaScript -->
                     </div>
                 </section>
-                
             </div>
             
             <div class="drawer-footer">
                 <button class="action-btn btn-primary" id="newChatBtn">
-                    <i data-lucide="plus" style="width:14px; height:14px; vertical-align:middle;"></i>
-                    New Core Session
+                    New Session +
                 </button>
             </div>
         </aside>
 
-        <!-- HERMES FILES DRAWER (Left Side) -->
+        <!-- AETHER VAULT DRAWER (Left Side) -->
         <aside class="sidebar-drawer workspaces-drawer glass-panel" id="workspacesDrawer">
             <div class="drawer-header">
                 <div class="hud-brand">
                     <span class="brand-dot"></span>
-                    <span class="brand-name" style="font-size:0.95rem;">FILES</span>
+                    <span class="brand-name" style="font-size:0.95rem;">VAULT</span>
                 </div>
                 <div class="drawer-header-actions">
-                    <button class="settings-gear-btn" id="refreshHermesFilesBtn" title="Refresh files" style="border:none; background:transparent;">
+                    <button class="settings-gear-btn" id="refreshHermesFilesBtn" title="Refresh vault" style="border:none; background:transparent;">
                         <i data-lucide="refresh-cw" style="width:14px; height:14px;"></i>
                     </button>
                     <button class="settings-gear-btn" id="workspacesDrawerCloseBtn" style="border:none; background:transparent;">
@@ -312,11 +312,21 @@
                 </div>
             </div>
 
-            <div class="drawer-scroll">
-                <div class="form-hint hermes-files-hint" id="hermesFilesHint">All files Hermes creates — markdown, notes, uploads, anywhere on disk.</div>
+            <div class="drawer-scroll workspace-browser-scroll">
+                <div class="form-hint hermes-files-hint vault-disclaimer" id="vaultDisclaimer">
+                    <strong>Aether Vault</strong> — index of files Hermes creates. Previews read directly from the original paths on disk.
+                </div>
                 <div class="workspace-path-mono" id="hermesFilesStatus"></div>
-                <div class="workspace-file-list hermes-files-list" id="workspaceFileList">
-                    <div class="workspace-empty-hint">Open this panel to load files.</div>
+                <div class="workspace-file-list workspace-tree-list vault-file-list" id="workspaceFileList">
+                    <div class="workspace-empty-hint">Open this panel to load the vault.</div>
+                </div>
+                <div class="workspace-inline-preview" id="workspaceInlinePreview" hidden>
+                    <div class="workspace-inline-preview-header">
+                        <span class="workspace-inline-preview-title" id="workspaceInlinePreviewTitle"></span>
+                        <button type="button" class="workspace-inline-preview-close" id="workspaceInlinePreviewCloseBtn" title="Close preview">&times;</button>
+                    </div>
+                    <div class="workspace-inline-preview-original" id="workspaceInlinePreviewOriginal"></div>
+                    <div class="workspace-inline-preview-body" id="workspaceInlinePreviewBody"></div>
                 </div>
             </div>
         </aside>
@@ -469,8 +479,9 @@
                     </div>
 
                     <div class="form-group">
-                        <label>Hermes files</label>
-                        <button class="action-btn btn-secondary" id="settingsWorkspacesBtn" type="button">Open Hermes files</button>
+                        <label>Aether Vault</label>
+                        <button class="action-btn btn-secondary" id="settingsWorkspacesBtn" type="button">Open vault</button>
+                        <div class="form-hint">Indexed files Hermes creates — previews read from originals on disk. See <code>docs/VAULT.md</code>.</div>
                         <div class="form-hint">Browse Kanban task folders, pin paths to chat, and switch agent working directory.</div>
                     </div>
                 </section>
@@ -560,6 +571,12 @@
                 </button>
             </div>
 
+            <div class="skills-filter-row" role="tablist" aria-label="Skill source filters">
+                <button class="skills-filter-btn active" type="button" role="tab" data-skills-filter="all" aria-selected="true">All</button>
+                <button class="skills-filter-btn" type="button" role="tab" data-skills-filter="native" aria-selected="false">Native</button>
+                <button class="skills-filter-btn" type="button" role="tab" data-skills-filter="custom" aria-selected="false">Custom</button>
+            </div>
+
             <div class="skills-status" id="skillsStatus" hidden></div>
 
             <div class="skills-columns">
@@ -575,7 +592,7 @@
             </div>
 
             <div class="modal-actions skills-modal-actions">
-                <p class="skills-reload-hint">After saving or toggling, run <code>/reload-skills</code> in Hermes chat to apply changes.</p>
+                <p class="skills-reload-hint">After saving or toggling, run <code>/reload-skills</code> in Hermes chat, or start a new session.</p>
                 <div class="skills-action-buttons">
                     <button class="action-btn btn-secondary" id="cancelSkillsBtn" type="button">Close</button>
                     <button class="action-btn btn-primary" id="saveSkillsBtn" type="button" disabled>Save skill</button>

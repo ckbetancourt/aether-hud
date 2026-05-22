@@ -613,12 +613,19 @@ const {
   getAgentBrowseRoots,
   switchAgentWorkspace,
   addUserFavorite,
+  listActiveAgentDirectory,
+  readActiveAgentFile,
+  resolveActiveAgentFile,
 } = require('./lib/hermes-workspaces.js');
 
 const {
-  listHermesOutputFiles,
-  assertHermesFileReadable,
-} = require('./lib/hermes-files.js');
+  ingestFromSessions,
+  listVaultFiles,
+  readVaultFileContent,
+  resolveVaultRawPath,
+  VAULT_NOTE,
+  mimeFromExt: vaultMimeFromExt,
+} = require('./lib/aether-vault.js');
 
 const {
   listHermesSkills,
@@ -632,9 +639,7 @@ const { assertBrowseAllowed, browseDirectory, listWorkspaceFiles, readWorkspaceF
 function combinedBrowseRoots(boardSlug) {
   const kanban = getKanbanBrowseRoots(boardSlug).roots;
   const agent = getAgentBrowseRoots();
-  const { getHermesOutputRoots } = require('./lib/hermes-files.js');
-  const hermes = getHermesOutputRoots();
-  return [...new Set([...agent, ...kanban, ...hermes])];
+  return [...new Set([...agent, ...kanban])];
 }
 
 function browseWorkspacePath(requestedPath, boardSlug) {
@@ -648,12 +653,12 @@ function listWorkspaceFilesPath(requestedPath, boardSlug) {
 }
 
 function readWorkspaceFilePath(requestedPath, boardSlug) {
-  const abs = assertHermesFileReadable(requestedPath, combinedBrowseRoots(boardSlug));
+  const abs = assertBrowseAllowed(requestedPath, combinedBrowseRoots(boardSlug));
   return readWorkspaceFile(abs);
 }
 
 function resolveWorkspaceFilePath(requestedPath, boardSlug) {
-  return assertHermesFileReadable(requestedPath, combinedBrowseRoots(boardSlug));
+  return assertBrowseAllowed(requestedPath, combinedBrowseRoots(boardSlug));
 }
 
 function revealWorkspacePath(requestedPath, boardSlug) {
@@ -1528,6 +1533,17 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (req.method === 'POST' && pathname === '/api/aether/vault/ingest') {
+    try {
+      const result = ingestFromSessions();
+      sendJson(res, 200, { available: true, note: VAULT_NOTE, ...result });
+    } catch (e) {
+      console.error('[api/aether/vault/ingest]', e.message || e);
+      sendJson(res, 500, { available: false, error: e.message || 'Vault ingest failed' });
+    }
+    return;
+  }
+
   const kanbanSwitchMatch = pathname.match(/^\/api\/hermes\/kanban\/boards\/([^/]+)\/switch$/);
   if (req.method === 'POST' && kanbanSwitchMatch) {
     const slug = decodeURIComponent(kanbanSwitchMatch[1]);
@@ -1796,6 +1812,63 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (pathname === '/api/aether/vault/files') {
+      const limit = Math.min(500, Math.max(1, parseInt(u.searchParams.get('limit') || '200', 10) || 200));
+      const sessionId = u.searchParams.get('session_id') || u.searchParams.get('sessionId') || '';
+      try {
+        const result = listVaultFiles(limit, sessionId || null);
+        sendJson(res, 200, result);
+      } catch (e) {
+        console.error('[api/aether/vault/files]', e.message || e);
+        sendJson(res, 502, { available: false, files: [], error: e.message || 'Vault unavailable' });
+      }
+      return;
+    }
+
+    const vaultFileMatch = pathname === '/api/aether/vault/file';
+    if (vaultFileMatch) {
+      const id = u.searchParams.get('id') || '';
+      try {
+        const result = readVaultFileContent(id);
+        sendJson(res, 200, { available: true, ...result });
+      } catch (e) {
+        const status = e.statusCode || 502;
+        console.error('[api/aether/vault/file]', e.message || e);
+        sendJson(res, status, { available: false, error: e.message || 'Read failed' });
+      }
+      return;
+    }
+
+    const vaultRawMatch = pathname === '/api/aether/vault/file/raw';
+    if (vaultRawMatch) {
+      const id = u.searchParams.get('id') || '';
+      try {
+        const abs = resolveVaultRawPath(id);
+        if (!fs.existsSync(abs)) {
+          sendJson(res, 404, { error: 'Original file not found' });
+          return;
+        }
+        const st = fs.statSync(abs);
+        if (!st.isFile()) {
+          sendJson(res, 400, { error: 'Path is not a file' });
+          return;
+        }
+        const ext = path.extname(abs).toLowerCase();
+        res.writeHead(200, {
+          'Content-Type': vaultMimeFromExt(ext),
+          'Content-Length': st.size,
+          'Cache-Control': 'no-store',
+          ...corsHeaders(),
+        });
+        fs.createReadStream(abs).pipe(res);
+      } catch (e) {
+        const status = e.statusCode || 502;
+        console.error('[api/aether/vault/file/raw]', e.message || e);
+        sendJson(res, status, { available: false, error: e.message || 'File unavailable' });
+      }
+      return;
+    }
+
     if (pathname === '/api/hermes/workspaces/agent') {
       try {
         const result = listAgentWorkspaces();
@@ -1807,13 +1880,59 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    if (pathname === '/api/hermes/files') {
+    if (pathname === '/api/hermes/agent/list') {
+      const relPath = u.searchParams.get('path') || '.';
       try {
-        const result = listHermesOutputFiles();
+        const result = listActiveAgentDirectory(relPath);
         sendJson(res, 200, result);
       } catch (e) {
-        console.error('[api/hermes/files]', e.message || e);
-        sendJson(res, 502, { available: false, files: [], error: e.message || 'Hermes files unavailable' });
+        const status = e.statusCode || 502;
+        console.error('[api/hermes/agent/list]', e.message || e);
+        sendJson(res, status, { available: false, error: e.message || 'Directory list failed' });
+      }
+      return;
+    }
+
+    const agentFileMatch = pathname === '/api/hermes/agent/file';
+    if (agentFileMatch) {
+      const relPath = u.searchParams.get('path') || '';
+      try {
+        const result = readActiveAgentFile(relPath);
+        sendJson(res, 200, { available: true, ...result });
+      } catch (e) {
+        const status = e.statusCode || 502;
+        console.error('[api/hermes/agent/file]', e.message || e);
+        sendJson(res, status, { available: false, error: e.message || 'Read failed' });
+      }
+      return;
+    }
+
+    const agentRawMatch = pathname === '/api/hermes/agent/file/raw';
+    if (agentRawMatch) {
+      const relPath = u.searchParams.get('path') || '';
+      try {
+        const abs = resolveActiveAgentFile(relPath);
+        if (!fs.existsSync(abs)) {
+          sendJson(res, 404, { error: 'File not found' });
+          return;
+        }
+        const st = fs.statSync(abs);
+        if (!st.isFile()) {
+          sendJson(res, 400, { error: 'Path is not a file' });
+          return;
+        }
+        const ext = path.extname(abs).toLowerCase();
+        res.writeHead(200, {
+          'Content-Type': mimeFromExt(ext),
+          'Content-Length': st.size,
+          'Cache-Control': 'no-store',
+          ...corsHeaders(),
+        });
+        fs.createReadStream(abs).pipe(res);
+      } catch (e) {
+        const status = e.statusCode || 502;
+        console.error('[api/hermes/agent/file/raw]', e.message || e);
+        sendJson(res, status, { available: false, error: e.message || 'File unavailable' });
       }
       return;
     }

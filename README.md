@@ -196,6 +196,7 @@ If not connected, the status JSON includes `setupSteps` and an `error` with the 
 - **Microphone** — speak a command (send directly or fill the composer, per settings).
 - **Chat panel** — type when you prefer text.
 - **Archives** — stored in local SQLite (`data/aether.db` by default); migrates existing `localStorage` on first load.
+- **Aether Vault** — SQLite index of files Hermes creates; previews read directly from originals on disk. See [docs/VAULT.md](docs/VAULT.md).
 - **Settings** — speech engine (browser, ElevenLabs, or OmniVoice local), voice, speed, TTS replay history size, Hermes profile (when configured), microphone behavior.
 
 ### Kanban board

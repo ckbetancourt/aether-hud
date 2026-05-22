@@ -165,10 +165,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         chatCollapsedBeforeKanban: null,
         workspaceFiles: [],
         workspaceViewerPath: '',
+        vaultFiles: [],
+        vaultPreviewId: '',
         skillsItems: [],
         skillsSelectedName: '',
         skillsEditorBaseline: '',
         skillsDir: '',
+        skillsFilter: 'all',
+        skillsCounts: null,
         hermesStatus: null,
         isVoiceActive: false,
         speechEnabled: JSON.parse(AetherUserData.getItem('aether_speech_enabled') ?? 'true'),
@@ -177,6 +181,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         activeAccentTheme: null,
         globalColorMode: null,
         avatarForm: null,
+        chatHistoryTab: normalizeChatHistoryTab(AetherUserData.getItem('aether_chat_history_tab')),
+        _displayedSessionCount: SESSIONS_PAGE_SIZE,
     };
     state.globalAccentTheme = loadGlobalAccentTheme();
     state.globalColorMode = loadColorMode();
@@ -254,8 +260,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         hudCoreVisualizer: document.querySelector('.hud-core-visualizer'),
         avatarPokeTarget: document.getElementById('avatarPokeTarget'),
         refreshHermesFilesBtn: document.getElementById('refreshHermesFilesBtn'),
-        hermesFilesHint: document.getElementById('hermesFilesHint'),
         hermesFilesStatus: document.getElementById('hermesFilesStatus'),
+        vaultDisclaimer: document.getElementById('vaultDisclaimer'),
+        workspaceInlinePreviewOriginal: document.getElementById('workspaceInlinePreviewOriginal'),
+        workspaceBreadcrumbs: document.getElementById('workspaceBreadcrumbs'),
+        workspaceInlinePreview: document.getElementById('workspaceInlinePreview'),
+        workspaceInlinePreviewTitle: document.getElementById('workspaceInlinePreviewTitle'),
+        workspaceInlinePreviewBody: document.getElementById('workspaceInlinePreviewBody'),
+        workspaceInlinePreviewCloseBtn: document.getElementById('workspaceInlinePreviewCloseBtn'),
         workspaceFileList: document.getElementById('workspaceFileList'),
         workspacePinBadge: document.getElementById('workspacePinBadge'),
         workspaceFileViewerModal: document.getElementById('workspaceFileViewerModal'),
@@ -387,7 +399,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     applyDisplayName();
     updateHermesProfileBadge();
     updateWorkspacePinBadge();
-    renderHistorySessions();
+    activateChatHistoryTab(state.chatHistoryTab);
     startLatencyTelemetryMock();
     setBootStatus('Connecting to Hermes…');
     await refreshHermesIntegration();
@@ -452,7 +464,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             elements.workspacesDrawerCloseBtn.addEventListener('click', () => toggleWorkspacesDrawer(false));
         }
         if (elements.refreshHermesFilesBtn) {
-            elements.refreshHermesFilesBtn.addEventListener('click', () => refreshHermesFiles());
+            elements.refreshHermesFilesBtn.addEventListener('click', () => refreshVault({ ingest: true }));
+        }
+        if (elements.workspaceInlinePreviewCloseBtn) {
+            elements.workspaceInlinePreviewCloseBtn.addEventListener('click', closeVaultPreview);
         }
         if (elements.skillsBtn) {
             elements.skillsBtn.addEventListener('click', () => openSkillsModal());
@@ -472,6 +487,18 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (elements.skillsSearch) {
             elements.skillsSearch.addEventListener('input', () => renderSkillsList());
         }
+        document.querySelectorAll('[data-skills-filter]').forEach((btn) => {
+            btn.addEventListener('click', () => {
+                const filter = btn.getAttribute('data-skills-filter') || 'all';
+                state.skillsFilter = filter;
+                document.querySelectorAll('[data-skills-filter]').forEach((el) => {
+                    const active = el.getAttribute('data-skills-filter') === filter;
+                    el.classList.toggle('active', active);
+                    el.setAttribute('aria-selected', active ? 'true' : 'false');
+                });
+                renderSkillsList();
+            });
+        });
         if (elements.skillsEditor) {
             elements.skillsEditor.addEventListener('input', () => updateSkillsSaveState());
         }
@@ -532,6 +559,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         document.querySelectorAll('[data-settings-tab]').forEach((tab) => {
             tab.addEventListener('click', () => activateSettingsTab(tab.dataset.settingsTab));
+        });
+
+        document.querySelectorAll('[data-chat-history-tab]').forEach((tab) => {
+            tab.addEventListener('click', () => activateChatHistoryTab(tab.dataset.chatHistoryTab));
         });
 
         document.querySelectorAll('.accent-swatch').forEach((swatch) => {
@@ -726,8 +757,13 @@ document.addEventListener('DOMContentLoaded', async () => {
             : forceOpen;
         elements.sidebarDrawer.classList.toggle('open', shouldOpen);
         elements.historyDrawerToggle.classList.toggle('active', shouldOpen);
-        if (shouldOpen && elements.workspacesDrawer?.classList.contains('open')) {
-            toggleWorkspacesDrawer(false);
+        if (shouldOpen) {
+            if (state.activeSessionId) {
+                activateChatHistoryTab(getChatHistoryTabForSession(state.activeSessionId));
+            }
+            if (elements.workspacesDrawer?.classList.contains('open')) {
+                toggleWorkspacesDrawer(false);
+            }
         }
     }
 
@@ -742,8 +778,169 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (elements.sidebarDrawer?.classList.contains('open')) {
                 toggleSidebarDrawer(false);
             }
-            refreshHermesFiles();
+            refreshVault({ ingest: true });
         }
+    }
+
+    function setActiveWorkspacePath(pathValue) {
+        if (!pathValue) return;
+        state.activeWorkspacePath = pathValue;
+        AetherUserData.setItem('aether_active_workspace_path', pathValue);
+        updateWorkspacePinBadge();
+    }
+
+    async function refreshVault(options = {}) {
+        const statusEl = elements.hermesFilesStatus;
+        const { ingest = false } = options;
+        if (elements.refreshHermesFilesBtn) {
+            elements.refreshHermesFilesBtn.classList.add('refreshing');
+        }
+        if (statusEl && options.showLoading !== false) {
+            statusEl.textContent = ingest ? 'Scanning Hermes sessions…' : 'Loading vault…';
+        }
+        let ingestNote = '';
+        if (ingest) {
+            try {
+                const ingestResult = await ai.ingestVault();
+                if (ingestResult.scanned != null) {
+                    ingestNote = `Indexed ${ingestResult.ingested || 0} new, ${ingestResult.updated || 0} updated`;
+                    if (statusEl) statusEl.textContent = ingestNote;
+                }
+            } catch (err) {
+                ingestNote = '';
+                const msg = err.message || 'Vault scan failed';
+                if (/method not allowed|404|405/i.test(msg)) {
+                    appendSystemConsoleLine('[VAULT] Server needs a restart — run npm start to load vault routes.');
+                }
+                appendSystemConsoleLine(`[VAULT] Scan: ${msg}`);
+            }
+        }
+        try {
+            const result = await ai.getVaultFiles();
+            state.vaultFiles = result.files || [];
+            if (statusEl) {
+                const count = state.vaultFiles.length;
+                if (ingestNote) {
+                    statusEl.textContent = `${ingestNote}${count ? ` · ${count} indexed` : ''}`;
+                } else {
+                    statusEl.textContent = count
+                        ? `${count} indexed file${count === 1 ? '' : 's'}`
+                        : 'Vault empty — ask Hermes to create a file, then refresh.';
+                }
+            }
+            renderVaultFileList();
+        } catch (err) {
+            if (statusEl) statusEl.textContent = err.message || 'Could not load vault.';
+            appendSystemConsoleLine(`[VAULT] ${err.message || 'Load failed'}`);
+        } finally {
+            elements.refreshHermesFilesBtn?.classList.remove('refreshing');
+        }
+    }
+
+    function renderVaultFileList() {
+        const list = elements.workspaceFileList;
+        if (!list) return;
+        list.replaceChildren();
+        const files = state.vaultFiles.filter((f) => f.id);
+        if (!files.length) {
+            const empty = document.createElement('div');
+            empty.className = 'workspace-empty-hint';
+            empty.textContent = 'No indexed files yet. When Hermes writes files, refresh the vault to discover them.';
+            list.appendChild(empty);
+            return;
+        }
+        const fragment = document.createDocumentFragment();
+        for (const file of files) {
+            const row = document.createElement('button');
+            row.type = 'button';
+            row.className = 'workspace-file-row';
+            row.title = file.originalDisplayPath || file.originalPath || file.title;
+            const icon = document.createElement('span');
+            icon.innerHTML = `<i data-lucide="${workspaceFileIconName(file)}"></i>`;
+            const meta = document.createElement('span');
+            meta.className = 'workspace-file-meta';
+            const label = document.createElement('span');
+            label.className = 'workspace-file-name';
+            label.textContent = file.title || file.originalDisplayPath || 'File';
+            const sub = document.createElement('span');
+            sub.className = 'workspace-file-size';
+            const parts = [];
+            if (file.size != null) parts.push(formatWorkspaceFileSize(file.size));
+            if (file.originalDisplayPath) parts.push(file.originalDisplayPath);
+            if (!file.originalExists) parts.push('original missing');
+            sub.textContent = parts.join(' · ');
+            meta.appendChild(label);
+            meta.appendChild(sub);
+            row.appendChild(icon);
+            row.appendChild(meta);
+            row.addEventListener('click', () => openVaultPreview(file.id));
+            fragment.appendChild(row);
+        }
+        list.appendChild(fragment);
+        refreshBubbleIcons(list);
+    }
+
+    function closeVaultPreview() {
+        state.vaultPreviewId = '';
+        if (elements.workspaceInlinePreview) elements.workspaceInlinePreview.hidden = true;
+        if (elements.workspaceInlinePreviewBody) elements.workspaceInlinePreviewBody.replaceChildren();
+        if (elements.workspaceInlinePreviewOriginal) elements.workspaceInlinePreviewOriginal.textContent = '';
+    }
+
+    async function openVaultPreview(fileId) {
+        if (!fileId) return;
+        state.vaultPreviewId = fileId;
+        const file = state.vaultFiles.find((f) => f.id === fileId);
+        if (elements.workspaceInlinePreview) elements.workspaceInlinePreview.hidden = false;
+        if (elements.workspaceInlinePreviewTitle) {
+            elements.workspaceInlinePreviewTitle.textContent = file?.title || 'File';
+        }
+        if (elements.workspaceInlinePreviewOriginal) {
+            const original = file?.originalDisplayPath || file?.originalPath || '';
+            elements.workspaceInlinePreviewOriginal.textContent = original
+                ? `${original}${file?.originalExists === false ? ' (no longer on disk)' : ''}`
+                : 'Original path unknown';
+        }
+        const body = elements.workspaceInlinePreviewBody;
+        if (!body) return;
+        body.replaceChildren();
+        const loading = document.createElement('div');
+        loading.className = 'workspace-file-viewer-loading';
+        loading.textContent = 'Loading file…';
+        body.appendChild(loading);
+        try {
+            const result = await ai.readVaultFile(fileId);
+            renderVaultPreviewContent(result, fileId);
+        } catch (err) {
+            body.replaceChildren();
+            const error = document.createElement('div');
+            error.className = 'workspace-file-viewer-error';
+            error.textContent = err.message || 'Could not read file.';
+            body.appendChild(error);
+        }
+    }
+
+    function renderVaultPreviewContent(result, fileId) {
+        const body = elements.workspaceInlinePreviewBody;
+        if (!body) return;
+        body.replaceChildren();
+        if (result.kind === 'image') {
+            const img = document.createElement('img');
+            img.alt = result.name || 'Image';
+            img.src = ai.vaultFileUrl(fileId);
+            body.appendChild(img);
+            return;
+        }
+        if (result.kind === 'text') {
+            const pre = document.createElement('pre');
+            pre.textContent = result.content || '';
+            body.appendChild(pre);
+            return;
+        }
+        const notice = document.createElement('div');
+        notice.className = 'workspace-file-viewer-binary';
+        notice.textContent = 'Binary file — open the original path in Finder if needed.';
+        body.appendChild(notice);
     }
 
     async function openWorkspaceFileBrowser() {
@@ -752,35 +949,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             return;
         }
         toggleWorkspacesDrawer(true);
-    }
-
-    async function refreshHermesFiles() {
-        const statusEl = elements.hermesFilesStatus;
-        const hintEl = elements.hermesFilesHint;
-        if (elements.refreshHermesFilesBtn) {
-            elements.refreshHermesFilesBtn.classList.add('refreshing');
-        }
-        if (statusEl) statusEl.textContent = 'Loading files…';
-        try {
-            const result = await ai.getHermesFiles();
-            state.workspaceFiles = result.files || [];
-            renderWorkspaceFileList();
-            if (statusEl) {
-                const count = state.workspaceFiles.length;
-                statusEl.textContent = count
-                    ? `${count} file${count === 1 ? '' : 's'} from Hermes workspace`
-                    : 'No files yet — ask Hermes to create one.';
-            }
-            if (hintEl && result.roots?.length) {
-                hintEl.textContent = 'All files Hermes has created — anywhere on disk, not just the workspace folder.';
-            }
-        } catch (err) {
-            if (statusEl) statusEl.textContent = err.message || 'Could not load files.';
-            if (hintEl) hintEl.textContent = err.message || 'Failed to load Hermes files.';
-            appendSystemConsoleLine(`[FILES] ${err.message || 'Load failed'}`);
-        } finally {
-            elements.refreshHermesFilesBtn?.classList.remove('refreshing');
-        }
     }
 
     function setSkillsStatus(message, isError = false) {
@@ -799,17 +967,34 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     function filteredSkillsItems() {
         const query = String(elements.skillsSearch?.value || '').trim().toLowerCase();
-        if (!query) return state.skillsItems;
-        return state.skillsItems.filter((skill) => {
+        let items = state.skillsItems;
+        if (state.skillsFilter === 'native') {
+            items = items.filter((skill) => skill.origin === 'native');
+        } else if (state.skillsFilter === 'custom') {
+            items = items.filter((skill) => skill.origin === 'custom');
+        }
+        if (!query) return items;
+        return items.filter((skill) => {
             const haystack = [
                 skill.name,
                 skill.displayName,
                 skill.category,
                 skill.description,
+                skill.sourceLabel,
+                skill.source,
+                skill.hubSource,
                 ...(skill.tags || []),
             ].join(' ').toLowerCase();
             return haystack.includes(query);
         });
+    }
+
+    function formatSkillsSummary(counts) {
+        if (!counts) return '';
+        const parts = [`${counts.native || 0} native`, `${counts.custom || 0} custom`];
+        if (counts.hub) parts.push(`${counts.hub} downloaded`);
+        if (counts.local) parts.push(`${counts.local} self-created`);
+        return parts.join(' · ');
     }
 
     function getSelectedSkillItem() {
@@ -880,9 +1065,21 @@ document.addEventListener('DOMContentLoaded', async () => {
             main.className = 'skill-row-main';
             main.title = skill.description || skill.displayName || skill.name;
 
+            const nameRow = document.createElement('span');
+            nameRow.className = 'skill-row-name-line';
+
             const name = document.createElement('span');
             name.className = 'skill-row-name';
             name.textContent = skill.displayName || skill.name;
+
+            const badge = document.createElement('span');
+            badge.className = `skill-source-badge is-${skill.source || 'local'}`;
+            badge.textContent = skill.source === 'hub' && skill.hubSource
+                ? skill.hubSource
+                : (skill.sourceLabel || 'Custom');
+
+            nameRow.appendChild(name);
+            nameRow.appendChild(badge);
 
             const desc = document.createElement('span');
             desc.className = 'skill-row-desc';
@@ -892,7 +1089,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             else if (skill.name !== (skill.displayName || '')) descParts.push(skill.name);
             desc.textContent = descParts.join(' · ') || skill.name;
 
-            main.appendChild(name);
+            main.appendChild(nameRow);
             main.appendChild(desc);
             main.addEventListener('click', () => selectSkill(skill.name));
 
@@ -962,7 +1159,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             renderSkillsList();
             showToast(
                 enabled ? 'Skill enabled' : 'Skill disabled',
-                `${result.displayName || name} — run /reload-skills in Hermes to apply.`,
+                `${result.displayName || name} updated in Hermes config.`,
                 { durationMs: 4200 }
             );
         } catch (err) {
@@ -1005,13 +1202,26 @@ document.addEventListener('DOMContentLoaded', async () => {
         try {
             const result = await ai.getHermesSkills();
             state.skillsItems = result.items || [];
+            state.skillsCounts = result.counts || null;
             state.skillsDir = result.skillsDir || '';
             if (elements.skillsModalPath) {
                 const count = state.skillsItems.length;
+                const summary = formatSkillsSummary(state.skillsCounts);
                 elements.skillsModalPath.textContent = count
-                    ? `${count} skill${count === 1 ? '' : 's'} · ${state.skillsDir}`
+                    ? `${count} skill${count === 1 ? '' : 's'}${summary ? ` · ${summary}` : ''}`
                     : (state.skillsDir || 'Skills directory unavailable');
             }
+            document.querySelectorAll('[data-skills-filter]').forEach((btn) => {
+                const key = btn.getAttribute('data-skills-filter');
+                if (!key || key === 'all') return;
+                const count = key === 'native'
+                    ? state.skillsCounts?.native
+                    : state.skillsCounts?.custom;
+                if (typeof count === 'number') {
+                    const base = key === 'native' ? 'Native' : 'Custom';
+                    btn.textContent = `${base} (${count})`;
+                }
+            });
             if (state.skillsSelectedName && !state.skillsItems.some((item) => item.name === state.skillsSelectedName)) {
                 state.skillsSelectedName = '';
             }
@@ -1038,6 +1248,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         elements.skillsModal?.classList.add('open');
         elements.skillsBtn?.classList.add('active');
         if (elements.skillsSearch) elements.skillsSearch.value = '';
+        state.skillsFilter = 'all';
+        document.querySelectorAll('[data-skills-filter]').forEach((el) => {
+            const active = el.getAttribute('data-skills-filter') === 'all';
+            el.classList.toggle('active', active);
+            el.setAttribute('aria-selected', active ? 'true' : 'false');
+        });
         refreshHermesSkills();
     }
 
@@ -1842,7 +2058,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             syncReplayButtonsForSession();
 
             if (elements.workspacesDrawer?.classList.contains('open')) {
-                refreshHermesFiles();
+                refreshVault({ ingest: true, showLoading: false });
             }
 
         } catch (err) {
@@ -2434,7 +2650,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         elements.deckChatScroller.innerHTML = '';
         appendAssistantChatBubble('New session started. Awaiting inputs…');
 
-        scheduleRenderHistorySessions();
+        activateChatHistoryTab('aether');
         speech.stopSpeaking();
     }
 
@@ -2565,17 +2781,65 @@ document.addEventListener('DOMContentLoaded', async () => {
         scheduleRenderHistorySessions();
     }
 
+    function normalizeChatHistoryTab(tabId) {
+        if (tabId === 'core') return 'aether';
+        return tabId === 'hermes' ? 'hermes' : 'aether';
+    }
+
+    function isAetherSession(session) {
+        return String(session?.id || '').startsWith('sess_');
+    }
+
+    function isHermesSession(session) {
+        return !isAetherSession(session);
+    }
+
+    function filterSessionsForHistoryTab(sessions, tabId) {
+        const tab = normalizeChatHistoryTab(tabId || state.chatHistoryTab);
+        if (tab === 'hermes') {
+            return sessions.filter(isHermesSession);
+        }
+        return sessions.filter(isAetherSession);
+    }
+
+    function getChatHistoryTabForSession(sessionId) {
+        const session = state.sessions.find((s) => s.id === sessionId);
+        if (!session) return normalizeChatHistoryTab(state.chatHistoryTab);
+        return isHermesSession(session) ? 'hermes' : 'aether';
+    }
+
+    function activateChatHistoryTab(tabId) {
+        const targetTab = normalizeChatHistoryTab(tabId);
+        state.chatHistoryTab = targetTab;
+        state._displayedSessionCount = SESSIONS_PAGE_SIZE;
+        AetherUserData.setItem('aether_chat_history_tab', targetTab);
+
+        document.querySelectorAll('[data-chat-history-tab]').forEach((tab) => {
+            const active = tab.dataset.chatHistoryTab === targetTab;
+            tab.classList.toggle('active', active);
+            tab.setAttribute('aria-selected', active ? 'true' : 'false');
+            tab.tabIndex = active ? 0 : -1;
+        });
+
+        scheduleRenderHistorySessions();
+    }
+
     function renderHistorySessions() {
         const list = elements.chatHistoryList;
         list.innerHTML = '';
 
-        if (state.sessions.length === 0) {
-            list.innerHTML = `<div style="font-size:0.65rem; color:var(--text-dim); text-align:center; padding:10px;">No chats yet</div>`;
+        const filtered = filterSessionsForHistoryTab(state.sessions, state.chatHistoryTab);
+
+        if (filtered.length === 0) {
+            const emptyMessage = state.chatHistoryTab === 'hermes'
+                ? 'No Hermes chats yet. Use refresh to sync from the agent.'
+                : 'No Aether sessions yet. Start one below.';
+            list.innerHTML = `<div style="font-size:0.65rem; color:var(--text-dim); text-align:center; padding:10px;">${emptyMessage}</div>`;
             return;
         }
 
         // Always sort most-recent-first by startedAt
-        const sorted = [...state.sessions].sort((a, b) => {
+        const sorted = [...filtered].sort((a, b) => {
             const aTime = a.startedAt ? new Date(a.startedAt).getTime() : 0;
             const bTime = b.startedAt ? new Date(b.startedAt).getTime() : 0;
             if (aTime !== bTime) return bTime - aTime;
@@ -2594,7 +2858,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             btn.className = `history-item ${s.id === state.activeSessionId ? 'active' : ''}`;
             
             const icon = document.createElement('i');
-            icon.setAttribute('data-lucide', s.source === 'hermes' ? 'radio-tower' : 'database');
+            icon.setAttribute('data-lucide', isHermesSession(s) ? 'radio-tower' : 'database');
             icon.className = 'history-icon';
             icon.style.width = '12px';
             icon.style.height = '12px';
@@ -2737,49 +3001,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     function renderWorkspaceFileList() {
-        const list = elements.workspaceFileList;
-        if (!list) return;
-        list.replaceChildren();
-
-        const files = state.workspaceFiles.filter((entry) => entry.path);
-        if (!files.length) {
-            const empty = document.createElement('div');
-            empty.className = 'workspace-empty-hint';
-            empty.textContent = 'No files yet. Ask Hermes to create a markdown file or upload something.';
-            list.appendChild(empty);
-            return;
-        }
-
-        const fragment = document.createDocumentFragment();
-        for (const file of files) {
-            const row = document.createElement('button');
-            row.type = 'button';
-            row.className = 'workspace-file-row';
-            row.title = 'Open and read file';
-
-            const icon = document.createElement('span');
-            icon.innerHTML = `<i data-lucide="${workspaceFileIconName(file)}"></i>`;
-
-            const meta = document.createElement('span');
-            meta.className = 'workspace-file-meta';
-
-            const label = document.createElement('span');
-            label.className = 'workspace-file-name';
-            label.textContent = file.relativePath || file.name;
-
-            const size = document.createElement('span');
-            size.className = 'workspace-file-size';
-            size.textContent = formatWorkspaceFileSize(file.size);
-
-            meta.appendChild(label);
-            meta.appendChild(size);
-            row.appendChild(icon);
-            row.appendChild(meta);
-            row.addEventListener('click', () => openWorkspaceFileViewer(file.path, file.relativePath || file.name));
-            fragment.appendChild(row);
-        }
-        list.appendChild(fragment);
-        refreshBubbleIcons(list);
+        refreshVault({ ingest: false, showLoading: false });
     }
 
     function closeWorkspaceFileViewer() {
