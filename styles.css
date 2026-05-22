@@ -7262,3 +7262,226 @@ body {
         display: none;
     }
 }
+
+/* Hermes parity panels */
+.archives-search-wrap {
+    padding: 0 14px 10px;
+}
+
+.archives-search {
+    width: 100%;
+    font-size: 0.82rem;
+}
+
+.history-item-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    width: 100%;
+}
+
+.history-item-row .history-item-main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border: none;
+    background: transparent;
+    color: inherit;
+    padding: 0;
+    text-align: left;
+    cursor: pointer;
+}
+
+.history-item-actions {
+    display: flex;
+    gap: 2px;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+}
+
+.history-item:hover .history-item-actions,
+.history-item.active .history-item-actions {
+    opacity: 1;
+}
+
+.history-item-action {
+    border: none;
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-dim);
+    border-radius: 6px;
+    width: 24px;
+    height: 24px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.history-item-action:hover {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.12);
+}
+
+.chat-stop-btn {
+    color: #ff6b6b !important;
+}
+
+.chat-tool-timeline {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 8px;
+    font-size: 0.72rem;
+}
+
+.chat-tool-timeline-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 6px 8px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.chat-tool-timeline-item.is-thinking {
+    opacity: 0.85;
+}
+
+.chat-tool-timeline-name {
+    font-family: var(--font-mono, monospace);
+    color: var(--accent-secondary);
+}
+
+.chat-tool-timeline-meta {
+    color: var(--text-dim);
+    word-break: break-all;
+}
+
+.context-file-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 12px;
+}
+
+.context-file-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid var(--border-glow);
+    background: rgba(255, 255, 255, 0.03);
+    color: inherit;
+    cursor: pointer;
+    text-align: left;
+}
+
+.context-file-btn.active {
+    border-color: var(--accent-primary);
+    background: rgba(255, 68, 54, 0.08);
+}
+
+.context-file-btn small {
+    color: var(--text-dim);
+    font-size: 0.68rem;
+}
+
+.context-file-editor {
+    min-height: 220px;
+    font-family: var(--font-mono, monospace);
+    font-size: 0.78rem;
+    line-height: 1.45;
+    resize: vertical;
+}
+
+.config-summary-block {
+    margin-bottom: 14px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border-glow);
+}
+
+.config-summary-block h4 {
+    margin: 0 0 6px;
+    font-size: 0.78rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+}
+
+.config-summary-block ul {
+    margin: 0;
+    padding-left: 18px;
+    font-size: 0.78rem;
+}
+
+.jobs-toolbar {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.jobs-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.job-card {
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid var(--border-glow);
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.job-card-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    align-items: flex-start;
+}
+
+.job-card-title {
+    font-size: 0.82rem;
+    font-weight: 600;
+}
+
+.job-card-meta {
+    font-size: 0.68rem;
+    color: var(--text-dim);
+    margin-top: 4px;
+}
+
+.job-card-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+}
+
+.job-card-actions button {
+    font-size: 0.68rem;
+    padding: 4px 8px;
+}
+
+.ak-board-admin {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.ak-home-channels {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.ak-profile-editor {
+    margin-top: 12px;
+}

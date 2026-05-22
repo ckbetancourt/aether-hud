@@ -6,6 +6,8 @@
 class AIEngine {
     constructor() {
         this.personality = { ...AETHER_PERSONALITY };
+        this.activeRunId = null;
+        this.activeAbortController = null;
     }
 
     setDisplayName(name) {
@@ -153,7 +155,7 @@ class AIEngine {
 
         if (onToolProgress) {
             payload.progressStream = true;
-            return await this.consumeProgressChatStream(endpoint, payload, onToolProgress);
+            return await this.consumeProgressChatStream(endpoint, payload, onToolProgress, options.signal);
         }
 
         const response = await fetch(endpoint, {
@@ -177,11 +179,15 @@ class AIEngine {
         };
     }
 
-    async consumeProgressChatStream(endpoint, payload, onToolProgress) {
+    async consumeProgressChatStream(endpoint, payload, onToolProgress, signal) {
+        this.activeAbortController = signal ? null : new AbortController();
+        const fetchSignal = signal || this.activeAbortController?.signal;
+
         const response = await fetch(endpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
+            signal: fetchSignal,
         });
 
         if (!response.ok) {
@@ -219,12 +225,18 @@ class AIEngine {
                 return;
             }
 
-            if (eventName === 'tool' && parsed?.name) {
+            if (eventName === 'run' && parsed?.runId) {
+                this.activeRunId = parsed.runId;
+            } else if (eventName === 'tool' && parsed?.name) {
                 onToolProgress(parsed);
             } else if (eventName === 'done') {
                 finalResult = parsed;
+                this.activeRunId = null;
+                this.activeAbortController = null;
             } else if (eventName === 'error') {
                 streamError = new Error(parsed.error || 'Server error');
+                this.activeRunId = null;
+                this.activeAbortController = null;
             }
         };
 
@@ -244,6 +256,14 @@ class AIEngine {
         if (buffer.trim()) dispatchSseBlock(buffer);
 
         if (streamError) throw streamError;
+        if (finalResult?.stopped) {
+            return {
+                text: finalResult.reply || '[Stopped]',
+                backend: finalResult.backend || 'hermes',
+                hermes: finalResult.hermes || null,
+                stopped: true,
+            };
+        }
         if (!finalResult?.reply || typeof finalResult.reply !== 'string') {
             throw new Error('Empty reply from LLM backend');
         }
@@ -808,6 +828,240 @@ class AIEngine {
     /**
      * Run trigger logic for widgets based on message content
      */
+    async stopActiveChat() {
+        const baseUrl = this.resolveLlmBackendBaseUrl();
+        if (!baseUrl) return { ok: false };
+        if (this.activeAbortController) {
+            this.activeAbortController.abort();
+            this.activeAbortController = null;
+        }
+        const runId = this.activeRunId;
+        if (!runId) return { ok: true, message: 'No active run' };
+        const response = await fetch(`${baseUrl}/api/chat/stop`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ runId }),
+        });
+        const data = await response.json().catch(() => ({}));
+        this.activeRunId = null;
+        if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+        return data;
+    }
+
+    async searchHermesSessions(query, limit = 50) {
+        const baseUrl = this.resolveLlmBackendBaseUrl();
+        if (!baseUrl) return { available: false, items: [] };
+        const params = new URLSearchParams({ q: query || '', limit: String(limit) });
+        const response = await fetch(`${baseUrl}/api/hermes/sessions/search?${params}`);
+        return response.json().catch(() => ({}));
+    }
+
+    async updateHermesSessionTitle(sessionId, title) {
+        const baseUrl = this.resolveLlmBackendBaseUrl();
+        if (!baseUrl || !sessionId) throw new Error('Session id required');
+        const encoded = encodeURIComponent(String(sessionId));
+        const response = await fetch(`${baseUrl}/api/hermes/sessions/${encoded}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+        return data;
+    }
+
+    async deleteHermesSession(sessionId) {
+        const baseUrl = this.resolveLlmBackendBaseUrl();
+        if (!baseUrl || !sessionId) throw new Error('Session id required');
+        const encoded = encodeURIComponent(String(sessionId));
+        const response = await fetch(`${baseUrl}/api/hermes/sessions/${encoded}`, { method: 'DELETE' });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+        return data;
+    }
+
+    async listHermesContextFiles(projectCwd) {
+        const baseUrl = this.resolveLlmBackendBaseUrl();
+        if (!baseUrl) return { available: false, items: [] };
+        const params = projectCwd ? `?projectCwd=${encodeURIComponent(projectCwd)}` : '';
+        const response = await fetch(`${baseUrl}/api/hermes/context${params}`);
+        return response.json().catch(() => ({}));
+    }
+
+    async readHermesContextFile(fileId, projectCwd) {
+        const baseUrl = this.resolveLlmBackendBaseUrl();
+        if (!baseUrl || !fileId) throw new Error('File id required');
+        const params = projectCwd ? `?projectCwd=${encodeURIComponent(projectCwd)}` : '';
+        const response = await fetch(`${baseUrl}/api/hermes/context/${encodeURIComponent(fileId)}${params}`);
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+        return data;
+    }
+
+    async writeHermesContextFile(fileId, content, projectCwd) {
+        const baseUrl = this.resolveLlmBackendBaseUrl();
+        if (!baseUrl || !fileId) throw new Error('File id required');
+        const params = projectCwd ? `?projectCwd=${encodeURIComponent(projectCwd)}` : '';
+        const response = await fetch(`${baseUrl}/api/hermes/context/${encodeURIComponent(fileId)}${params}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+        return data;
+    }
+
+    async getHermesConfigSummary() {
+        const baseUrl = this.resolveLlmBackendBaseUrl();
+        if (!baseUrl) return { available: false };
+        const response = await fetch(`${baseUrl}/api/hermes/config/summary`);
+        return response.json().catch(() => ({}));
+    }
+
+    async listHermesJobs() {
+        const baseUrl = this.resolveLlmBackendBaseUrl();
+        if (!baseUrl) return { items: [] };
+        const response = await fetch(`${baseUrl}/api/hermes/jobs`);
+        return response.json().catch(() => ({}));
+    }
+
+    async createHermesJob(body) {
+        const baseUrl = this.resolveLlmBackendBaseUrl();
+        if (!baseUrl) throw new Error('No backend');
+        const response = await fetch(`${baseUrl}/api/hermes/jobs`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body || {}),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+        return data;
+    }
+
+    async deleteHermesJob(jobId) {
+        const baseUrl = this.resolveLlmBackendBaseUrl();
+        if (!baseUrl || !jobId) throw new Error('Job id required');
+        const response = await fetch(`${baseUrl}/api/hermes/jobs/${encodeURIComponent(jobId)}`, { method: 'DELETE' });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+        return data;
+    }
+
+    async pauseHermesJob(jobId) {
+        const baseUrl = this.resolveLlmBackendBaseUrl();
+        const response = await fetch(`${baseUrl}/api/hermes/jobs/${encodeURIComponent(jobId)}/pause`, { method: 'POST' });
+        return response.json().catch(() => ({}));
+    }
+
+    async resumeHermesJob(jobId) {
+        const baseUrl = this.resolveLlmBackendBaseUrl();
+        const response = await fetch(`${baseUrl}/api/hermes/jobs/${encodeURIComponent(jobId)}/resume`, { method: 'POST' });
+        return response.json().catch(() => ({}));
+    }
+
+    async runHermesJobNow(jobId) {
+        const baseUrl = this.resolveLlmBackendBaseUrl();
+        const response = await fetch(`${baseUrl}/api/hermes/jobs/${encodeURIComponent(jobId)}/run`, { method: 'POST' });
+        return response.json().catch(() => ({}));
+    }
+
+    async reloadHermesSkills() {
+        const baseUrl = this.resolveLlmBackendBaseUrl();
+        if (!baseUrl) throw new Error('No backend');
+        const response = await fetch(`${baseUrl}/api/hermes/skills/reload`, { method: 'POST' });
+        return response.json().catch(() => ({}));
+    }
+
+    renameNativeKanbanBoard(slug, body) {
+        const baseUrl = this.resolveLlmBackendBaseUrl();
+        if (!baseUrl) return Promise.reject(new Error('No backend'));
+        return fetch(`${baseUrl}/api/hermes/kanban/boards-create/${encodeURIComponent(slug)}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body || {}),
+        }).then(async (r) => {
+            const data = await r.json().catch(() => ({}));
+            if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+            return data;
+        });
+    }
+
+    deleteNativeKanbanBoard(slug, hardDelete = false) {
+        const baseUrl = this.resolveLlmBackendBaseUrl();
+        if (!baseUrl) return Promise.reject(new Error('No backend'));
+        const q = hardDelete ? '?delete=true' : '';
+        return fetch(`${baseUrl}/api/hermes/kanban/boards-create/${encodeURIComponent(slug)}${q}`, {
+            method: 'DELETE',
+        }).then(async (r) => {
+            const data = await r.json().catch(() => ({}));
+            if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+            return data;
+        });
+    }
+
+    updateNativeKanbanProfile(name, body) {
+        const baseUrl = this.resolveLlmBackendBaseUrl();
+        if (!baseUrl) return Promise.reject(new Error('No backend'));
+        return fetch(`${baseUrl}/api/hermes/kanban/profiles/${encodeURIComponent(name)}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body || {}),
+        }).then(async (r) => {
+            const data = await r.json().catch(() => ({}));
+            if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+            return data;
+        });
+    }
+
+    describeNativeKanbanProfileAuto(name, body = {}) {
+        const baseUrl = this.resolveLlmBackendBaseUrl();
+        if (!baseUrl) return Promise.reject(new Error('No backend'));
+        return fetch(`${baseUrl}/api/hermes/kanban/profiles/${encodeURIComponent(name)}/describe-auto`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        }).then(async (r) => {
+            const data = await r.json().catch(() => ({}));
+            if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+            return data;
+        });
+    }
+
+    getNativeKanbanHomeChannels(board, taskId) {
+        return this.fetchKanbanNative(`/api/hermes/kanban/tasks/${encodeURIComponent(taskId)}/home-channels`, { board });
+    }
+
+    subscribeNativeKanbanHome(board, taskId, platform) {
+        const baseUrl = this.resolveLlmBackendBaseUrl();
+        if (!baseUrl) return Promise.reject(new Error('No backend'));
+        const params = board ? `?board=${encodeURIComponent(board)}` : '';
+        return fetch(`${baseUrl}/api/hermes/kanban/tasks/${encodeURIComponent(taskId)}/home-subscribe/${encodeURIComponent(platform)}${params}`, {
+            method: 'POST',
+        }).then(async (r) => {
+            const data = await r.json().catch(() => ({}));
+            if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+            return data;
+        });
+    }
+
+    unsubscribeNativeKanbanHome(board, taskId, platform) {
+        const baseUrl = this.resolveLlmBackendBaseUrl();
+        if (!baseUrl) return Promise.reject(new Error('No backend'));
+        const params = board ? `?board=${encodeURIComponent(board)}` : '';
+        return fetch(`${baseUrl}/api/hermes/kanban/tasks/${encodeURIComponent(taskId)}/home-subscribe/${encodeURIComponent(platform)}${params}`, {
+            method: 'DELETE',
+        }).then(async (r) => {
+            const data = await r.json().catch(() => ({}));
+            if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+            return data;
+        });
+    }
+
+    listNativeKanbanProfiles() {
+        return this.fetchKanbanNative('/api/hermes/kanban/profiles');
+    }
+
     parseTriggerHooks(input, onTaskTrigger, onMemoryTrigger) {
         // A. Name memory check
         const nameMatch = input.match(/(?:my name is|call me|i am) ([a-z0-9\s]+)/i);

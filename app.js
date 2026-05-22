@@ -182,6 +182,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         globalColorMode: null,
         avatarForm: null,
         chatHistoryTab: normalizeChatHistoryTab(AetherUserData.getItem('aether_chat_history_tab')),
+        archivesSearchQuery: '',
+        contextSelectedFileId: null,
+        chatInFlight: false,
         _displayedSessionCount: SESSIONS_PAGE_SIZE,
     };
     state.globalAccentTheme = loadGlobalAccentTheme();
@@ -290,7 +293,20 @@ document.addEventListener('DOMContentLoaded', async () => {
         skillsEditorEmpty: document.getElementById('skillsEditorEmpty'),
         skillsModalPath: document.getElementById('skillsModalPath'),
         skillsStatus: document.getElementById('skillsStatus'),
+        reloadSkillsBtn: document.getElementById('reloadSkillsBtn'),
         newChatBtn: document.getElementById('newChatBtn'),
+        archivesSearchInput: document.getElementById('archivesSearchInput'),
+        chatStopBtn: document.getElementById('chatStopBtn'),
+        contextFileList: document.getElementById('contextFileList'),
+        contextEditorGroup: document.getElementById('contextEditorGroup'),
+        contextFileEditor: document.getElementById('contextFileEditor'),
+        contextEditorLabel: document.getElementById('contextEditorLabel'),
+        contextEditorHint: document.getElementById('contextEditorHint'),
+        saveContextFileBtn: document.getElementById('saveContextFileBtn'),
+        configSummaryPanel: document.getElementById('configSummaryPanel'),
+        jobsListPanel: document.getElementById('jobsListPanel'),
+        refreshJobsBtn: document.getElementById('refreshJobsBtn'),
+        newJobBtn: document.getElementById('newJobBtn'),
 
         hudShell: document.getElementById('hudShell'),
         hudBootSplash: document.getElementById('hudBootSplash'),
@@ -529,8 +545,36 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (elements.closeSkillsModalBtn) {
             elements.closeSkillsModalBtn.addEventListener('click', () => closeSkillsModal());
         }
+        if (elements.reloadSkillsBtn) {
+            elements.reloadSkillsBtn.addEventListener('click', () => reloadHermesSkillsFromHud());
+        }
         if (elements.cancelSkillsBtn) {
             elements.cancelSkillsBtn.addEventListener('click', () => closeSkillsModal());
+        }
+        if (elements.archivesSearchInput) {
+            let archivesSearchTimer = null;
+            elements.archivesSearchInput.addEventListener('input', () => {
+                clearTimeout(archivesSearchTimer);
+                archivesSearchTimer = setTimeout(() => {
+                    state.archivesSearchQuery = elements.archivesSearchInput.value.trim();
+                    scheduleRenderHistorySessions();
+                    if (state.archivesSearchQuery && state.hermesStatus?.connected) {
+                        searchHermesSessionsRemote(state.archivesSearchQuery);
+                    }
+                }, 250);
+            });
+        }
+        if (elements.chatStopBtn) {
+            elements.chatStopBtn.addEventListener('click', () => stopActiveChatTurn());
+        }
+        if (elements.refreshJobsBtn) {
+            elements.refreshJobsBtn.addEventListener('click', () => loadJobsPanel());
+        }
+        if (elements.newJobBtn) {
+            elements.newJobBtn.addEventListener('click', () => promptNewHermesJob());
+        }
+        if (elements.saveContextFileBtn) {
+            elements.saveContextFileBtn.addEventListener('click', () => saveSelectedContextFile());
         }
         if (elements.saveSkillsBtn) {
             elements.saveSkillsBtn.addEventListener('click', () => saveSelectedSkill());
@@ -615,7 +659,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
 
         document.querySelectorAll('[data-settings-tab]').forEach((tab) => {
-            tab.addEventListener('click', () => activateSettingsTab(tab.dataset.settingsTab));
+            tab.addEventListener('click', () => {
+                activateSettingsTab(tab.dataset.settingsTab);
+                if (tab.dataset.settingsTab === 'context') loadContextPanel();
+                if (tab.dataset.settingsTab === 'config') loadConfigPanel();
+                if (tab.dataset.settingsTab === 'jobs') loadJobsPanel();
+            });
         });
 
         document.querySelectorAll('[data-chat-history-tab]').forEach((tab) => {
@@ -2042,15 +2091,18 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // Spawn thinking state animations
         visualizer.setState('thinking');
+        setChatInFlight(true);
 
         // Create placeholders in both logs
         const consoleLogNode = appendSystemConsoleLine(`[AETHER] ...`);
         const bubbleNode = appendAssistantChatBubble('...');
+        bubbleNode._toolTimeline = [];
         setAssistantBubbleToolPreview(bubbleNode, { name: '_thinking', label: 'Thinking…', status: 'thinking' });
         visualizer.setThinkingCaption('Thinking…');
 
         const messageForAi = buildMessageWithWorkspaceContext(trimmedText);
 
+        setChatInFlight(true);
         try {
             const activeSession = state.sessions.find(s => s.id === state.activeSessionId);
             const history = activeSession ? activeSession.messages : [];
@@ -2080,6 +2132,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     hermesProfile: activeSession?.hermesProfile || state.activeHermesProfile,
                     attachments: outgoingAttachments,
                     onToolProgress: (toolInfo) => {
+                        appendToolTimelineEntry(bubbleNode, toolInfo);
                         setAssistantBubbleToolPreview(bubbleNode, toolInfo);
                         const label = typeof toolInfo === 'object' && toolInfo?.label
                             ? toolInfo.label
@@ -2137,9 +2190,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             consoleLogNode.innerHTML = `<span style="color:var(--error);">${errMsg}</span>`;
             const errorContent = ensureAssistantBubbleStructure(bubbleNode);
             if (errorContent) {
-                errorContent.innerHTML = `<span style="color:var(--error);">${errMsg}</span>`;
+                errorContent.textContent = err.message || 'Request failed';
             }
             clearAssistantBubbleToolPreview(bubbleNode);
+        } finally {
+            setChatInFlight(false);
             visualizer.setState('idle');
         }
     }
@@ -2894,11 +2949,278 @@ document.addEventListener('DOMContentLoaded', async () => {
         scheduleRenderHistorySessions();
     }
 
+    async function reloadHermesSkillsFromHud() {
+        try {
+            const result = await ai.reloadHermesSkills();
+            showToast('Skills reload', result.message || 'Reload requested.', { durationMs: 3500 });
+        } catch (err) {
+            showToast('Skills reload failed', err.message, { durationMs: 4200 });
+        }
+    }
+
+    async function searchHermesSessionsRemote(query) {
+        try {
+            const result = await ai.searchHermesSessions(query);
+            if (!result.available || !Array.isArray(result.items)) return;
+            for (const item of result.items) {
+                if (state.sessions.some((s) => s.id === item.id)) continue;
+                state.sessions.push(normalizeSession({
+                    id: item.id,
+                    title: item.title,
+                    source: 'hermes',
+                    startedAt: item.startedAt,
+                    hermesProfile: state.activeHermesProfile || null,
+                    messages: [],
+                }));
+            }
+            schedulePersistSessions();
+            scheduleRenderHistorySessions();
+        } catch (err) {
+            console.warn('[archives search]', err.message);
+        }
+    }
+
+    async function renameSessionFromArchives(session) {
+        const next = window.prompt('Rename session', session.title || '');
+        if (next == null || !String(next).trim()) return;
+        const title = String(next).trim();
+        session.title = title;
+        if (isHermesSession(session)) {
+            try {
+                await ai.updateHermesSessionTitle(session.id, title);
+            } catch (err) {
+                showToast('Rename failed', err.message, { durationMs: 4000 });
+            }
+        }
+        schedulePersistSessions();
+        scheduleRenderHistorySessions();
+    }
+
+    async function deleteSessionFromArchives(session) {
+        if (!window.confirm(`Delete "${session.title}"?`)) return;
+        if (isHermesSession(session)) {
+            try {
+                await ai.deleteHermesSession(session.id);
+            } catch (err) {
+                showToast('Delete failed', err.message, { durationMs: 4000 });
+                return;
+            }
+        }
+        state.sessions = state.sessions.filter((s) => s.id !== session.id);
+        if (state.activeSessionId === session.id) {
+            startNewSession();
+        } else {
+            schedulePersistSessions();
+            scheduleRenderHistorySessions();
+        }
+    }
+
+    function setChatInFlight(active) {
+        state.chatInFlight = !!active;
+        if (elements.chatStopBtn) {
+            elements.chatStopBtn.hidden = !state.chatInFlight;
+        }
+    }
+
+    async function stopActiveChatTurn() {
+        try {
+            await ai.stopActiveChat();
+            showToast('Stopped', 'Agent run cancelled.');
+        } catch (err) {
+            showToast('Stop failed', err.message || 'Could not stop run', { variant: 'error' });
+        } finally {
+            setChatInFlight(false);
+            visualizer.setState('idle');
+            visualizer.clearThinkingCaption();
+        }
+    }
+
+    async function loadContextPanel() {
+        if (!elements.contextFileList) return;
+        elements.contextFileList.innerHTML = '<div class="form-hint">Loading context files…</div>';
+        try {
+            const data = await ai.listHermesContextFiles(state.activeWorkspacePath || null);
+            const items = data.items || [];
+            elements.contextFileList.innerHTML = '';
+            if (!items.length) {
+                elements.contextFileList.innerHTML = '<div class="form-hint">No context files found.</div>';
+                return;
+            }
+            for (const item of items) {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = `context-file-btn${state.contextSelectedFileId === item.id ? ' active' : ''}`;
+                btn.innerHTML = `<strong>${item.name}</strong><small>${item.description || item.scope}${item.exists ? '' : ' · not created yet'}</small>`;
+                btn.addEventListener('click', () => selectContextFile(item.id));
+                elements.contextFileList.appendChild(btn);
+            }
+        } catch (err) {
+            elements.contextFileList.innerHTML = `<div class="form-hint">${err.message}</div>`;
+        }
+    }
+
+    async function selectContextFile(fileId) {
+        state.contextSelectedFileId = fileId;
+        if (elements.contextEditorGroup) elements.contextEditorGroup.hidden = false;
+        if (elements.contextFileEditor) elements.contextFileEditor.value = 'Loading…';
+        try {
+            const data = await ai.readHermesContextFile(fileId, state.activeWorkspacePath || null);
+            const file = data.file || {};
+            if (elements.contextEditorLabel) elements.contextEditorLabel.textContent = file.name || fileId;
+            if (elements.contextEditorHint) {
+                elements.contextEditorHint.textContent = file.path || '';
+            }
+            if (elements.contextFileEditor) {
+                elements.contextFileEditor.value = file.content || '';
+                elements.contextFileEditor.onchange = () => saveContextFileDebounced(fileId);
+                elements.contextFileEditor.oninput = () => saveContextFileDebounced(fileId);
+            }
+            loadContextPanel();
+        } catch (err) {
+            if (elements.contextFileEditor) elements.contextFileEditor.value = '';
+            showToast('Context read failed', err.message, { durationMs: 4000 });
+        }
+    }
+
+    let contextSaveTimer = null;
+    function saveContextFileDebounced(fileId) {
+        clearTimeout(contextSaveTimer);
+        contextSaveTimer = setTimeout(async () => {
+            if (!elements.contextFileEditor) return;
+            try {
+                await ai.writeHermesContextFile(
+                    fileId,
+                    elements.contextFileEditor.value,
+                    state.activeWorkspacePath || null
+                );
+                showToast('Saved', `${fileId} updated`, { durationMs: 2200 });
+            } catch (err) {
+                showToast('Save failed', err.message, { durationMs: 4000 });
+            }
+        }, 700);
+    }
+
+    async function saveSelectedContextFile() {
+        const fileId = state.contextSelectedFileId;
+        if (!fileId || !elements.contextFileEditor) return;
+        clearTimeout(contextSaveTimer);
+        try {
+            await ai.writeHermesContextFile(
+                fileId,
+                elements.contextFileEditor.value,
+                state.activeWorkspacePath || null,
+            );
+            showToast('Context saved', 'Hermes will pick this up on the next turn.');
+            loadContextPanel();
+        } catch (err) {
+            showToast('Save failed', err.message || 'Could not write file', { variant: 'error' });
+        }
+    }
+
+    async function loadConfigPanel() {
+        if (!elements.configSummaryPanel) return;
+        elements.configSummaryPanel.innerHTML = '<div class="form-hint">Loading config…</div>';
+        try {
+            const data = await ai.getHermesConfigSummary();
+            const s = data.summary || {};
+            if (!data.available) {
+                elements.configSummaryPanel.innerHTML = `<div class="form-hint">${s.error || 'config.yaml not found'}</div>`;
+                return;
+            }
+            const mcp = (s.mcpServers || []).map((srv) =>
+                `<li><strong>${srv.name}</strong> — ${srv.command || srv.url || 'configured'}${srv.enabled === false ? ' (disabled)' : ''}</li>`
+            ).join('') || '<li>No MCP servers configured</li>';
+            const toolsets = [
+                ...(s.toolsets?.enabled || []).map((t) => `<li>enabled: ${t}</li>`),
+                ...(s.toolsets?.disabled || []).map((t) => `<li>disabled: ${t}</li>`),
+            ].join('') || '<li>Default toolsets</li>';
+            elements.configSummaryPanel.innerHTML = `
+                <div class="config-summary-block"><h4>Terminal</h4><ul>
+                    <li>Backend: ${s.terminal?.backend || 'local'}</li>
+                    <li>CWD: ${s.terminal?.cwd || '(default)'}</li>
+                </ul></div>
+                <div class="config-summary-block"><h4>Security</h4><ul>
+                    <li>Require approval: ${s.security?.requireApproval ?? 'default'}</li>
+                    <li>Container mode: ${s.security?.containerMode ?? 'default'}</li>
+                </ul></div>
+                <div class="config-summary-block"><h4>MCP servers</h4><ul>${mcp}</ul></div>
+                <div class="config-summary-block"><h4>Toolsets</h4><ul>${toolsets}</ul></div>
+                <div class="form-hint">${s.configPath || ''}</div>`;
+        } catch (err) {
+            elements.configSummaryPanel.innerHTML = `<div class="form-hint">${err.message}</div>`;
+        }
+    }
+
+    async function loadJobsPanel() {
+        if (!elements.jobsListPanel) return;
+        elements.jobsListPanel.innerHTML = '<div class="form-hint">Loading jobs…</div>';
+        try {
+            const data = await ai.listHermesJobs();
+            const jobs = data.jobs || data.items || (Array.isArray(data) ? data : []);
+            if (!jobs.length) {
+                elements.jobsListPanel.innerHTML = '<div class="form-hint">No scheduled jobs. Create one with New job.</div>';
+                return;
+            }
+            elements.jobsListPanel.innerHTML = '';
+            for (const job of jobs) {
+                const card = document.createElement('div');
+                card.className = 'job-card';
+                const id = job.id || job.job_id || job.name;
+                card.innerHTML = `
+                    <div class="job-card-head">
+                        <div>
+                            <div class="job-card-title">${job.name || id}</div>
+                            <div class="job-card-meta">${job.schedule || job.cron || 'manual'} · ${job.status || job.state || 'unknown'}</div>
+                        </div>
+                    </div>
+                    <div class="job-card-meta">${(job.prompt || job.input || '').slice(0, 120)}</div>
+                    <div class="job-card-actions">
+                        <button type="button" class="action-btn btn-secondary" data-job-run="${id}">Run now</button>
+                        <button type="button" class="action-btn btn-secondary" data-job-pause="${id}">Pause</button>
+                        <button type="button" class="action-btn btn-secondary" data-job-resume="${id}">Resume</button>
+                        <button type="button" class="action-btn btn-secondary" data-job-delete="${id}">Delete</button>
+                    </div>`;
+                card.querySelector(`[data-job-run="${id}"]`)?.addEventListener('click', () => ai.runHermesJobNow(id).then(() => loadJobsPanel()));
+                card.querySelector(`[data-job-pause="${id}"]`)?.addEventListener('click', () => ai.pauseHermesJob(id).then(() => loadJobsPanel()));
+                card.querySelector(`[data-job-resume="${id}"]`)?.addEventListener('click', () => ai.resumeHermesJob(id).then(() => loadJobsPanel()));
+                card.querySelector(`[data-job-delete="${id}"]`)?.addEventListener('click', () => {
+                    if (window.confirm('Delete this job?')) {
+                        ai.deleteHermesJob(id).then(() => loadJobsPanel());
+                    }
+                });
+                elements.jobsListPanel.appendChild(card);
+            }
+        } catch (err) {
+            elements.jobsListPanel.innerHTML = `<div class="form-hint">${err.message}. Jobs API requires Hermes gateway with cron enabled.</div>`;
+        }
+    }
+
+    async function promptNewHermesJob() {
+        const name = window.prompt('Job name');
+        if (!name) return;
+        const schedule = window.prompt('Schedule (cron expression or natural language)', '0 9 * * *');
+        if (schedule == null) return;
+        const prompt = window.prompt('Prompt for the agent');
+        if (prompt == null) return;
+        try {
+            await ai.createHermesJob({ name, schedule, prompt });
+            loadJobsPanel();
+        } catch (err) {
+            showToast('Create job failed', err.message, { durationMs: 4000 });
+        }
+    }
+
     function renderHistorySessions() {
         const list = elements.chatHistoryList;
         list.innerHTML = '';
 
-        const filtered = filterSessionsForHistoryTab(state.sessions, state.chatHistoryTab);
+        const filtered = filterSessionsForHistoryTab(state.sessions, state.chatHistoryTab)
+            .filter((s) => {
+                const q = state.archivesSearchQuery.trim().toLowerCase();
+                if (!q) return true;
+                return String(s.title || '').toLowerCase().includes(q)
+                    || String(s.id || '').toLowerCase().includes(q);
+            });
 
         if (filtered.length === 0) {
             const emptyMessage = state.chatHistoryTab === 'hermes'
@@ -2924,8 +3246,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         for (let i = 0; i < showCount; i++) {
             const s = sorted[i];
-            const btn = document.createElement('button');
-            btn.className = `history-item ${s.id === state.activeSessionId ? 'active' : ''}`;
+            const row = document.createElement('div');
+            row.className = `history-item ${s.id === state.activeSessionId ? 'active' : ''}`;
+
+            const mainBtn = document.createElement('button');
+            mainBtn.type = 'button';
+            mainBtn.className = 'history-item-main';
             
             const icon = document.createElement('i');
             icon.setAttribute('data-lucide', isHermesSession(s) ? 'radio-tower' : 'database');
@@ -2940,17 +3266,48 @@ document.addEventListener('DOMContentLoaded', async () => {
             titleSpan.textContent = s.title;
 
             if (s.source === 'hermes') {
-                btn.title = `Hermes profile: ${s.hermesProfile || 'default'}`;
+                row.title = `Hermes profile: ${s.hermesProfile || 'default'}`;
             }
 
-            btn.appendChild(icon);
-            btn.appendChild(titleSpan);
-            
-            btn.addEventListener('click', () => {
+            mainBtn.appendChild(icon);
+            mainBtn.appendChild(titleSpan);
+            mainBtn.addEventListener('click', () => {
                 loadSession(s.id);
                 toggleSidebarDrawer();
             });
-            fragment.appendChild(btn);
+
+            const actions = document.createElement('div');
+            actions.className = 'history-item-actions';
+
+            const renameBtn = document.createElement('button');
+            renameBtn.type = 'button';
+            renameBtn.className = 'history-item-action';
+            renameBtn.title = 'Rename';
+            renameBtn.innerHTML = '<i data-lucide="pencil" style="width:12px;height:12px"></i>';
+            renameBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                renameSessionFromArchives(s);
+            });
+
+            const deleteBtn = document.createElement('button');
+            deleteBtn.type = 'button';
+            deleteBtn.className = 'history-item-action';
+            deleteBtn.title = 'Delete';
+            deleteBtn.innerHTML = '<i data-lucide="trash-2" style="width:12px;height:12px"></i>';
+            deleteBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                deleteSessionFromArchives(s);
+            });
+
+            actions.appendChild(renameBtn);
+            actions.appendChild(deleteBtn);
+
+            const inner = document.createElement('div');
+            inner.className = 'history-item-row';
+            inner.appendChild(mainBtn);
+            inner.appendChild(actions);
+            row.appendChild(inner);
+            fragment.appendChild(row);
         }
 
         // "Load more" button if there are more sessions
@@ -3869,6 +4226,58 @@ document.addEventListener('DOMContentLoaded', async () => {
         return div;
     }
 
+    function appendToolTimelineEntry(bubbleNode, toolInfo) {
+        if (!bubbleNode) return;
+        if (!Array.isArray(bubbleNode._toolTimeline)) bubbleNode._toolTimeline = [];
+        const info = typeof toolInfo === 'string'
+            ? { name: toolInfo, label: toolInfo, status: 'running' }
+            : (toolInfo || {});
+        const name = info.name || info.tool;
+        if (!name || name === '_thinking') return;
+        const last = bubbleNode._toolTimeline[bubbleNode._toolTimeline.length - 1];
+        if (last && last.name === name && last.status === info.status) return;
+        bubbleNode._toolTimeline.push({
+            name: String(name),
+            label: String(info.label || name),
+            status: info.status || 'running',
+            args: info.args ?? null,
+            output: info.output ?? null,
+            at: Date.now(),
+        });
+        if (bubbleNode._toolTimeline.length > 12) {
+            bubbleNode._toolTimeline.shift();
+        }
+    }
+
+    function renderToolTimeline(bubbleNode) {
+        const timeline = bubbleNode?._toolTimeline || [];
+        if (!timeline.length) return null;
+        const wrap = document.createElement('div');
+        wrap.className = 'chat-tool-timeline';
+        for (const entry of timeline) {
+            const item = document.createElement('div');
+            item.className = `chat-tool-timeline-item${entry.status === 'thinking' ? ' is-thinking' : ''}`;
+            const nameEl = document.createElement('div');
+            nameEl.className = 'chat-tool-timeline-name';
+            nameEl.textContent = entry.label || entry.name;
+            item.appendChild(nameEl);
+            if (entry.args) {
+                const argsEl = document.createElement('div');
+                argsEl.className = 'chat-tool-timeline-meta';
+                argsEl.textContent = typeof entry.args === 'string' ? entry.args : JSON.stringify(entry.args).slice(0, 240);
+                item.appendChild(argsEl);
+            }
+            if (entry.output) {
+                const outEl = document.createElement('div');
+                outEl.className = 'chat-tool-timeline-meta';
+                outEl.textContent = typeof entry.output === 'string' ? entry.output.slice(0, 240) : JSON.stringify(entry.output).slice(0, 240);
+                item.appendChild(outEl);
+            }
+            wrap.appendChild(item);
+        }
+        return wrap;
+    }
+
     function formatToolPreviewLabel(toolInfo) {
         const info = typeof toolInfo === 'string'
             ? { name: toolInfo, label: toolInfo, status: 'running' }
@@ -3882,11 +4291,21 @@ document.addEventListener('DOMContentLoaded', async () => {
             ? rawLabel
             : (isThinking ? 'Thinking…' : name);
 
+        const argsSnippet = info.args != null
+            ? (typeof info.args === 'string' ? info.args : JSON.stringify(info.args)).slice(0, 120)
+            : '';
+        const outputSnippet = info.output != null
+            ? (typeof info.output === 'string' ? info.output : JSON.stringify(info.output)).slice(0, 120)
+            : '';
+
         return {
             prefix: isThinking ? '' : 'Calling',
             emoji: info.emoji ? String(info.emoji) : '',
             detail,
             isThinking,
+            argsSnippet,
+            outputSnippet,
+            status: info.status || 'running',
         };
     }
 
@@ -3898,6 +4317,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         const content = ensureAssistantBubbleStructure(bubbleNode);
         if (!content) return;
         content.replaceChildren();
+
+        const timeline = renderToolTimeline(bubbleNode);
+        if (timeline) content.appendChild(timeline);
 
         const preview = document.createElement('div');
         preview.className = `chat-tool-preview${formatted.isThinking ? ' chat-tool-preview-thinking' : ''}`;
@@ -3922,6 +4344,20 @@ document.addEventListener('DOMContentLoaded', async () => {
         detail.textContent = formatted.detail;
 
         preview.appendChild(detail);
+
+        if (formatted.argsSnippet) {
+            const argsEl = document.createElement('div');
+            argsEl.className = 'chat-tool-preview-meta';
+            argsEl.textContent = `args: ${formatted.argsSnippet}${formatted.argsSnippet.length >= 120 ? '…' : ''}`;
+            preview.appendChild(argsEl);
+        }
+        if (formatted.outputSnippet && formatted.status === 'completed') {
+            const outEl = document.createElement('div');
+            outEl.className = 'chat-tool-preview-meta chat-tool-preview-output';
+            outEl.textContent = `out: ${formatted.outputSnippet}${formatted.outputSnippet.length >= 120 ? '…' : ''}`;
+            preview.appendChild(outEl);
+        }
+
         content.appendChild(preview);
         elements.deckChatScroller.scrollTop = elements.deckChatScroller.scrollHeight;
     }
@@ -3929,6 +4365,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     function clearAssistantBubbleToolPreview(bubbleNode) {
         if (!bubbleNode) return;
         bubbleNode.classList.remove('assistant-bubble-tool-active');
+        bubbleNode._toolTimeline = [];
         visualizer.clearThinkingCaption();
     }
 

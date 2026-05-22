@@ -248,6 +248,11 @@
       this.toolbarEl.innerHTML = `
         <div class="ak-toolbar-row">
           <select class="ak-select" id="akBoardSelect" aria-label="Board"></select>
+          <div class="ak-board-admin">
+            <button type="button" class="ak-btn ak-btn-ghost" id="akRenameBoardBtn" title="Rename board">Rename</button>
+            <button type="button" class="ak-btn ak-btn-ghost" id="akDeleteBoardBtn" title="Delete board">Delete</button>
+            <button type="button" class="ak-btn ak-btn-ghost" id="akProfilesBtn" title="Kanban profiles">Profiles</button>
+          </div>
           <button type="button" class="ak-btn ak-btn-ghost" id="akNewBoardBtn">+ New board</button>
           <button type="button" class="ak-btn ${autoOn ? 'ak-btn-accent' : 'ak-btn-ghost'}" id="akOrchToggle">
             Orchestration: ${autoOn ? 'Auto' : 'Manual'}
@@ -303,6 +308,9 @@
         this.renderToolbar();
       });
       this.toolbarEl.querySelector('#akNewBoardBtn').addEventListener('click', () => this.promptNewBoard());
+      this.toolbarEl.querySelector('#akRenameBoardBtn')?.addEventListener('click', () => this.promptRenameBoard());
+      this.toolbarEl.querySelector('#akDeleteBoardBtn')?.addEventListener('click', () => this.promptDeleteBoard());
+      this.toolbarEl.querySelector('#akProfilesBtn')?.addEventListener('click', () => this.openProfilesPanel());
       this.toolbarEl.querySelector('#akOrchSettingsBtn').addEventListener('click', () => this.openOrchestrationPanel());
       this.populateBoardSelect();
     }
@@ -361,6 +369,70 @@
       await this.ai.createNativeKanbanBoard({ slug, name, switch: true });
       await this.refreshBoardList();
       this.loadBoard();
+    }
+
+    async promptRenameBoard() {
+      const slug = this.board || 'default';
+      const current = (this.boardsMeta?.boards || []).find((b) => b.slug === slug);
+      const name = window.prompt('Board display name:', current?.name || slug);
+      if (name == null || !String(name).trim()) return;
+      try {
+        await this.ai.renameNativeKanbanBoard(slug, { name: String(name).trim() });
+        await this.refreshBoardList();
+        this.onStatus('Board renamed');
+      } catch (e) {
+        this.onStatus(e.message || 'Rename failed', true);
+      }
+    }
+
+    async promptDeleteBoard() {
+      const slug = this.board || 'default';
+      if (!window.confirm(`Delete board "${slug}"? Tasks will be archived unless you choose hard delete.`)) return;
+      const hard = window.confirm('Hard delete all tasks on this board? Cancel keeps archived copy.');
+      try {
+        await this.ai.deleteNativeKanbanBoard(slug, hard);
+        await this.refreshBoardList();
+        this.board = this.boardsMeta?.current || 'default';
+        await this.loadAll();
+        this.onStatus('Board deleted');
+      } catch (e) {
+        this.onStatus(e.message || 'Delete failed', true);
+      }
+    }
+
+    async openProfilesPanel() {
+      try {
+        const data = await this.ai.listNativeKanbanProfiles();
+        const profiles = data.profiles || data.items || [];
+        const names = profiles.map((p) => p.name || p.id || p).join(', ') || '(none)';
+        const pick = window.prompt(`Kanban profiles: ${names}\n\nEnter profile name to edit description:`, profiles[0]?.name || '');
+        if (!pick) return;
+        const description = window.prompt('Profile description:', profiles.find((p) => (p.name || p.id) === pick)?.description || '');
+        if (description == null) return;
+        await this.ai.updateNativeKanbanProfile(pick, { description });
+        if (window.confirm('Generate auto-description from recent tasks?')) {
+          await this.ai.describeNativeKanbanProfileAuto(pick, {});
+        }
+        this.onStatus(`Profile ${pick} updated`);
+      } catch (e) {
+        this.onStatus(e.message || 'Profile update failed', true);
+      }
+    }
+
+    renderDrawerHomeChannels(taskId, channelsData) {
+      const channels = channelsData?.channels || channelsData?.items || channelsData?.platforms || [];
+      const subscribed = new Set(channelsData?.subscribed || channelsData?.subscriptions || []);
+      return `
+        <section class="ak-drawer-section ak-home-channels">
+          <h4>Home Assistant notifications</h4>
+          ${channels.length
+            ? `<div class="ak-chip-row">${channels.map((c) => {
+                const platform = typeof c === 'string' ? c : (c.platform || c.id || c.name);
+                const isOn = subscribed.has(platform);
+                return `<button type="button" class="ak-chip ${isOn ? 'ak-chip-accent' : ''}" data-home-toggle="${esc(platform)}">${esc(platform)}${isOn ? ' ✓' : ''}</button>`;
+              }).join('')}</div>`
+            : '<p class="ak-muted">No home channels configured for this task.</p>'}
+        </section>`;
     }
 
     filterTasks(tasks) {
@@ -1170,6 +1242,23 @@
 
       root.querySelector('#akDrawerClose')?.addEventListener('click', () => this.closeDrawer());
 
+      root.querySelectorAll('[data-home-toggle]').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const platform = btn.dataset.homeToggle;
+          const isOn = btn.classList.contains('ak-chip-accent');
+          try {
+            if (isOn) {
+              await this.ai.unsubscribeNativeKanbanHome(this.board, taskId, platform);
+            } else {
+              await this.ai.subscribeNativeKanbanHome(this.board, taskId, platform);
+            }
+            await this.openDrawer(taskId);
+          } catch (e) {
+            this.onStatus(e.message || 'Home channel toggle failed', true);
+          }
+        });
+      });
+
       root.querySelector('#akDrawerTitleView')?.addEventListener('click', () => {
         ui.editingTitle = true;
         ui.titleDraft = task.title || '';
@@ -1420,10 +1509,12 @@
       const ui = this.drawerUi;
       let data;
       let logData = null;
+      let homeChannels = null;
       try {
-        [data, logData] = await Promise.all([
+        [data, logData, homeChannels] = await Promise.all([
           this.ai.getNativeKanbanTask(this.board, taskId),
           this.ai.getNativeKanbanTaskLog(this.board, taskId, 100000).catch(() => null),
+          this.ai.getNativeKanbanHomeChannels(this.board, taskId).catch(() => null),
         ]);
       } catch (e) {
         this.onStatus(e.message || 'Failed to load task', true);
@@ -1499,6 +1590,7 @@
               </section>
             ` : ''}
             ${this.renderDrawerComments(comments)}
+            ${this.renderDrawerHomeChannels(taskId, homeChannels || {})}
             ${this.renderDrawerEvents(events)}
             ${this.renderDrawerWorkerLog(logData)}
             ${this.renderDrawerRuns(runs)}
@@ -1524,16 +1616,47 @@
 
     openOrchestrationPanel() {
       const o = this.orchestration || {};
-      const orch = window.prompt('Orchestrator profile:', o.orchestrator_profile || o.resolved_orchestrator_profile || '');
-      if (orch === null) return;
-      const def = window.prompt('Default assignee:', o.default_assignee || o.resolved_default_assignee || '');
-      if (def === null) return;
-      this.ai.setNativeKanbanOrchestration({
-        orchestrator_profile: orch,
-        default_assignee: def,
-      }).then((res) => {
-        this.orchestration = res;
-        this.renderToolbar();
+      const panel = document.createElement('div');
+      panel.className = 'ak-profile-editor';
+      panel.innerHTML = `
+        <label>Orchestrator profile
+          <input class="ak-input" id="akOrchProfileInput" value="${esc(o.orchestrator_profile || o.resolved_orchestrator_profile || '')}" />
+        </label>
+        <label style="display:block;margin-top:8px;">Default assignee
+          <input class="ak-input" id="akOrchAssigneeInput" value="${esc(o.default_assignee || o.resolved_default_assignee || '')}" />
+        </label>
+        <div style="display:flex;gap:8px;margin-top:10px;">
+          <button type="button" class="ak-btn" id="akOrchSaveBtn">Save</button>
+          <button type="button" class="ak-btn ak-btn-ghost" id="akOrchCancelBtn">Cancel</button>
+        </div>
+      `;
+      const existing = this.toolbarEl.querySelector('.ak-profile-editor');
+      if (existing) {
+        existing.remove();
+        return;
+      }
+      this.toolbarEl.appendChild(panel);
+      panel.querySelector('#akOrchCancelBtn')?.addEventListener('click', () => panel.remove());
+      panel.querySelector('#akOrchSaveBtn')?.addEventListener('click', async () => {
+        const orchestrator_profile = panel.querySelector('#akOrchProfileInput')?.value?.trim() || '';
+        const default_assignee = panel.querySelector('#akOrchAssigneeInput')?.value?.trim() || '';
+        try {
+          this.orchestration = await this.ai.setNativeKanbanOrchestration({
+            orchestrator_profile,
+            default_assignee,
+          });
+          if (orchestrator_profile) {
+            await this.ai.updateNativeKanbanProfile(orchestrator_profile, {
+              orchestrator_profile,
+              default_assignee,
+            });
+          }
+          panel.remove();
+          this.renderToolbar();
+          this.onStatus('Orchestration updated');
+        } catch (e) {
+          this.onStatus(e.message || 'Save failed', true);
+        }
       });
     }
   }

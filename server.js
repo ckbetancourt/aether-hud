@@ -589,6 +589,17 @@ const {
 
 const { handleKanbanApi } = require('./lib/kanban-http-handlers.js');
 const dashboardLauncher = require('./lib/hermes-dashboard-launcher.js');
+const hermesRuns = require('./lib/hermes-runs.js');
+const hermesSessions = require('./lib/hermes-sessions.js');
+const hermesContext = require('./lib/hermes-context.js');
+const hermesConfigPanel = require('./lib/hermes-config-panel.js');
+const hermesJobs = require('./lib/hermes-jobs.js');
+
+/** Active Hermes run ids for in-flight chat (runId -> AbortController) */
+const activeHermesRuns = new Map();
+let cachedHermesCapabilities = null;
+let capabilitiesProbedAt = 0;
+const CAPABILITIES_TTL_MS = 60_000;
 
 async function probeHermesDashboardStatus() {
   const launcherStatus = await dashboardLauncher.refreshLauncherState();
@@ -929,12 +940,16 @@ async function callChatCompletions({
 
   if (stream) {
     const { content, raw } = await parseSseStream(res, abort.signal, onStreamProgress);
-    if (!content && !raw?.tool_calls?.length) {
+    const toolCalls = raw?.tool_calls || raw?.choices?.[0]?.message?.tool_calls || [];
+    if (!content && !toolCalls.length) {
       const err = new Error('Empty or invalid completion from model');
       err.statusCode = 502;
       throw err;
     }
-    return { reply: content, raw };
+    const reply = content || (toolCalls.length
+      ? `[Running ${toolCalls.map((tc) => tc.function?.name || 'tool').filter(Boolean).join(', ')}…]`
+      : '');
+    return { reply, raw };
   }
 
   const data = await res.json();
@@ -945,7 +960,10 @@ async function callChatCompletions({
     err.statusCode = 502;
     throw err;
   }
-  return { reply, raw: data };
+  const finalReply = reply || (toolCalls.length
+    ? `[Running ${toolCalls.map((tc) => tc.function?.name || 'tool').filter(Boolean).join(', ')}…]`
+    : '');
+  return { reply: finalReply, raw: data };
 }
 
 async function handleOpenAiChat(body) {
@@ -1000,53 +1018,206 @@ function hermesHeaders(body) {
   return headers;
 }
 
-/**
- * Tool-calling loop: call /chat/completions, handle tool_calls responses,
- * feed tool results back, repeat until the model returns text or limit hit.
- *
- * Hermes API server returns OpenAI-compatible tool_calls when the agent
- * needs to execute tools. This loop handles up to MAX_TOOL_ROUNDS
- * successive tool calls before returning the final text response.
- */
-const MAX_TOOL_ROUNDS = 6;
-
 function writeSseEvent(res, event, data) {
   res.write(`event: ${event}\n`);
   res.write(`data: ${JSON.stringify(data)}\n\n`);
 }
 
-async function handleHermesChat(body, emitProgress) {
-  const { messages, stream: requestStream } = body;
-  if (!messages || !Array.isArray(messages)) {
-    const err = new Error('Invalid body: expected { messages: [...] }');
-    err.statusCode = 400;
+function extractLastUserText(messages) {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const m = messages[i];
+    if (m?.role !== 'user') continue;
+    const c = m.content;
+    if (typeof c === 'string') return c;
+    if (Array.isArray(c)) {
+      return c.filter((p) => p?.type === 'text').map((p) => p.text).join('\n');
+    }
+    return String(c || '');
+  }
+  return '';
+}
+
+async function getHermesCapabilitiesCached() {
+  const now = Date.now();
+  if (cachedHermesCapabilities && now - capabilitiesProbedAt < CAPABILITIES_TTL_MS) {
+    return cachedHermesCapabilities;
+  }
+  cachedHermesCapabilities = await hermesRuns.fetchHermesCapabilities(HERMES_API_BASE_URL, HERMES_API_KEY);
+  capabilitiesProbedAt = now;
+  return cachedHermesCapabilities;
+}
+
+function mapRunEventToProgress(eventName, data, reportTool) {
+  if (!reportTool || !data) return;
+  const tool = data.tool || data.name;
+  if (eventName === 'hermes.tool.progress' || data.status === 'running' || tool) {
+    reportTool({
+      name: String(tool || data.label || 'tool'),
+      label: String(data.label || tool || 'tool'),
+      emoji: data.emoji ? String(data.emoji) : '',
+      status: data.status || 'running',
+      args: data.arguments || data.args || null,
+      output: data.output || null,
+    });
+    return;
+  }
+  if (data.delta || data.content) {
+    /* token deltas handled separately */
+  }
+}
+
+async function handleHermesChatViaRuns(body, emitProgress, abortSignal) {
+  const { messages } = body;
+  let sessionId = body.sessionId || body.hermesSessionId || null;
+  if (sessionId) syncHermesSessionModelWithConfig(sessionId);
+
+  const userInput = extractLastUserText(messages);
+  const history = messages.slice(0, -1);
+  const extraHeaders = hermesHeaders(body);
+  const abortController = abortSignal ? null : new AbortController();
+  const signal = abortSignal || abortController?.signal;
+
+  const reportTool = (info) => {
+    if (!emitProgress) return;
+    if (typeof info === 'string') {
+      emitProgress('tool', { name: info, label: info, status: 'running' });
+      return;
+    }
+    const name = info?.name || info?.tool;
+    if (!name) return;
+    emitProgress('tool', {
+      name: String(name),
+      label: String(info?.label || name),
+      emoji: info?.emoji ? String(info.emoji) : '',
+      status: info?.status || 'running',
+      args: info?.args ?? null,
+      output: info?.output ?? null,
+    });
+  };
+
+  if (emitProgress) {
+    reportTool({ name: '_thinking', label: 'Thinking…', status: 'thinking' });
+  }
+
+  const runPayload = {
+    input: userInput,
+    session_id: sessionId || undefined,
+    instructions: hermesSystemPrompt(body),
+    conversation_history: normalizeMessages(history),
+  };
+
+  const created = await hermesRuns.createHermesRun({
+    baseUrl: HERMES_API_BASE_URL,
+    apiKey: HERMES_API_KEY,
+    payload: runPayload,
+    extraHeaders,
+  });
+
+  const runId = created.run_id || created.runId || created.id;
+  if (!runId) {
+    throw Object.assign(new Error('Hermes runs API did not return run_id'), { statusCode: 502 });
+  }
+
+  if (abortController) activeHermesRuns.set(runId, abortController);
+  if (emitProgress) emitProgress('run', { runId });
+
+  let reply = '';
+  let finalRun = null;
+  let streamError = null;
+
+  try {
+    await hermesRuns.streamHermesRunEvents({
+      baseUrl: HERMES_API_BASE_URL,
+      apiKey: HERMES_API_KEY,
+      runId,
+      signal,
+      onEvent: (eventName, data) => {
+        if (eventName === 'error' || data?.status === 'failed') {
+          streamError = new Error(data?.error || data?.message || 'Run failed');
+          return;
+        }
+        mapRunEventToProgress(eventName, data, reportTool);
+        if (data?.delta) reply += String(data.delta);
+        if (data?.content && typeof data.content === 'string') reply += data.content;
+        if (data?.output_text) reply += String(data.output_text);
+        if (data?.status === 'completed' || eventName === 'completed') {
+          finalRun = data;
+        }
+      },
+    });
+  } catch (e) {
+    if (e.name === 'AbortError') {
+      return {
+        reply: reply || '[Stopped]',
+        backend: 'hermes',
+        stopped: true,
+        hermes: {
+          sessionId,
+          profile: body.hermesProfile || HERMES_PROFILE || null,
+          model: await resolveHermesModel(sessionId),
+          runId,
+        },
+      };
+    }
+    throw e;
+  } finally {
+    activeHermesRuns.delete(runId);
+  }
+
+  if (streamError) throw streamError;
+
+  if (!reply) {
+    try {
+      finalRun = finalRun || await hermesRuns.getHermesRun({
+        baseUrl: HERMES_API_BASE_URL,
+        apiKey: HERMES_API_KEY,
+        runId,
+      });
+      reply = hermesRuns.extractTextFromRunOutput(finalRun?.output) || String(finalRun?.output || '');
+      if (finalRun?.session_id || finalRun?.sessionId) {
+        sessionId = finalRun.session_id || finalRun.sessionId || sessionId;
+      }
+    } catch {
+      /* poll optional */
+    }
+  }
+
+  if (!reply) {
+    const err = new Error('Empty reply from Hermes run');
+    err.statusCode = 502;
     throw err;
   }
 
-  let sessionId = body.sessionId || body.hermesSessionId || null;
-  if (sessionId) {
-    syncHermesSessionModelWithConfig(sessionId);
-  }
   const model = await resolveHermesModel(sessionId);
-  const useStream = requestStream !== false; // default true
+  return {
+    reply,
+    backend: 'hermes',
+    hermes: {
+      sessionId: finalRun?.session_id || finalRun?.sessionId || sessionId || null,
+      profile: body.hermesProfile || HERMES_PROFILE || null,
+      model,
+      provider: readHermesConfigModel()?.provider || null,
+      streaming: true,
+      runId,
+    },
+  };
+}
 
-  if (process.env.AETHER_DEBUG === '1') {
-    console.log('[api/chat] -> Hermes', chatCompletionsUrl(HERMES_API_BASE_URL), 'model:', model, 'stream:', useStream);
-  }
+async function handleHermesChatViaCompletions(body, emitProgress) {
+  const { messages } = body;
+  let sessionId = body.sessionId || body.hermesSessionId || null;
+  if (sessionId) syncHermesSessionModelWithConfig(sessionId);
+  const model = await resolveHermesModel(sessionId);
+  const extraHeaders = hermesHeaders(body);
 
-  // Build the message array — we'll append tool results to it in the loop
   const conversationMessages = [
     { role: 'system', content: hermesSystemPrompt(body) },
     ...normalizeMessages(messages),
   ];
 
-  let result;
-  const extraHeaders = hermesHeaders(body);
-
   const reportTool = (info) => {
     if (!emitProgress) return;
     if (typeof info === 'string') {
-      if (!info) return;
       emitProgress('tool', { name: info, label: info, status: 'running' });
       return;
     }
@@ -1064,67 +1235,19 @@ async function handleHermesChat(body, emitProgress) {
     reportTool({ name: '_thinking', label: 'Thinking…', status: 'thinking' });
   }
 
-  try {
-    for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-      result = await callChatCompletions({
-        baseUrl: HERMES_API_BASE_URL,
-        model,
-        apiKey: HERMES_API_KEY,
-        messages: conversationMessages,
-        temperature: runtimeTemperature(),
-        maxTokens: 2048,
-        extraHeaders,
-        stream: useStream,
-        onStreamProgress: (info) => reportTool(info?.name),
-      });
+  const result = await callChatCompletions({
+    baseUrl: HERMES_API_BASE_URL,
+    model,
+    apiKey: HERMES_API_KEY,
+    messages: conversationMessages,
+    temperature: runtimeTemperature(),
+    maxTokens: 2048,
+    extraHeaders,
+    stream: emitProgress != null,
+    onStreamProgress: (info) => reportTool(info),
+  });
 
-      // Extract tool calls from the response
-      const toolCalls = result.raw?.choices?.[0]?.message?.tool_calls
-        || result.raw?.tool_calls
-        || [];
-
-      if (toolCalls.length === 0) {
-        // No tool calls — final text response
-        break;
-      }
-
-      if (process.env.AETHER_DEBUG === '1') {
-        console.log(`[api/chat] tool_calls round ${round + 1}: ${toolCalls.length} calls`);
-      }
-
-      // Append the assistant message (with tool_calls) to conversation
-      conversationMessages.push({
-        role: 'assistant',
-        content: result.reply || null,
-        tool_calls: toolCalls,
-      });
-
-      // Execute each tool call via Hermes API (submit back as tool results)
-      // Hermes API server handles execution; we send results back for the next round
-      for (const tc of toolCalls) {
-        const tcId = tc.id || `call_${round}_${toolCalls.indexOf(tc)}`;
-        const tcName = tc.function?.name || 'unknown';
-        reportTool(tcName);
-
-        // Submit the tool call back to Hermes for execution.
-        // Hermes's chat/completions endpoint accepts tool results in the
-        // next request's messages array as role: "tool" entries.
-        conversationMessages.push({
-          role: 'tool',
-          tool_call_id: tcId,
-          content: JSON.stringify({ executed: true, tool: tcName }),
-        });
-      }
-    }
-  } catch (e) {
-    if (e.statusCode) throw e;
-    const err = new Error(`Hermes API is unreachable at ${HERMES_API_BASE_URL}. ${e.message}`);
-    err.statusCode = 503;
-    throw err;
-  }
-
-  // Extract session id from raw response
-  if (result.raw.session_id || result.raw.sessionId) {
+  if (result.raw?.session_id || result.raw?.sessionId) {
     sessionId = result.raw.session_id || result.raw.sessionId || sessionId;
   }
 
@@ -1142,9 +1265,41 @@ async function handleHermesChat(body, emitProgress) {
       profile: body.hermesProfile || HERMES_PROFILE || null,
       model,
       provider: readHermesConfigModel()?.provider || null,
-      streaming: useStream,
+      streaming: emitProgress != null,
     },
   };
+}
+
+async function handleHermesChat(body, emitProgress) {
+  const { messages } = body;
+  if (!messages || !Array.isArray(messages)) {
+    const err = new Error('Invalid body: expected { messages: [...] }');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  try {
+    const caps = await getHermesCapabilitiesCached();
+    if (caps.runSubmission && caps.runEvents) {
+      if (process.env.AETHER_DEBUG === '1') {
+        console.log('[api/chat] -> Hermes /v1/runs');
+      }
+      try {
+        return await handleHermesChatViaRuns(body, emitProgress);
+      } catch (runErr) {
+        console.warn('[api/chat] Hermes runs failed, falling back to chat/completions:', runErr.message || runErr);
+      }
+    }
+    if (process.env.AETHER_DEBUG === '1') {
+      console.log('[api/chat] -> Hermes /v1/chat/completions (single pass)');
+    }
+    return await handleHermesChatViaCompletions(body, emitProgress);
+  } catch (e) {
+    if (e.statusCode) throw e;
+    const err = new Error(`Hermes API is unreachable at ${HERMES_API_BASE_URL}. ${e.message}`);
+    err.statusCode = 503;
+    throw err;
+  }
 }
 
 async function handleChat(body, emitProgress) {
@@ -1222,6 +1377,8 @@ async function probeHermesStatus() {
         sessions: sessionsProbe.ok,
         streaming: true,
         toolCalling: true,
+        runs: (await getHermesCapabilitiesCached()).runSubmission || false,
+        runStop: (await getHermesCapabilitiesCached()).runStop || false,
       },
       sessionsProbe: sessionsProbe.ok
         ? null
@@ -1573,6 +1730,163 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (req.method === 'POST' && pathname === '/api/chat/stop') {
+    try {
+      const body = await readBody(req);
+      const runId = body?.runId || body?.run_id;
+      if (!runId) {
+        sendJson(res, 400, { error: 'runId is required' });
+        return;
+      }
+      const controller = activeHermesRuns.get(runId);
+      if (controller) {
+        controller.abort();
+        activeHermesRuns.delete(runId);
+      }
+      try {
+        await hermesRuns.stopHermesRun({
+          baseUrl: HERMES_API_BASE_URL,
+          apiKey: HERMES_API_KEY,
+          runId: String(runId),
+        });
+      } catch (e) {
+        if (e.statusCode !== 404) throw e;
+      }
+      sendJson(res, 200, { ok: true, runId, status: 'stopping' });
+    } catch (e) {
+      const status = e.statusCode || 502;
+      console.error('[api/chat/stop]', e.message || e);
+      sendJson(res, status, { error: e.message || 'Stop failed' });
+    }
+    return;
+  }
+
+  const hermesSessionPatchMatch = pathname.match(/^\/api\/hermes\/sessions\/([^/]+)$/);
+  if (hermesSessionPatchMatch && req.method === 'PATCH') {
+    try {
+      const sessionId = decodeURIComponent(hermesSessionPatchMatch[1]);
+      const body = await readBody(req);
+      await hermesSessions.tryDashboardSessionPatch(HERMES_DASHBOARD_URL, sessionId, body?.title);
+      const result = hermesSessions.withWriteDb((db) =>
+        hermesSessions.updateSessionTitle(db, sessionId, body?.title)
+      );
+      sendJson(res, 200, { available: true, ...result });
+    } catch (e) {
+      const status = e.statusCode || 502;
+      console.error('[api/hermes/sessions PATCH]', e.message || e);
+      sendJson(res, status, { available: false, error: e.message || 'Update failed' });
+    }
+    return;
+  }
+
+  if (hermesSessionPatchMatch && req.method === 'DELETE') {
+    try {
+      const sessionId = decodeURIComponent(hermesSessionPatchMatch[1]);
+      await hermesSessions.tryDashboardSessionDelete(HERMES_DASHBOARD_URL, sessionId);
+      const result = hermesSessions.withWriteDb((db) => hermesSessions.deleteSession(db, sessionId));
+      sendJson(res, 200, { available: true, ...result });
+    } catch (e) {
+      const status = e.statusCode || 502;
+      console.error('[api/hermes/sessions DELETE]', e.message || e);
+      sendJson(res, status, { available: false, error: e.message || 'Delete failed' });
+    }
+    return;
+  }
+
+  const contextFileMatch = pathname.match(/^\/api\/hermes\/context\/([^/]+)$/);
+  if (contextFileMatch && req.method === 'GET') {
+    try {
+      const fileId = decodeURIComponent(contextFileMatch[1]);
+      const u = new URL(req.url, `http://${req.headers.host}`);
+      const projectCwd = u.searchParams.get('projectCwd') || undefined;
+      const file = hermesContext.readContextFileById(fileId, projectCwd);
+      sendJson(res, 200, { available: true, file });
+    } catch (e) {
+      const status = e.statusCode || 502;
+      sendJson(res, status, { available: false, error: e.message || 'Read failed' });
+    }
+    return;
+  }
+
+  if (contextFileMatch && req.method === 'PUT') {
+    try {
+      const fileId = decodeURIComponent(contextFileMatch[1]);
+      const body = await readBody(req);
+      const u = new URL(req.url, `http://${req.headers.host}`);
+      const projectCwd = u.searchParams.get('projectCwd') || undefined;
+      const file = hermesContext.writeContextFileById(fileId, body?.content, projectCwd);
+      sendJson(res, 200, { available: true, file });
+    } catch (e) {
+      const status = e.statusCode || 502;
+      sendJson(res, status, { available: false, error: e.message || 'Write failed' });
+    }
+    return;
+  }
+
+  const jobIdMatch = pathname.match(/^\/api\/hermes\/jobs\/([^/]+)(\/pause|\/resume|\/run)?$/);
+  if (jobIdMatch) {
+    const jobId = decodeURIComponent(jobIdMatch[1]);
+    const action = jobIdMatch[2] || '';
+    try {
+      if (req.method === 'GET' && !action) {
+        sendJson(res, 200, await hermesJobs.getJob(HERMES_API_BASE_URL, HERMES_API_KEY, jobId));
+        return;
+      }
+      if (req.method === 'PATCH' && !action) {
+        const body = await readBody(req);
+        sendJson(res, 200, await hermesJobs.updateJob(HERMES_API_BASE_URL, HERMES_API_KEY, jobId, body || {}));
+        return;
+      }
+      if (req.method === 'DELETE' && !action) {
+        sendJson(res, 200, await hermesJobs.deleteJob(HERMES_API_BASE_URL, HERMES_API_KEY, jobId));
+        return;
+      }
+      if (req.method === 'POST' && action === '/pause') {
+        sendJson(res, 200, await hermesJobs.pauseJob(HERMES_API_BASE_URL, HERMES_API_KEY, jobId));
+        return;
+      }
+      if (req.method === 'POST' && action === '/resume') {
+        sendJson(res, 200, await hermesJobs.resumeJob(HERMES_API_BASE_URL, HERMES_API_KEY, jobId));
+        return;
+      }
+      if (req.method === 'POST' && action === '/run') {
+        sendJson(res, 200, await hermesJobs.runJobNow(HERMES_API_BASE_URL, HERMES_API_KEY, jobId));
+        return;
+      }
+    } catch (e) {
+      const status = e.statusCode || 502;
+      console.error('[api/hermes/jobs]', e.message || e);
+      sendJson(res, status, { error: e.message || 'Jobs API error' });
+      return;
+    }
+  }
+
+  if (req.method === 'POST' && pathname === '/api/hermes/jobs') {
+    try {
+      const body = await readBody(req);
+      sendJson(res, 200, await hermesJobs.createJob(HERMES_API_BASE_URL, HERMES_API_KEY, body || {}));
+    } catch (e) {
+      const status = e.statusCode || 502;
+      sendJson(res, status, { error: e.message || 'Create job failed' });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/api/hermes/skills/reload') {
+    try {
+      const { execSync } = require('child_process');
+      execSync('hermes chat --command /reload-skills 2>&1 || true', {
+        encoding: 'utf8',
+        timeout: 15000,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      sendJson(res, 200, { ok: true, message: 'Reload requested — restart gateway if skills do not update immediately.' });
+    } catch (e) {
+      sendJson(res, 200, { ok: true, message: 'Reload signal sent (gateway may need restart).' });
+    }
+    return;
+  }
+
   if (req.method === 'POST' && pathname === '/api/chat') {
     try {
       const body = await readBody(req);
@@ -1769,6 +2083,60 @@ const server = http.createServer(async (req, res) => {
           messages: [],
           error: e.message || 'Hermes session messages unavailable',
         });
+      }
+      return;
+    }
+
+    if (pathname === '/api/hermes/sessions/search') {
+      try {
+        const u = new URL(req.url, `http://${req.headers.host}`);
+        const q = u.searchParams.get('q') || '';
+        const limit = Number(u.searchParams.get('limit')) || 50;
+        const rows = hermesSessions.withWriteDb((db) => hermesSessions.searchSessions(db, q, limit));
+        const items = rows.map((r) => ({
+          id: r.id,
+          title: r.title || `Session ${String(r.id).slice(0, 8)}`,
+          model: r.model || '',
+          startedAt: r.started_at,
+          messageCount: r.message_count || 0,
+        }));
+        sendJson(res, 200, { available: true, items, query: q });
+      } catch (e) {
+        const status = e.statusCode || 502;
+        sendJson(res, status, { available: false, items: [], error: e.message || 'Search failed' });
+      }
+      return;
+    }
+
+    if (pathname === '/api/hermes/context') {
+      try {
+        const u = new URL(req.url, `http://${req.headers.host}`);
+        const projectCwd = u.searchParams.get('projectCwd') || undefined;
+        const data = hermesContext.listContextFiles(projectCwd);
+        sendJson(res, 200, { available: true, ...data });
+      } catch (e) {
+        sendJson(res, 502, { available: false, error: e.message || 'Context list failed' });
+      }
+      return;
+    }
+
+    if (pathname === '/api/hermes/config/summary') {
+      try {
+        const summary = hermesConfigPanel.getConfigSummary();
+        sendJson(res, 200, { available: summary.available, summary });
+      } catch (e) {
+        sendJson(res, 502, { available: false, error: e.message || 'Config read failed' });
+      }
+      return;
+    }
+
+    if (pathname === '/api/hermes/jobs') {
+      try {
+        const jobs = await hermesJobs.listJobs(HERMES_API_BASE_URL, HERMES_API_KEY);
+        sendJson(res, 200, jobs);
+      } catch (e) {
+        const status = e.statusCode || 502;
+        sendJson(res, status, { error: e.message || 'Jobs list failed', items: [] });
       }
       return;
     }

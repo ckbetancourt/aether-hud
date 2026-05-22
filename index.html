@@ -228,6 +228,9 @@
             </span>
             <span class="workspace-pin-badge" id="workspacePinBadge" hidden title="Pinned Hermes workspace"></span>
             <div class="chat-column-header-actions">
+                <button class="settings-gear-btn chat-stop-btn" id="chatStopBtn" type="button" hidden title="Stop agent">
+                    <i data-lucide="square" style="width:14px; height:14px;"></i>
+                </button>
                 <button class="settings-gear-btn composer-refresh-btn" id="composerRefreshBtn" type="button" title="Refresh chats from Hermes">
                     <i data-lucide="refresh-cw" style="width:14px; height:14px;"></i>
                 </button>
@@ -280,6 +283,10 @@
                         <i data-lucide="x" style="width:16px; height:16px;"></i>
                     </button>
                 </div>
+            </div>
+
+            <div class="archives-search-wrap">
+                <input type="search" class="form-select archives-search" id="archivesSearchInput" placeholder="Search sessions…" autocomplete="off" />
             </div>
 
             <div class="chat-history-tabs settings-tabs" role="tablist" aria-label="Chat categories">
@@ -359,6 +366,9 @@
                 <button class="settings-tab active" type="button" role="tab" id="settingsTabAppearance" aria-selected="true" aria-controls="settingsPanelAppearance" data-settings-tab="appearance">Appearance</button>
                 <button class="settings-tab" type="button" role="tab" id="settingsTabSpeech" aria-selected="false" aria-controls="settingsPanelSpeech" data-settings-tab="speech">Speech</button>
                 <button class="settings-tab" type="button" role="tab" id="settingsTabRuntime" aria-selected="false" aria-controls="settingsPanelRuntime" data-settings-tab="runtime">Runtime</button>
+                <button class="settings-tab" type="button" role="tab" id="settingsTabContext" aria-selected="false" aria-controls="settingsPanelContext" data-settings-tab="context">Context</button>
+                <button class="settings-tab" type="button" role="tab" id="settingsTabConfig" aria-selected="false" aria-controls="settingsPanelConfig" data-settings-tab="config">Config</button>
+                <button class="settings-tab" type="button" role="tab" id="settingsTabJobs" aria-selected="false" aria-controls="settingsPanelJobs" data-settings-tab="jobs">Jobs</button>
                 <button class="settings-tab" type="button" role="tab" id="settingsTabResponse" aria-selected="false" aria-controls="settingsPanelResponse" data-settings-tab="response">Response</button>
             </div>
             
@@ -495,6 +505,44 @@
                     </div>
                 </section>
 
+                <section class="settings-panel" id="settingsPanelContext" role="tabpanel" aria-labelledby="settingsTabContext" data-settings-panel="context" hidden>
+                    <div class="settings-panel-heading">
+                        <h3>Hermes context files</h3>
+                        <p>Edit MEMORY.md, USER.md, SOUL.md, and project context files Hermes injects into every conversation.</p>
+                    </div>
+                    <div class="context-file-list" id="contextFileList"></div>
+                    <div class="form-group" id="contextEditorGroup" hidden>
+                        <label for="contextFileEditor" id="contextEditorLabel">Editor</label>
+                        <textarea class="form-select context-file-editor" id="contextFileEditor" rows="12" spellcheck="false"></textarea>
+                        <div class="form-hint" id="contextEditorHint"></div>
+                        <button class="action-btn btn-primary" type="button" id="saveContextFileBtn" style="margin-top:8px;">Save file</button>
+                    </div>
+                </section>
+
+                <section class="settings-panel" id="settingsPanelConfig" role="tabpanel" aria-labelledby="settingsTabConfig" data-settings-panel="config" hidden>
+                    <div class="settings-panel-heading">
+                        <h3>Hermes runtime config</h3>
+                        <p>Read-only summary of MCP servers, toolsets, terminal backend, and security settings from config.yaml.</p>
+                    </div>
+                    <div class="config-summary" id="configSummaryPanel">
+                        <div class="form-hint">Loading config…</div>
+                    </div>
+                </section>
+
+                <section class="settings-panel" id="settingsPanelJobs" role="tabpanel" aria-labelledby="settingsTabJobs" data-settings-panel="jobs" hidden>
+                    <div class="settings-panel-heading">
+                        <h3>Scheduled jobs</h3>
+                        <p>Hermes cron jobs via the gateway Jobs API. Requires API_SERVER_ENABLED on the gateway.</p>
+                    </div>
+                    <div class="jobs-toolbar">
+                        <button class="action-btn btn-secondary" type="button" id="refreshJobsBtn">Refresh</button>
+                        <button class="action-btn btn-primary" type="button" id="newJobBtn">New job</button>
+                    </div>
+                    <div class="jobs-list" id="jobsListPanel">
+                        <div class="form-hint">Loading jobs…</div>
+                    </div>
+                </section>
+
                 <section class="settings-panel" id="settingsPanelResponse" role="tabpanel" aria-labelledby="settingsTabResponse" data-settings-panel="response" hidden>
                     <div class="settings-panel-heading">
                         <h3>Response</h3>
@@ -601,8 +649,9 @@
             </div>
 
             <div class="modal-actions skills-modal-actions">
-                <p class="skills-reload-hint">After saving or toggling, run <code>/reload-skills</code> in Hermes chat, or start a new session.</p>
+                <p class="skills-reload-hint">After saving or toggling, reload skills in the gateway or start a new session.</p>
                 <div class="skills-action-buttons">
+                    <button class="action-btn btn-secondary" id="reloadSkillsBtn" type="button">Reload in gateway</button>
                     <button class="action-btn btn-secondary" id="cancelSkillsBtn" type="button">Close</button>
                     <button class="action-btn btn-primary" id="saveSkillsBtn" type="button" disabled>Save skill</button>
                 </div>
