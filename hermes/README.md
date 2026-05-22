@@ -73,15 +73,17 @@ npm start
 
 ## Session restore on reload
 
-The Hermes **gateway** handles chat continuity (`X-Hermes-Session-Id`), but it does **not** expose a session list API. To import and resume Hermes sessions in the Aether Archives on page load, also run the **web dashboard** in another terminal:
+The Hermes **gateway** handles chat continuity (`X-Hermes-Session-Id`), but it does **not** expose a session list API. To import and resume Hermes sessions in the Aether Archives on page load, the **web dashboard** must be reachable.
+
+Aether **auto-starts** `hermes dashboard --no-open` when it is not already running (header splash during first-run web UI build). You can also start it manually:
 
 ```bash
 hermes dashboard
 ```
 
-Aether auto-probes `http://127.0.0.1:9119/api/sessions` (override with `HERMES_DASHBOARD_URL` or `HERMES_SESSIONS_URL` in `.env.local`). When the dashboard is running, the HUD imports session metadata and message history before restoring your active session.
+Aether probes `http://127.0.0.1:9119/api/sessions` (override with `HERMES_DASHBOARD_URL` or `HERMES_SESSIONS_URL` in `.env.local`). When the dashboard is ready, the HUD imports session metadata and message history before restoring your active session.
 
-If the dashboard is not running, the HUD still works with locally cached archives only.
+If the dashboard is not running and auto-start fails, the HUD still works with locally cached archives only.
 
 Docs: [Hermes Web Dashboard](https://hermes-agent.nousresearch.com/docs/user-guide/features/web-dashboard)
 
@@ -101,6 +103,28 @@ The bottom control pill shows the **current model**. Click it to open a Hermes-s
 - **Unchecked**: session-only preference in the HUD; inference still updates via config when switching through the gateway API (same practical constraint as the Hermes Models page vs in-chat `/model`).
 
 Recommended: run both `hermes gateway` and `hermes dashboard` for the full experience.
+
+## Kanban board in the HUD
+
+The bottom-pill **Kanban** button (folder-kanban icon) toggles **Kanban mode**: a **native Aether board** backed by Hermes `kanban_db` (`~/.hermes/kanban.db`). Chat collapses automatically and the orb/avatar float beneath and around the board.
+
+| Requirement | Command |
+|-------------|---------|
+| Kanban database | `hermes kanban init` (once) |
+| Board UI + task CRUD | Aether HUD only — **no** `hermes dashboard` required |
+| Session restore + model picker | `hermes dashboard` (auto-started by Aether when missing) |
+| Chat / voice agent | `hermes gateway` |
+| HUD server | `npm start` |
+
+**Native Kanban features** — board switcher, columns (triage → done), drag-drop, task drawer, comments, bulk actions, decompose/specify, orchestration toggle, dispatcher nudge, and live SSE updates — all via `/api/hermes/kanban/*` and the Python `kanban_db` bridge.
+
+Aether auto-starts `hermes dashboard --no-open` in the background when the dashboard is not reachable (sessions import + full model picker). A header splash shows progress during first-run web UI builds (1–3 minutes).
+
+**Workspace file browser** (task folders, pin to chat, switch agent cwd): Settings → Runtime → **Open workspace browser**
+
+**API:** `GET /api/hermes/dashboard/status` — `kanbanInitialized`, dashboard `state` (`stopped|starting|ready|error`). Native board: `GET /api/hermes/kanban/board`.
+
+Docs: [Hermes Kanban](https://hermes-agent.nousresearch.com/docs/user-guide/features/kanban)
 
 ## `/aether` slash command
 
@@ -129,7 +153,8 @@ Aether reads both directly from `~/.hermes` (no Hermes dashboard token required)
 
 | HUD control | What it does |
 |-------------|--------------|
-| **Workspaces** button (folder icon, bottom pill) | Opens the Workspaces drawer |
+| **Kanban** button (folder-kanban, bottom pill) | Toggles **native Kanban board mode** |
+| Settings → Runtime → **Open workspace browser** | Task/agent workspace file browser drawer |
 | **Agent workspace** list | Shows `terminal.cwd`, checkpoint projects, profile workspace |
 | **Switch agent workspace** | Sets `terminal.cwd` via `hermes config set` (restart gateway for running sessions) |
 | **Kanban board** dropdown | Lists boards and switches the active Kanban board |
@@ -150,15 +175,22 @@ npm start
 
 - `GET /api/hermes/workspaces/agent` — project/agent workspaces
 - `POST /api/hermes/workspaces/agent/switch` — set `terminal.cwd`
+- `GET /api/hermes/kanban/board` — native board columns + tasks
+- `GET /api/hermes/kanban/boards-list`, `POST /api/hermes/kanban/boards-create`
+- `GET/PATCH/DELETE /api/hermes/kanban/tasks/:id`, `POST /tasks/bulk`, comments, specify, decompose
+- `GET /api/hermes/kanban/events/stream` — SSE task events
 - `GET /api/hermes/kanban/boards`
 - `POST /api/hermes/kanban/boards/:slug/switch`
 - `GET /api/hermes/kanban/workspaces?board=`
 - `GET /api/hermes/kanban/browse?path=&board=`
 - `POST /api/hermes/kanban/reveal` — open folder in Finder/Explorer
+- `GET /api/hermes/dashboard/status` — kanban.db + dashboard launcher state
+- `POST /api/hermes/dashboard/start` — spawn dashboard for sessions/models
 
-**Smoke test** (server must be running):
+**Smoke tests** (server must be running):
 
 ```bash
+npm run test:native-kanban
 npm run test:kanban-workspaces
 ```
 

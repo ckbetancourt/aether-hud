@@ -198,6 +198,42 @@ If not connected, the status JSON includes `setupSteps` and an `error` with the 
 - **Archives** — stored in local SQLite (`data/aether.db` by default); migrates existing `localStorage` on first load.
 - **Settings** — speech engine (browser, ElevenLabs, or OmniVoice local), voice, speed, TTS replay history size, Hermes profile (when configured), microphone behavior.
 
+### Kanban board
+
+Aether includes a **native Kanban board** backed by Hermes task data (`~/.hermes/kanban.db`). You do **not** need `hermes dashboard` running to use the board — only the gateway and HUD server.
+
+**One-time setup:**
+
+```bash
+hermes kanban init
+```
+
+**Every session:**
+
+```bash
+hermes gateway    # terminal A
+npm start         # terminal B — open http://localhost:8787
+```
+
+**In the HUD:**
+
+| Button (bottom pill) | What it does |
+|----------------------|--------------|
+| **folder-kanban** | Toggle Kanban mode — native board, chat collapses, orb floats in the corner |
+
+In Kanban mode you can create tasks, drag cards between columns (triage → done), open the task drawer for edits/comments, run decompose/specify on triage items, bulk-select cards, and switch boards from the toolbar.
+
+**Hermes dashboard (optional):** Aether auto-starts `hermes dashboard` in the background when it is not already running — for **session restore** and the **model picker** only, not for rendering the board. A small header pill shows progress during first-run web UI builds (can take 1–3 minutes).
+
+**Verify:**
+
+```bash
+npm run hermes:doctor
+npm run test:native-kanban
+```
+
+More detail (API routes, workspaces): [`hermes/README.md`](hermes/README.md).
+
 ### TTS replay history
 
 Aether keeps a rolling cache of the last **N** spoken assistant replies (default **5**, configurable under **Settings → TTS replay history size**). ElevenLabs and OmniVoice clips are stored as audio on the server; browser TTS stores speakable text for re-synthesis. When the cache is full, the oldest entry is removed. Each assistant chat bubble shows a replay button to hear that reply again (falls back to re-speaking the message text if the cache entry was evicted).
@@ -242,6 +278,8 @@ npm run hermes:launch
 | `npm run hermes:doctor` | Verify gateway + `.env.local` |
 | `npm run hermes:launch` | Start server and open browser |
 | `npm run hermes:install-skill` | Install `/aether` into `~/.hermes/skills/` |
+| `npm run test:native-kanban` | Smoke test native Kanban API (server must be running) |
+| `npm run test:kanban-workspaces` | Smoke test Kanban workspace browser API |
 
 ## OpenAI-compatible fallback (advanced)
 

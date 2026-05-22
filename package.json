@@ -11,7 +11,8 @@
     "hermes:launch": "node scripts/aether-hermes-launch.js --open",
     "hermes:install-skill": "bash scripts/install-hermes-skill.sh",
     "test:attachment-preview": "node scripts/test-attachment-preview.mjs",
-    "test:kanban-workspaces": "node scripts/test-kanban-workspaces.mjs"
+    "test:kanban-workspaces": "node scripts/test-kanban-workspaces.mjs",
+    "test:native-kanban": "node scripts/test-native-kanban.mjs"
   },
   "engines": {
     "node": ">=18.0.0"

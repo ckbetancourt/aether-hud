@@ -208,11 +208,69 @@ async function main() {
   }
 
   console.log('\n7. Aether HUD server');
-  const aetherStatus = await probeUrl(`http://127.0.0.1:${process.env.PORT || 8787}/api/hermes/status`);
+  const aetherPort = process.env.PORT || 8787;
+  const aetherBase = `http://127.0.0.1:${aetherPort}`;
+  const aetherStatus = await probeUrl(`${aetherBase}/api/hermes/status`);
   if (aetherStatus.ok) {
     pass('Aether server running — open http://localhost:8787');
   } else {
     warn('Aether server not running — run: npm start');
+  }
+
+  console.log('\n8. Native Aether Kanban (HUD Kanban mode)');
+  warn('Prerequisites: hermes kanban init (dashboard optional for board CRUD)');
+  const kanbanDbDefault = path.join(HERMES_HOME, 'kanban.db');
+  if (fs.existsSync(kanbanDbDefault)) {
+    pass('kanban.db found (~/.hermes/kanban.db)');
+  } else {
+    warn('kanban.db missing — run: hermes kanban init');
+  }
+
+  const nativeBoardUrl = `${aetherBase}/api/hermes/kanban/board`;
+  const nativeBoard = await probeUrl(nativeBoardUrl);
+  if (nativeBoard.ok) {
+    try {
+      const payload = JSON.parse(nativeBoard.text);
+      if (Array.isArray(payload.columns)) {
+        pass(`native Kanban board API ok (${payload.columns.length} columns)`);
+      } else {
+        warn('native board response missing columns');
+      }
+    } catch {
+      warn('Could not parse /api/hermes/kanban/board response');
+    }
+  } else if (nativeBoard.status === 503) {
+    warn('native Kanban API unavailable — run: hermes kanban init');
+  } else if (nativeBoard.status === 0) {
+    warn(`cannot reach ${nativeBoardUrl} — start Aether with npm start`);
+  } else {
+    warn(`native board check failed: HTTP ${nativeBoard.status || 'error'}`);
+  }
+
+  const dashboardStatusUrl = `${aetherBase}/api/hermes/dashboard/status`;
+  const dashboardStatus = await probeUrl(dashboardStatusUrl);
+  if (dashboardStatus.ok) {
+    try {
+      const payload = JSON.parse(dashboardStatus.text);
+      if (payload.kanbanInitialized) {
+        pass('Kanban database initialized');
+      } else {
+        warn('Kanban database not initialized — run: hermes kanban init');
+      }
+      if (payload.dashboardReachable) {
+        pass(`Hermes dashboard ready (${HERMES_DASHBOARD_URL})`);
+      } else if (payload.state === 'starting') {
+        warn('Hermes dashboard starting (sessions/model picker) — Aether auto-launches when needed');
+      } else {
+        warn('Hermes dashboard not reachable — Aether auto-starts it for sessions/models (Kanban board works without it)');
+      }
+    } catch {
+      warn('Could not parse /api/hermes/dashboard/status response');
+    }
+  } else if (dashboardStatus.status === 0) {
+    warn(`cannot reach ${dashboardStatusUrl} — start Aether with npm start`);
+  } else {
+    warn(`Dashboard status check failed: HTTP ${dashboardStatus.status || 'error'}`);
   }
 
   console.log('\nDone.\n');

@@ -73,6 +73,24 @@
             </div>
         </section>
 
+        <!-- Native Aether Kanban board -->
+        <section class="kanban-stage" id="kanbanStage" hidden aria-label="Hermes Kanban board">
+            <div class="kanban-stage-status" id="kanbanStageStatus" hidden></div>
+            <div class="kanban-stage-loading" id="kanbanStageLoading" hidden>
+                <div class="kanban-splash">
+                    <span class="kanban-splash-title">Loading Kanban</span>
+                    <span class="kanban-splash-sub" id="kanbanSplashSub">Connecting to Hermes task board…</span>
+                </div>
+            </div>
+            <div class="kanban-board-root" id="kanbanBoardRoot"></div>
+            <aside class="kanban-drawer-root" id="kanbanDrawerRoot" hidden aria-label="Task details"></aside>
+        </section>
+
+        <!-- Dashboard bootstrap splash (sessions / model picker) -->
+        <div class="dashboard-splash" id="dashboardSplash" hidden aria-live="polite">
+            <span class="dashboard-splash-text" id="dashboardSplashText">Starting Hermes dashboard…</span>
+        </div>
+
         <!-- 4. BOTTOM STATUS + CONTROL PILL -->
         <div class="hud-bottom-area">
             <div class="hud-orb-label" id="hudOrbLabel">AETHER ACTIVE</div>
@@ -106,8 +124,8 @@
                 <i data-lucide="database" style="width: 18px; height: 18px;"></i>
             </button>
 
-            <!-- Hermes Kanban workspaces -->
-            <button class="hud-circle-btn" id="workspacesDrawerToggle" title="Open Hermes workspaces">
+            <!-- Hermes Kanban board mode -->
+            <button class="hud-circle-btn" id="workspacesDrawerToggle" title="Toggle Hermes Kanban board">
                 <i data-lucide="folder-kanban" style="width: 18px; height: 18px;"></i>
             </button>
             </footer>
@@ -403,6 +421,12 @@
                         </select>
                         <div class="form-hint" id="hermesStatusText">Hermes mode is detected from the local Aether server.</div>
                     </div>
+
+                    <div class="form-group">
+                        <label>Hermes workspaces</label>
+                        <button class="action-btn btn-secondary" id="settingsWorkspacesBtn" type="button">Open workspace browser</button>
+                        <div class="form-hint">Browse Kanban task folders, pin paths to chat, and switch agent working directory.</div>
+                    </div>
                 </section>
 
                 <section class="settings-panel" id="settingsPanelResponse" role="tabpanel" aria-labelledby="settingsTabResponse" data-settings-panel="response" hidden>
@@ -477,6 +501,7 @@
     <script src="aether-config.js"></script>
     <script src="speech-engine.js"></script>
     <script src="ai-engine.js"></script>
+    <script src="kanban-board.js"></script>
     <script type="module" src="app.js"></script>
 </body>
 </html>

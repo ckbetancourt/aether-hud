@@ -102,6 +102,9 @@ class JarvisHUD {
         this._lastThinkingSweepAt = 0;
         this.stageMotion = { x: 0, y: 0, rotate: 0, scale: 1 };
         this._stageRoamSeed = Math.random() * Math.PI * 2;
+        this.presentationMode = 'default';
+        this.coreVisualizerEl = this.canvas?.closest('.hud-core-visualizer') || null;
+        this._kanbanDriftPhase = Math.random() * Math.PI * 2;
 
         this.postTalkVariants = [
             { id: 'pt-stage-soft-return', layer: 'stage', intensity: 'subtle', weight: 1.5, durationScale: 0.88 },
@@ -491,6 +494,33 @@ class JarvisHUD {
         const trimmed = String(name || '').trim();
         this.displayName = trimmed || 'Aether';
         this.setState(this.state);
+    }
+
+    setPresentationMode(mode) {
+        const next = mode === 'kanban' ? 'kanban' : 'default';
+        if (this.presentationMode === next) return;
+        this.presentationMode = next;
+        if (!this.coreVisualizerEl) {
+            this.coreVisualizerEl = this.canvas?.closest('.hud-core-visualizer') || null;
+        }
+        this.coreVisualizerEl?.classList.toggle('presentation-kanban', next === 'kanban');
+        if (next === 'default') {
+            this.stageMotion = { x: 0, y: 0, rotate: 0, scale: 1 };
+        } else {
+            this._kanbanDriftPhase = Math.random() * Math.PI * 2;
+        }
+        this.resize();
+        this.setState(this.state);
+    }
+
+    getKanbanStageTarget() {
+        const t = this.time + this._kanbanDriftPhase;
+        return {
+            x: Math.sin(t * 0.72) * 5 + Math.sin(t * 0.19) * 2,
+            y: Math.cos(t * 0.58) * 4 + Math.sin(t * 0.24) * 2,
+            rotate: Math.sin(t * 0.35) * 1.5,
+            scale: 1 + Math.sin(t * 0.44) * 0.02,
+        };
     }
 
     randomInRange(min, max) {
@@ -932,7 +962,9 @@ class JarvisHUD {
         let target = { x: 0, y: 0, rotate: 0, scale: 1 };
         const behavior = this.avatarBehavior;
 
-        if (this.state === 'thinking') {
+        if (this.presentationMode === 'kanban') {
+            target = this.getKanbanStageTarget();
+        } else if (this.state === 'thinking') {
             const stageId = behavior?.thinkingLayers?.stage || 'th-stage-orbit';
             target = this.getThinkingStageTarget(this.avatarForm, stageId);
         } else if (this.state === 'post-talk' && behavior?.actionStartedAt) {

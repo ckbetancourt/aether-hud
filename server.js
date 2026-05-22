@@ -579,12 +579,34 @@ const {
 
 const {
   KANBAN_INIT_HINT,
+  kanbanAvailable,
   listBoards,
   switchBoard,
   listWorkspaces,
   getKanbanBrowseRoots,
   listBoardsViaCli,
 } = require('./lib/hermes-kanban.js');
+
+const { handleKanbanApi } = require('./lib/kanban-http-handlers.js');
+const dashboardLauncher = require('./lib/hermes-dashboard-launcher.js');
+
+async function probeHermesDashboardStatus() {
+  const launcherStatus = await dashboardLauncher.refreshLauncherState();
+  return {
+    ok: launcherStatus.dashboardReachable || kanbanAvailable(),
+    url: launcherStatus.url || HERMES_DASHBOARD_URL,
+    kanbanUrl: null,
+    kanbanInitialized: kanbanAvailable(),
+    dashboardReachable: launcherStatus.dashboardReachable,
+    state: launcherStatus.state,
+    pid: launcherStatus.pid,
+    buildHint: launcherStatus.buildHint,
+    error: launcherStatus.error,
+    hint: launcherStatus.dashboardReachable
+      ? undefined
+      : launcherStatus.hint || launcherStatus.error || 'Dashboard starting or not running.',
+  };
+}
 
 const {
   listAgentWorkspaces,
@@ -650,7 +672,7 @@ function runtimeTemperature() {
 function corsHeaders() {
   return {
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
   };
 }
@@ -1254,6 +1276,27 @@ function sendJson(res, status, obj, extraHeaders = {}) {
   res.end(body);
 }
 
+function sendSseHeaders(res) {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    ...corsHeaders(),
+  });
+}
+
+function writeSse(res, event, data) {
+  res.write(`event: ${event}\n`);
+  res.write(`data: ${JSON.stringify(data)}\n\n`);
+}
+
+const kanbanApiHelpers = {
+  sendJson,
+  readBody,
+  sendSseHeaders,
+  writeSse,
+};
+
 function sendBinary(res, status, buffer, contentType, extraHeaders = {}) {
   res.writeHead(status, {
     'Content-Type': contentType,
@@ -1268,6 +1311,7 @@ function injectStaticAssetVersions(html, version) {
   const stamp = encodeURIComponent(String(version));
   return html
     .replace(/href="styles\.css(?:\?[^"]*)?"/g, `href="styles.css?v=${stamp}"`)
+    .replace(/src="kanban-board\.js(?:\?[^"]*)?"/g, `src="kanban-board.js?v=${stamp}"`)
     .replace(/src="app\.js(?:\?[^"]*)?"/g, `src="app.js?v=${stamp}"`);
 }
 
@@ -1335,6 +1379,45 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'OPTIONS' && pathname.startsWith('/api/')) {
     res.writeHead(204, corsHeaders());
     res.end();
+    return;
+  }
+
+  if (req.method === 'OPTIONS' && pathname.startsWith('/api/')) {
+    res.writeHead(204, corsHeaders());
+    res.end();
+    return;
+  }
+
+  if (pathname.startsWith('/api/hermes/kanban/')) {
+    const nativeKanbanPaths = [
+      '/api/hermes/kanban/board',
+      '/api/hermes/kanban/bootstrap',
+      '/api/hermes/kanban/config',
+      '/api/hermes/kanban/orchestration',
+      '/api/hermes/kanban/profiles',
+      '/api/hermes/kanban/stats',
+      '/api/hermes/kanban/assignees',
+      '/api/hermes/kanban/boards-list',
+      '/api/hermes/kanban/tasks',
+      '/api/hermes/kanban/links',
+      '/api/hermes/kanban/dispatch',
+      '/api/hermes/kanban/boards-create',
+      '/api/hermes/kanban/events/',
+    ];
+    const isNative = nativeKanbanPaths.some((p) => pathname === p || pathname.startsWith(p));
+    if (isNative) {
+      const handled = await handleKanbanApi(req, res, pathname, u, kanbanApiHelpers);
+      if (handled) return;
+    }
+  }
+
+  if (req.method === 'POST' && pathname === '/api/hermes/dashboard/start') {
+    try {
+      const status = await dashboardLauncher.startDashboard();
+      sendJson(res, status.dashboardReachable ? 200 : 202, status);
+    } catch (e) {
+      sendJson(res, 502, { ok: false, error: e.message || 'Failed to start dashboard' });
+    }
     return;
   }
 
@@ -1550,6 +1633,26 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/hermes/status') {
       const status = await probeHermesStatus();
       sendJson(res, status.connected || !status.enabled ? 200 : 503, status);
+      return;
+    }
+
+    if (pathname === '/api/hermes/dashboard/status') {
+      try {
+        const status = await probeHermesDashboardStatus();
+        sendJson(res, status.ok ? 200 : 503, status);
+      } catch (e) {
+        console.error('[api/hermes/dashboard/status]', e.message || e);
+        sendJson(res, 502, {
+          ok: false,
+          url: HERMES_DASHBOARD_URL,
+          kanbanUrl: null,
+          kanbanInitialized: kanbanAvailable(),
+          dashboardReachable: false,
+          state: 'error',
+          error: e.message || 'Dashboard status unavailable',
+          hint: 'Kanban board works without dashboard; Aether auto-starts dashboard for sessions/models.',
+        });
+      }
       return;
     }
 

@@ -303,6 +303,162 @@ class AIEngine {
         return data;
     }
 
+    async getHermesDashboardStatus() {
+        const baseUrl = this.resolveLlmBackendBaseUrl();
+        if (!baseUrl) {
+            return {
+                ok: false,
+                dashboardReachable: false,
+                kanbanInitialized: false,
+                error: 'No local backend URL configured.',
+            };
+        }
+        const response = await fetch(`${baseUrl}/api/hermes/dashboard/status`);
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok && data.ok === undefined) {
+            throw new Error(data.error || data.message || `HTTP ${response.status}`);
+        }
+        return data;
+    }
+
+    async startHermesDashboard() {
+        const baseUrl = this.resolveLlmBackendBaseUrl();
+        if (!baseUrl) throw new Error('No local backend URL configured.');
+        const response = await fetch(`${baseUrl}/api/hermes/dashboard/start`, { method: 'POST' });
+        return response.json().catch(() => ({}));
+    }
+
+    _kanbanQuery(board, extra = {}) {
+        const params = new URLSearchParams();
+        if (board) params.set('board', board);
+        Object.entries(extra).forEach(([k, v]) => {
+            if (v !== undefined && v !== null && v !== '') params.set(k, String(v));
+        });
+        const qs = params.toString();
+        return qs ? `?${qs}` : '';
+    }
+
+    async fetchKanbanNative(path, { method = 'GET', board, body, query = {} } = {}) {
+        const baseUrl = this.resolveLlmBackendBaseUrl();
+        if (!baseUrl) throw new Error('No local backend URL configured.');
+        const url = `${baseUrl}${path}${this._kanbanQuery(board, query)}`;
+        const init = { method, headers: {} };
+        if (body !== undefined) {
+            init.headers['Content-Type'] = 'application/json';
+            init.body = JSON.stringify(body);
+        }
+        const response = await fetch(url, init);
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok && data.ok !== true && !data.columns) {
+            throw new Error(data.error || data.message || `HTTP ${response.status}`);
+        }
+        return data;
+    }
+
+    getNativeKanbanBoard(board, query = {}) {
+        return this.fetchKanbanNative('/api/hermes/kanban/board', { board, query });
+    }
+
+    getNativeKanbanBootstrap(board, query = {}) {
+        return this.fetchKanbanNative('/api/hermes/kanban/bootstrap', { board, query });
+    }
+
+    getNativeKanbanTask(board, taskId) {
+        return this.fetchKanbanNative(`/api/hermes/kanban/tasks/${encodeURIComponent(taskId)}`, { board });
+    }
+
+    createNativeKanbanTask(board, body) {
+        return this.fetchKanbanNative('/api/hermes/kanban/tasks', { method: 'POST', board, body });
+    }
+
+    patchNativeKanbanTask(board, taskId, body) {
+        return this.fetchKanbanNative(`/api/hermes/kanban/tasks/${encodeURIComponent(taskId)}`, {
+            method: 'PATCH',
+            board,
+            body,
+        });
+    }
+
+    bulkNativeKanbanTasks(board, body) {
+        return this.fetchKanbanNative('/api/hermes/kanban/tasks/bulk', { method: 'POST', board, body });
+    }
+
+    addNativeKanbanComment(board, taskId, body) {
+        return this.fetchKanbanNative(`/api/hermes/kanban/tasks/${encodeURIComponent(taskId)}/comments`, {
+            method: 'POST',
+            board,
+            body,
+        });
+    }
+
+    specifyNativeKanbanTask(board, taskId, body = {}) {
+        return this.fetchKanbanNative(`/api/hermes/kanban/tasks/${encodeURIComponent(taskId)}/specify`, {
+            method: 'POST',
+            board,
+            body,
+        });
+    }
+
+    decomposeNativeKanbanTask(board, taskId, body = {}) {
+        return this.fetchKanbanNative(`/api/hermes/kanban/tasks/${encodeURIComponent(taskId)}/decompose`, {
+            method: 'POST',
+            board,
+            body,
+        });
+    }
+
+    dispatchNativeKanban(board, query = {}) {
+        return this.fetchKanbanNative('/api/hermes/kanban/dispatch', { method: 'POST', board, query });
+    }
+
+    getNativeKanbanConfig() {
+        return this.fetchKanbanNative('/api/hermes/kanban/config');
+    }
+
+    getNativeKanbanOrchestration() {
+        return this.fetchKanbanNative('/api/hermes/kanban/orchestration');
+    }
+
+    setNativeKanbanOrchestration(body) {
+        return this.fetchKanbanNative('/api/hermes/kanban/orchestration', { method: 'PUT', body });
+    }
+
+    listNativeKanbanBoards(query = {}) {
+        return this.fetchKanbanNative('/api/hermes/kanban/boards-list', { query });
+    }
+
+    createNativeKanbanBoard(body) {
+        return this.fetchKanbanNative('/api/hermes/kanban/boards-create', { method: 'POST', body });
+    }
+
+    switchNativeKanbanBoard(slug) {
+        const baseUrl = this.resolveLlmBackendBaseUrl();
+        if (!baseUrl) throw new Error('No local backend URL configured.');
+        return fetch(`${baseUrl}/api/hermes/kanban/boards/${encodeURIComponent(slug)}/switch`, {
+            method: 'POST',
+        }).then((r) => r.json());
+    }
+
+    subscribeNativeKanbanEvents(board, since, onEvent, onError) {
+        const baseUrl = this.resolveLlmBackendBaseUrl();
+        if (!baseUrl) return () => {};
+        const params = new URLSearchParams();
+        if (board) params.set('board', board);
+        if (since) params.set('since', String(since));
+        const es = new EventSource(`${baseUrl}/api/hermes/kanban/events/stream?${params}`);
+        es.addEventListener('message', (ev) => {
+            try {
+                onEvent(JSON.parse(ev.data));
+            } catch (e) {
+                if (onError) onError(e);
+            }
+        });
+        es.addEventListener('error', () => {
+            if (onError) onError(new Error('Kanban event stream disconnected'));
+        });
+        return () => es.close();
+    }
+
     async getKanbanBoards() {
         const baseUrl = this.resolveLlmBackendBaseUrl();
         if (!baseUrl) return { available: false, boards: [] };

@@ -158,6 +158,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         selectedWorkspaceTitle: '',
         kanbanBoards: [],
         kanbanWorkspaces: [],
+        kanbanMode: false,
+        kanbanBoardInstance: null,
+        kanbanDashboardStatus: null,
+        dashboardBootstrapTimer: null,
+        chatCollapsedBeforeKanban: null,
         agentWorkspaces: [],
         workspaceBrowsePath: '',
         workspaceBrowseEntries: [],
@@ -233,6 +238,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         workspacesDrawerToggle: document.getElementById('workspacesDrawerToggle'),
         workspacesDrawerCloseBtn: document.getElementById('workspacesDrawerCloseBtn'),
         workspacesDrawer: document.getElementById('workspacesDrawer'),
+        kanbanStage: document.getElementById('kanbanStage'),
+        kanbanStageStatus: document.getElementById('kanbanStageStatus'),
+        kanbanStageLoading: document.getElementById('kanbanStageLoading'),
+        kanbanSplashSub: document.getElementById('kanbanSplashSub'),
+        kanbanBoardRoot: document.getElementById('kanbanBoardRoot'),
+        kanbanDrawerRoot: document.getElementById('kanbanDrawerRoot'),
+        dashboardSplash: document.getElementById('dashboardSplash'),
+        dashboardSplashText: document.getElementById('dashboardSplashText'),
+        settingsWorkspacesBtn: document.getElementById('settingsWorkspacesBtn'),
+        hudCoreVisualizer: document.querySelector('.hud-core-visualizer'),
         refreshWorkspacesBtn: document.getElementById('refreshWorkspacesBtn'),
         kanbanBoardSelect: document.getElementById('kanbanBoardSelect'),
         kanbanBoardHint: document.getElementById('kanbanBoardHint'),
@@ -361,6 +376,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         expandChatColumn(false);
     }
 
+    scheduleDeferredDashboardBootstrap();
+
     // Auto-refresh chats when returning to the tab
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible' && state.hermesStatus?.enabled && state.hermesStatus?.connected) {
@@ -377,13 +394,34 @@ document.addEventListener('DOMContentLoaded', async () => {
         elements.historyDrawerCloseBtn.addEventListener('click', () => toggleSidebarDrawer(false));
 
         if (elements.workspacesDrawerToggle) {
-            elements.workspacesDrawerToggle.addEventListener('click', () => toggleWorkspacesDrawer());
+            elements.workspacesDrawerToggle.addEventListener('click', () => toggleKanbanMode());
+        }
+        if (elements.settingsWorkspacesBtn) {
+            elements.settingsWorkspacesBtn.addEventListener('click', () => {
+                closeSettingsModal();
+                openWorkspacesDrawer();
+            });
         }
         if (elements.workspacesDrawerCloseBtn) {
             elements.workspacesDrawerCloseBtn.addEventListener('click', () => toggleWorkspacesDrawer(false));
         }
         if (elements.refreshWorkspacesBtn) {
             elements.refreshWorkspacesBtn.addEventListener('click', () => refreshKanbanWorkspaces());
+        }
+        if (elements.dashboardSplash) {
+            elements.dashboardSplash.addEventListener('click', () => bootstrapHermesDashboard());
+        }
+        if (elements.hudCoreVisualizer) {
+            elements.hudCoreVisualizer.addEventListener('click', () => {
+                if (state.kanbanMode) exitKanbanMode();
+            });
+            elements.hudCoreVisualizer.addEventListener('keydown', (e) => {
+                if (!state.kanbanMode) return;
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    exitKanbanMode();
+                }
+            });
         }
         if (elements.kanbanBoardSelect) {
             elements.kanbanBoardSelect.addEventListener('change', () => handleKanbanBoardSwitch());
@@ -590,13 +628,264 @@ document.addEventListener('DOMContentLoaded', async () => {
             ? !elements.workspacesDrawer.classList.contains('open')
             : forceOpen;
         elements.workspacesDrawer.classList.toggle('open', shouldOpen);
-        elements.workspacesDrawerToggle?.classList.toggle('active', shouldOpen);
         if (shouldOpen) {
             if (elements.sidebarDrawer?.classList.contains('open')) {
                 toggleSidebarDrawer(false);
             }
             refreshKanbanWorkspaces();
         }
+    }
+
+    function openWorkspacesDrawer() {
+        toggleWorkspacesDrawer(true);
+    }
+
+    function setKanbanStageStatus(message, isError = false) {
+        const el = elements.kanbanStageStatus;
+        if (!el) return;
+        if (!message) {
+            el.hidden = true;
+            el.textContent = '';
+            el.classList.remove('is-error');
+            return;
+        }
+        el.hidden = false;
+        el.textContent = message;
+        el.classList.toggle('is-error', !!isError);
+    }
+
+    function setKanbanStageLoading(visible, subtext = '') {
+        if (elements.kanbanStageLoading) {
+            elements.kanbanStageLoading.hidden = !visible;
+        }
+        if (elements.kanbanSplashSub && subtext) {
+            elements.kanbanSplashSub.textContent = subtext;
+        }
+    }
+
+    function updateKanbanCompanionAffordance(active) {
+        const el = elements.hudCoreVisualizer;
+        if (!el) return;
+        if (active) {
+            el.setAttribute('role', 'button');
+            el.setAttribute('tabindex', '0');
+            el.setAttribute('aria-label', 'Return to chat mode');
+            el.title = 'Return to chat';
+        } else {
+            el.removeAttribute('role');
+            el.removeAttribute('tabindex');
+            el.removeAttribute('aria-label');
+            el.removeAttribute('title');
+        }
+    }
+
+    function updateDashboardSplash(status) {
+        const splash = elements.dashboardSplash;
+        const textEl = elements.dashboardSplashText;
+        if (!splash || !textEl) return;
+
+        if (!status || status.dashboardReachable) {
+            splash.hidden = true;
+            splash.classList.remove('is-error', 'is-starting');
+            return;
+        }
+
+        const stateName = status.state || 'stopped';
+        if (stateName === 'starting') {
+            splash.hidden = false;
+            splash.classList.add('is-starting');
+            splash.classList.remove('is-error');
+            textEl.textContent = status.buildHint
+                ? `Building web UI (first run may take a few minutes)…`
+                : 'Starting Hermes dashboard…';
+            return;
+        }
+
+        if (stateName === 'error') {
+            splash.hidden = false;
+            splash.classList.add('is-error');
+            splash.classList.remove('is-starting');
+            textEl.textContent = status.error || 'Dashboard failed — click to retry';
+            return;
+        }
+
+        splash.hidden = true;
+        splash.classList.remove('is-error', 'is-starting');
+    }
+
+    async function pollDashboardStatus(maxAttempts = 90, intervalMs = 2000) {
+        for (let i = 0; i < maxAttempts; i += 1) {
+            try {
+                const status = await ai.getHermesDashboardStatus();
+                state.kanbanDashboardStatus = status;
+                updateDashboardSplash(status);
+                if (status.dashboardReachable) {
+                    if (state.hermesStatus?.enabled) {
+                        await syncHermesSessions();
+                    }
+                    return status;
+                }
+                if (status.state === 'error') return status;
+            } catch {
+                /* keep polling */
+            }
+            await new Promise((resolve) => setTimeout(resolve, intervalMs));
+        }
+        return state.kanbanDashboardStatus;
+    }
+
+    async function bootstrapHermesDashboard() {
+        if (state.dashboardBootstrapTimer) {
+            clearInterval(state.dashboardBootstrapTimer);
+            state.dashboardBootstrapTimer = null;
+        }
+
+        let status;
+        try {
+            status = await ai.getHermesDashboardStatus();
+        } catch {
+            return;
+        }
+
+        state.kanbanDashboardStatus = status;
+        updateDashboardSplash(status);
+
+        if (status.dashboardReachable) return;
+
+        try {
+            await ai.startHermesDashboard();
+        } catch {
+            /* splash will show error on next poll */
+        }
+
+        pollDashboardStatus();
+    }
+
+    function scheduleDeferredDashboardBootstrap() {
+        const run = () => {
+            if (document.hidden) return;
+            bootstrapHermesDashboard();
+        };
+        if (typeof requestIdleCallback === 'function') {
+            requestIdleCallback(() => setTimeout(run, 4000), { timeout: 20000 });
+        } else {
+            setTimeout(run, 12000);
+        }
+    }
+
+    function mountNativeKanbanBoard() {
+        if (!elements.kanbanBoardRoot || typeof AetherKanbanBoard !== 'function') return;
+        if (state.kanbanBoardInstance) {
+            state.kanbanBoardInstance.unmount();
+        }
+        state.kanbanBoardInstance = new AetherKanbanBoard(ai, {
+            root: elements.kanbanBoardRoot,
+            drawerRoot: elements.kanbanDrawerRoot,
+            board: state.activeKanbanBoard,
+            onStatus: (message, isError) => setKanbanStageStatus(message, isError),
+            onReady: () => setKanbanStageLoading(false),
+        });
+        state.kanbanBoardInstance.mount();
+    }
+
+    function unmountNativeKanbanBoard() {
+        if (state.kanbanBoardInstance) {
+            state.kanbanBoardInstance.unmount();
+            state.kanbanBoardInstance = null;
+        }
+        if (elements.kanbanDrawerRoot) {
+            elements.kanbanDrawerRoot.hidden = true;
+            elements.kanbanDrawerRoot.innerHTML = '';
+        }
+    }
+
+    async function enterKanbanMode(options = {}) {
+        const { restoreOnFailure = false } = options;
+        let kanbanReady = false;
+        let kanbanHint = 'Run `hermes kanban init` once, then try again.';
+
+        try {
+            const boardsResult = await ai.getKanbanBoards();
+            kanbanReady = !!boardsResult.available;
+            kanbanHint = boardsResult.hint || kanbanHint;
+        } catch (e) {
+            if (restoreOnFailure) {
+                AetherUserData.setItem('aether_kanban_mode', 'false');
+                return false;
+            }
+            setKanbanStageStatus(e.message || 'Could not reach Aether server.', true);
+        }
+
+        if (!kanbanReady) {
+            setKanbanStageStatus(`Kanban database not found. ${kanbanHint}`, true);
+            if (restoreOnFailure) {
+                AetherUserData.setItem('aether_kanban_mode', 'false');
+                return false;
+            }
+        } else {
+            setKanbanStageStatus('');
+        }
+
+        if (state.chatCollapsedBeforeKanban === null) {
+            state.chatCollapsedBeforeKanban = elements.hudShell?.classList.contains('chat-collapsed') ?? true;
+        }
+        collapseChatColumn();
+
+        state.kanbanMode = true;
+        AetherUserData.setItem('aether_kanban_mode', 'true');
+        elements.hudShell?.classList.add('kanban-mode');
+        elements.workspacesDrawerToggle?.classList.add('active');
+        if (elements.kanbanStage) {
+            elements.kanbanStage.hidden = false;
+        }
+
+        setKanbanStageLoading(true, 'Loading Kanban board…');
+        updateKanbanCompanionAffordance(true);
+        if (typeof visualizer.setPresentationMode === 'function') {
+            visualizer.setPresentationMode('kanban');
+        }
+        if (kanbanReady) {
+            mountNativeKanbanBoard();
+        } else {
+            setKanbanStageLoading(false);
+        }
+        runTransitionResizeLoop();
+        return true;
+    }
+
+    function exitKanbanMode() {
+        state.kanbanMode = false;
+        AetherUserData.setItem('aether_kanban_mode', 'false');
+        elements.hudShell?.classList.remove('kanban-mode');
+        elements.workspacesDrawerToggle?.classList.remove('active');
+        if (elements.kanbanStage) {
+            elements.kanbanStage.hidden = true;
+        }
+        setKanbanStageStatus('');
+        setKanbanStageLoading(false);
+        unmountNativeKanbanBoard();
+        updateKanbanCompanionAffordance(false);
+
+        const restoreCollapsed = state.chatCollapsedBeforeKanban;
+        state.chatCollapsedBeforeKanban = null;
+        if (restoreCollapsed === false) {
+            expandChatColumn(false);
+        } else {
+            collapseChatColumn();
+        }
+
+        if (typeof visualizer.setPresentationMode === 'function') {
+            visualizer.setPresentationMode('default');
+        }
+        runTransitionResizeLoop();
+    }
+
+    async function toggleKanbanMode() {
+        if (state.kanbanMode) {
+            exitKanbanMode();
+            return;
+        }
+        await enterKanbanMode();
     }
 
     function runTransitionResizeLoop() {
@@ -2734,6 +3023,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     async function openModelPicker() {
         if (!elements.modelPickerModal) return;
+        bootstrapHermesDashboard();
         modelPickerState.query = '';
         modelPickerState.applying = false;
         if (elements.modelPickerSearch) elements.modelPickerSearch.value = '';
