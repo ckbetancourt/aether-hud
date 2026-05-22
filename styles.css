@@ -2510,17 +2510,110 @@ body {
     background: var(--accent-glow-subtle);
 }
 
+.hud-voice-reply-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 40px;
+    padding: 0 12px;
+    border-radius: 999px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--accent-primary);
+    cursor: pointer;
+    flex-shrink: 0;
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    transition: all 0.25s ease;
+    filter: drop-shadow(0 0 3px color-mix(in srgb, var(--accent-primary) 14%, transparent));
+}
+
+.hud-voice-reply-icon {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+}
+
+.hud-voice-reply-label {
+    white-space: nowrap;
+}
+
+.hud-voice-reply-btn.is-on {
+    background: var(--accent-primary);
+    border-color: var(--accent-primary);
+    color: var(--text-on-accent);
+    box-shadow: 0 0 18px color-mix(in srgb, var(--accent-primary) 55%, transparent);
+}
+
+.hud-voice-reply-btn.is-off {
+    background: color-mix(in srgb, var(--text-muted) 16%, transparent);
+    border-color: color-mix(in srgb, var(--text-muted) 42%, transparent);
+    color: color-mix(in srgb, var(--text-muted) 88%, #fff);
+    box-shadow: none;
+    filter: none;
+}
+
+.hud-voice-reply-btn.is-off .hud-voice-reply-icon {
+    opacity: 0.82;
+}
+
+.hud-voice-reply-btn:hover {
+    color: var(--accent-secondary);
+    background: var(--accent-glow-subtle);
+    box-shadow: 0 0 15px var(--accent-glow-subtle);
+}
+
+.hud-voice-reply-btn.is-on:hover {
+    color: var(--text-on-accent);
+    background: var(--accent-secondary);
+    border-color: var(--accent-secondary);
+}
+
+.hud-voice-reply-btn.is-off:hover {
+    color: #fff;
+    border-color: color-mix(in srgb, var(--text-muted) 65%, transparent);
+    background: color-mix(in srgb, var(--text-muted) 24%, transparent);
+}
+
+.hud-voice-reply-btn.is-speaking {
+    animation: micPulseGlow 1.4s infinite ease-in-out;
+}
+
+.hud-voice-reply-btn.is-off.is-speaking {
+    border-color: color-mix(in srgb, var(--accent-primary) 45%, var(--text-muted));
+    color: #fff;
+    background: color-mix(in srgb, var(--accent-primary) 18%, var(--text-muted) 12%);
+}
+
+.voice-replies-setting-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.voice-replies-setting-row .form-hint {
+    margin: 0;
+}
+
 /* Glowing microphone */
 .hud-circle-btn.mic-btn {
-    background: transparent;
-    border: none;
+    border: 1px solid color-mix(in srgb, var(--accent-primary) 32%, transparent);
+    background: color-mix(in srgb, var(--accent-primary) 6%, transparent);
     color: var(--accent-primary);
     box-shadow: none;
 }
 
+.hud-circle-btn.mic-btn:hover {
+    border-color: color-mix(in srgb, var(--accent-primary) 55%, transparent);
+    background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
+}
+
 .hud-circle-btn.mic-btn.active-mic {
     background: var(--accent-primary);
-    border: none;
+    border-color: var(--accent-primary);
     color: var(--text-on-accent);
     box-shadow: 0 0 20px var(--accent-primary);
     animation: micPulseGlow 1.6s infinite ease-in-out;
@@ -7338,6 +7431,22 @@ body {
         flex-shrink: 0;
         width: 44px;
         height: 44px;
+    }
+
+    .hud-voice-reply-btn {
+        scroll-snap-align: center;
+        height: 44px;
+        padding: 0;
+        width: 44px;
+        justify-content: center;
+    }
+
+    .hud-voice-reply-label {
+        display: none;
+    }
+
+    .hud-voice-reply-btn.is-off {
+        border-width: 2px;
     }
 
     .hud-model-btn {

@@ -178,6 +178,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         skillsCounts: null,
         hermesStatus: null,
         isVoiceActive: false,
+        isVoiceOutputSpeaking: false,
         speechEnabled: JSON.parse(AetherUserData.getItem('aether_speech_enabled') ?? 'true'),
         memory: JSON.parse(AetherUserData.getItem('aether_memory') || '{}'),
         globalAccentTheme: null,
@@ -264,6 +265,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         modelPickerProviders: document.getElementById('modelPickerProviders'),
         modelPickerModels: document.getElementById('modelPickerModels'),
         speechSynthesisToggle: document.getElementById('speechSynthesisToggle'),
+        voiceRepliesToggle: document.getElementById('voiceRepliesToggle'),
+        voiceRepliesHint: document.getElementById('voiceRepliesHint'),
         historyDrawerToggle: document.getElementById('historyDrawerToggle'),
         historyDrawerCloseBtn: document.getElementById('historyDrawerCloseBtn'),
         sidebarDrawer: document.getElementById('sidebarDrawer'),
@@ -406,12 +409,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     syncViewportMode();
 
-    // Initialize speech mute UI button state
-    if (!state.speechEnabled) {
-        elements.speechSynthesisToggle.classList.remove('active');
-        elements.speechSynthesisToggle.querySelector('i').setAttribute('data-lucide', 'volume-x');
-    }
     speech.speechEnabled = state.speechEnabled;
+    syncSpeechToggleUi();
+    syncMicButtonUi();
 
     function getDisplayName() {
         const stored = AetherUserData.getItem('aether_display_name');
@@ -770,6 +770,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Voice mic recognition triggers
         elements.voiceRecognitionBtn.addEventListener('click', toggleVoiceMode);
         elements.speechSynthesisToggle.addEventListener('click', toggleSpeechOutput);
+        if (elements.voiceRepliesToggle) {
+            elements.voiceRepliesToggle.addEventListener('click', () => {
+                setSpeechEnabled(!state.speechEnabled);
+            });
+        }
         elements.newChatBtn.addEventListener('click', () => {
             startNewSession();
             toggleSidebarDrawer();
@@ -2089,6 +2094,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // Stop currently playing synthesis
         speech.stopSpeaking();
+        setVoiceOutputSpeaking(false);
         visualizer.setState('idle');
 
         // Render input in diagnostic terminal logs and chat deck bubble
@@ -2403,9 +2409,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             visualizer.setState('speaking');
             visualizer.startSpeechMouthCue(btn.dataset.fallbackText || '');
             visualizer.markSpeechPlaybackStarted();
+            beginVoiceOutputPlayback();
             speech.replayById(btn.dataset.replayId, btn.dataset.fallbackText || null, () => {
                 visualizer.stopSpeechMouthCue();
                 visualizer.enterPostTalk();
+                setVoiceOutputSpeaking(false);
             });
         };
 
@@ -2453,6 +2461,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 visualizer.setState('speaking');
                 visualizer.startSpeechMouthCue(speakableText);
                 visualizer.markSpeechPlaybackStarted();
+                beginVoiceOutputPlayback();
             }
             speech.speak(
                 speakableText,
@@ -2461,6 +2470,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 () => {
                     visualizer.stopSpeechMouthCue();
                     visualizer.enterPostTalk();
+                    setVoiceOutputSpeaking(false);
                 },
                 { onReplayId }
             );
@@ -2523,11 +2533,27 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
 
+    function syncMicButtonUi() {
+        const btn = elements.voiceRecognitionBtn;
+        if (!btn) return;
+
+        const listening = state.isVoiceActive;
+        btn.classList.toggle('active-mic', listening);
+        btn.setAttribute('aria-pressed', listening ? 'true' : 'false');
+
+        if (listening) {
+            btn.title = 'Listening… tap to stop';
+        } else {
+            updateMicButtonTitle();
+        }
+    }
+
     function startVoiceMode() {
         state.isVoiceActive = true;
-        elements.voiceRecognitionBtn.classList.add('active-mic');
+        syncMicButtonUi();
         
         speech.stopSpeaking();
+        setVoiceOutputSpeaking(false);
         visualizer.setState('listening');
 
         appendSystemConsoleLine("[VOICE] Activating speech recognition telemetries...");
@@ -2577,31 +2603,96 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     function stopVoiceMode() {
         state.isVoiceActive = false;
-        elements.voiceRecognitionBtn.classList.remove('active-mic');
+        syncMicButtonUi();
         speech.stopListening();
         visualizer.setState('idle');
     }
 
-    function toggleSpeechOutput() {
-        state.speechEnabled = !state.speechEnabled;
+    function syncSpeechToggleUi() {
+        const enabled = state.speechEnabled;
+        const speaking = state.isVoiceOutputSpeaking;
+        const btn = elements.speechSynthesisToggle;
+        if (btn) {
+            btn.classList.toggle('is-on', enabled);
+            btn.classList.toggle('is-off', !enabled);
+            btn.classList.toggle('is-speaking', speaking);
+            btn.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+
+            const icon = btn.querySelector('i');
+            if (icon) {
+                icon.setAttribute('data-lucide', speaking ? 'audio-lines' : (enabled ? 'volume-2' : 'volume-x'));
+            }
+
+            const label = btn.querySelector('.hud-voice-reply-label');
+            if (label) {
+                label.textContent = speaking ? 'Speaking' : (enabled ? 'Voice' : 'Text only');
+            }
+
+            btn.title = speaking
+                ? 'Speaking…'
+                : (enabled ? 'Voice replies on' : 'No voice replies — text only');
+        }
+
+        if (elements.voiceRepliesToggle) {
+            elements.voiceRepliesToggle.classList.toggle('is-on', enabled);
+            elements.voiceRepliesToggle.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+            elements.voiceRepliesToggle.setAttribute(
+                'aria-label',
+                enabled ? 'Voice replies on' : 'Voice replies off — text only'
+            );
+        }
+
+        if (elements.voiceRepliesHint) {
+            elements.voiceRepliesHint.textContent = enabled
+                ? 'Assistant replies are spoken aloud.'
+                : 'Text-only mode — no voice synthesis or ElevenLabs credits used.';
+        }
+
+        if (!enabled) {
+            syncReplayButtonsForSession();
+        }
+
+        if (typeof lucide !== 'undefined') {
+            lucide.createIcons();
+        }
+    }
+
+    function beginVoiceOutputPlayback() {
+        setVoiceOutputSpeaking(true);
+    }
+
+    function setVoiceOutputSpeaking(isActive) {
+        state.isVoiceOutputSpeaking = Boolean(isActive);
+        syncSpeechToggleUi();
+    }
+
+    function setSpeechEnabled(enabled, { announce = true } = {}) {
+        state.speechEnabled = Boolean(enabled);
         AetherUserData.setItem('aether_speech_enabled', state.speechEnabled);
         speech.speechEnabled = state.speechEnabled;
+        syncSpeechToggleUi();
 
-        if (state.speechEnabled) {
-            elements.speechSynthesisToggle.classList.add('active');
-            elements.speechSynthesisToggle.querySelector('i').setAttribute('data-lucide', 'volume-2');
-            appendSystemConsoleLine("[SYSTEM] Voice synthesis activated.");
-        } else {
-            elements.speechSynthesisToggle.classList.remove('active');
-            elements.speechSynthesisToggle.querySelector('i').setAttribute('data-lucide', 'volume-x');
+        if (!state.speechEnabled) {
             speech.stopSpeaking();
+            setVoiceOutputSpeaking(false);
             visualizer.stopSpeechMouthCue();
             if (visualizer.state === 'speaking') {
                 visualizer.setState('idle');
             }
-            appendSystemConsoleLine("[SYSTEM] Voice synthesis muted.");
+            if (announce) {
+                appendSystemConsoleLine('[SYSTEM] Text-only mode — voice replies disabled.');
+            }
+            return;
         }
-        lucide.createIcons();
+
+        syncReplayButtonsForSession();
+        if (announce) {
+            appendSystemConsoleLine('[SYSTEM] Voice replies enabled.');
+        }
+    }
+
+    function toggleSpeechOutput() {
+        setSpeechEnabled(!state.speechEnabled);
     }
 
     /* ==========================================================================
@@ -2785,6 +2876,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         activateChatHistoryTab('aether');
         speech.stopSpeaking();
+        setVoiceOutputSpeaking(false);
     }
 
     async function loadSession(sessionId) {

@@ -245,7 +245,14 @@
                     <section class="settings-panel" id="settingsPanelSpeech" data-settings-panel="speech" hidden>
                         <div class="settings-panel-heading">
                             <h3>Speech</h3>
-                            <p>Choose voice output, preview voices, and tune replay behavior.</p>
+                            <p>Control whether Aether speaks replies aloud and tune voice output.</p>
+                        </div>
+                        <div class="form-group">
+                            <label for="voiceRepliesToggle">Voice replies</label>
+                            <div class="voice-replies-setting-row">
+                                <button type="button" class="skill-toggle is-on" id="voiceRepliesToggle" aria-pressed="true" aria-label="Voice replies on"></button>
+                                <span class="form-hint" id="voiceRepliesHint">Assistant replies are spoken aloud.</span>
+                            </div>
                         </div>
                         <div class="form-group">
                             <label for="ttsProvider">Speech engine</label>
@@ -292,7 +299,7 @@
                     <section class="settings-panel" id="settingsPanelMicrophone" data-settings-panel="microphone" hidden>
                         <div class="settings-panel-heading">
                             <h3>Microphone</h3>
-                            <p>Control how spoken input is routed in the HUD.</p>
+                            <p>Control how you speak to Aether — separate from voice replies in Speech.</p>
                         </div>
                         <div class="form-group">
                             <label for="voiceInputBehavior">Microphone voice behavior</label>
@@ -438,8 +445,8 @@
         <div class="hud-bottom-area">
             <div class="hud-orb-label" id="hudOrbLabel">STARTING UP</div>
             <footer class="hud-controls-pill glass-panel">
-            <!-- Voice Recognition microphone -->
-            <button class="hud-circle-btn mic-btn" id="voiceRecognitionBtn" title="Activate voice telemetry mode">
+            <!-- Voice input (microphone) -->
+            <button class="hud-circle-btn mic-btn" id="voiceRecognitionBtn" type="button" aria-pressed="false" title="Activate voice telemetry mode">
                 <i data-lucide="mic" style="width: 18px; height: 18px;"></i>
             </button>
 
@@ -452,9 +459,10 @@
 
             <span class="hud-pill-divider" aria-hidden="true"></span>
             
-            <!-- Speech TTS Sound Mute -->
-            <button class="hud-circle-btn active" id="speechSynthesisToggle" title="Toggle vocal synthesized replies">
-                <i data-lucide="volume-2" style="width: 18px; height: 18px;"></i>
+            <!-- Voice reply toggle -->
+            <button class="hud-voice-reply-btn is-on" id="speechSynthesisToggle" type="button" aria-pressed="true" title="Voice replies on">
+                <i data-lucide="volume-2" class="hud-voice-reply-icon"></i>
+                <span class="hud-voice-reply-label" id="speechSynthesisToggleLabel">Voice</span>
             </button>
 
             <!-- Toggleable right chat column -->
