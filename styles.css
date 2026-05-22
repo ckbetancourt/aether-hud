@@ -394,6 +394,9 @@
 html {
     overflow-x: clip;
     max-width: 100%;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    touch-action: manipulation;
 }
 
 body {
@@ -7179,6 +7182,15 @@ body {
 
     .chat-composer-hint {
         display: none;
+    }
+
+    /* iOS Safari zooms focused inputs below 16px */
+    .chat-composer-input,
+    .deck-input-field,
+    .modal-content input,
+    .modal-content select,
+    .modal-content textarea {
+        font-size: 16px;
     }
 
     .chat-bubble code,
