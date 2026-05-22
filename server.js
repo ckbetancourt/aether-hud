@@ -611,11 +611,14 @@ async function probeHermesDashboardStatus() {
 const {
   listAgentWorkspaces,
   getAgentBrowseRoots,
-  getHermesOutputRoots,
-  listHermesOutputFiles,
   switchAgentWorkspace,
   addUserFavorite,
 } = require('./lib/hermes-workspaces.js');
+
+const {
+  listHermesOutputFiles,
+  assertHermesFileReadable,
+} = require('./lib/hermes-files.js');
 
 const {
   listHermesSkills,
@@ -629,6 +632,7 @@ const { assertBrowseAllowed, browseDirectory, listWorkspaceFiles, readWorkspaceF
 function combinedBrowseRoots(boardSlug) {
   const kanban = getKanbanBrowseRoots(boardSlug).roots;
   const agent = getAgentBrowseRoots();
+  const { getHermesOutputRoots } = require('./lib/hermes-files.js');
   const hermes = getHermesOutputRoots();
   return [...new Set([...agent, ...kanban, ...hermes])];
 }
@@ -644,12 +648,12 @@ function listWorkspaceFilesPath(requestedPath, boardSlug) {
 }
 
 function readWorkspaceFilePath(requestedPath, boardSlug) {
-  const abs = assertBrowseAllowed(requestedPath, combinedBrowseRoots(boardSlug));
+  const abs = assertHermesFileReadable(requestedPath, combinedBrowseRoots(boardSlug));
   return readWorkspaceFile(abs);
 }
 
 function resolveWorkspaceFilePath(requestedPath, boardSlug) {
-  return assertBrowseAllowed(requestedPath, combinedBrowseRoots(boardSlug));
+  return assertHermesFileReadable(requestedPath, combinedBrowseRoots(boardSlug));
 }
 
 function revealWorkspacePath(requestedPath, boardSlug) {
@@ -1633,7 +1637,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  const skillsToggleMatch = pathname.match(/^\/api\/hermes\/skills\/([^/]+)\/toggle$/);
+  const skillsToggleMatch = pathname.match(/^\/api\/hermes\/skills\/(.+)\/toggle$/);
   if (req.method === 'POST' && skillsToggleMatch) {
     try {
       const body = await readBody(req);
@@ -1647,7 +1651,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  const skillsNameMatch = pathname.match(/^\/api\/hermes\/skills\/([^/]+)$/);
+  const skillsNameMatch = pathname.match(/^\/api\/hermes\/skills\/(.+)$/);
   if (req.method === 'PUT' && skillsNameMatch) {
     try {
       const body = await readBody(req);

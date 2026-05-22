@@ -772,7 +772,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     : 'No files yet — ask Hermes to create one.';
             }
             if (hintEl && result.roots?.length) {
-                hintEl.textContent = 'Files Hermes creates — markdown, notes, uploads, and task outputs.';
+                hintEl.textContent = 'All files Hermes has created — anywhere on disk, not just the workspace folder.';
             }
         } catch (err) {
             if (statusEl) statusEl.textContent = err.message || 'Could not load files.';
@@ -804,6 +804,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             const haystack = [
                 skill.name,
                 skill.displayName,
+                skill.category,
                 skill.description,
                 ...(skill.tags || []),
             ].join(' ').toLowerCase();
@@ -885,7 +886,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             const desc = document.createElement('span');
             desc.className = 'skill-row-desc';
-            desc.textContent = skill.description || skill.name;
+            const descParts = [];
+            if (skill.category) descParts.push(skill.category);
+            if (skill.description) descParts.push(skill.description);
+            else if (skill.name !== (skill.displayName || '')) descParts.push(skill.name);
+            desc.textContent = descParts.join(' · ') || skill.name;
 
             main.appendChild(name);
             main.appendChild(desc);
@@ -1002,7 +1007,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             state.skillsItems = result.items || [];
             state.skillsDir = result.skillsDir || '';
             if (elements.skillsModalPath) {
-                elements.skillsModalPath.textContent = state.skillsDir || 'Skills directory unavailable';
+                const count = state.skillsItems.length;
+                elements.skillsModalPath.textContent = count
+                    ? `${count} skill${count === 1 ? '' : 's'} · ${state.skillsDir}`
+                    : (state.skillsDir || 'Skills directory unavailable');
             }
             if (state.skillsSelectedName && !state.skillsItems.some((item) => item.name === state.skillsSelectedName)) {
                 state.skillsSelectedName = '';
