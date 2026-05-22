@@ -121,6 +121,7 @@
             <div class="orb-container">
                 <canvas id="jarvisCanvas"></canvas>
                 <div class="avatar-layer" id="avatarLayer" aria-hidden="true"></div>
+                <button type="button" class="avatar-poke-target" id="avatarPokeTarget" aria-label="Play with Aether" title="Tap to tickle"></button>
             </div>
         </section>
 
@@ -192,9 +193,19 @@
                 <i data-lucide="database" style="width: 18px; height: 18px;"></i>
             </button>
 
+            <!-- Workspace file browser -->
+            <button class="hud-circle-btn" id="workspaceFilesBtn" type="button" title="Hermes files">
+                <i data-lucide="folder-open" style="width: 18px; height: 18px;"></i>
+            </button>
+
+            <!-- Hermes skills manager -->
+            <button class="hud-circle-btn" id="skillsBtn" type="button" title="Manage Hermes skills">
+                <i data-lucide="sparkles" style="width: 18px; height: 18px;"></i>
+            </button>
+
             <!-- Hermes Kanban board mode -->
             <button class="hud-circle-btn" id="workspacesDrawerToggle" title="Toggle Hermes Kanban board">
-                <i data-lucide="folder-kanban" style="width: 18px; height: 18px;"></i>
+                <i data-lucide="columns-3" style="width: 18px; height: 18px;"></i>
             </button>
             </footer>
         </div>
@@ -210,9 +221,6 @@
             </span>
             <span class="workspace-pin-badge" id="workspacePinBadge" hidden title="Pinned Hermes workspace"></span>
             <div class="chat-column-header-actions">
-                <button class="settings-gear-btn" id="chatSplitViewBtn" title="Split view" type="button">
-                    <i data-lucide="columns-2" style="width:16px; height:16px;"></i>
-                </button>
                 <button class="settings-gear-btn composer-refresh-btn" id="composerRefreshBtn" type="button" title="Refresh chats from Hermes">
                     <i data-lucide="refresh-cw" style="width:14px; height:14px;"></i>
                 </button>
@@ -287,15 +295,15 @@
             </div>
         </aside>
 
-        <!-- WORKSPACES DRAWER (Left Side) -->
+        <!-- HERMES FILES DRAWER (Left Side) -->
         <aside class="sidebar-drawer workspaces-drawer glass-panel" id="workspacesDrawer">
             <div class="drawer-header">
                 <div class="hud-brand">
                     <span class="brand-dot"></span>
-                    <span class="brand-name" style="font-size:0.95rem;">WORKSPACES</span>
+                    <span class="brand-name" style="font-size:0.95rem;">FILES</span>
                 </div>
                 <div class="drawer-header-actions">
-                    <button class="settings-gear-btn" id="refreshWorkspacesBtn" title="Refresh workspaces" style="border:none; background:transparent;">
+                    <button class="settings-gear-btn" id="refreshHermesFilesBtn" title="Refresh files" style="border:none; background:transparent;">
                         <i data-lucide="refresh-cw" style="width:14px; height:14px;"></i>
                     </button>
                     <button class="settings-gear-btn" id="workspacesDrawerCloseBtn" style="border:none; background:transparent;">
@@ -305,41 +313,11 @@
             </div>
 
             <div class="drawer-scroll">
-                <section class="workspace-section workspace-section--list">
-                    <h3 class="section-label">Agent workspace</h3>
-                    <div class="form-hint workspace-board-hint" id="agentWorkspaceHint">Hermes gateway working directory (terminal.cwd) and recent projects.</div>
-                    <div class="workspace-default-workdir" id="agentTerminalCwd"></div>
-                    <div class="workspace-list workspace-list-scroll" id="agentWorkspaceList">
-                        <div class="workspace-empty-hint">Loading project workspaces…</div>
-                    </div>
-                </section>
-
-                <section>
-                    <h3 class="section-label">Kanban board</h3>
-                    <select class="form-select" id="kanbanBoardSelect" aria-label="Active Kanban board">
-                        <option value="default">default</option>
-                    </select>
-                    <div class="form-hint workspace-board-hint" id="kanbanBoardHint">Hermes task workspaces for the active board.</div>
-                    <div class="workspace-default-workdir" id="kanbanDefaultWorkdir" hidden></div>
-                </section>
-
-                <section class="workspace-section workspace-section--list">
-                    <h3 class="section-label">Task workspaces</h3>
-                    <div class="workspace-list workspace-list-scroll" id="workspaceList">
-                        <div class="workspace-empty-hint">Open this panel to load workspaces.</div>
-                    </div>
-                </section>
-
-                <section id="workspaceBrowseSection" hidden>
-                    <h3 class="section-label" id="workspaceBrowseTitle">Contents</h3>
-                    <div class="workspace-path-mono" id="workspaceBrowsePath"></div>
-                    <div class="workspace-file-list" id="workspaceFileList"></div>
-                    <div class="workspace-browse-actions">
-                        <button class="action-btn btn-secondary" id="workspaceRevealBtn" type="button">Open in Finder</button>
-                        <button class="action-btn btn-secondary" id="workspaceSwitchBtn" type="button">Switch agent workspace</button>
-                        <button class="action-btn btn-primary" id="workspacePinBtn" type="button">Pin workspace</button>
-                    </div>
-                </section>
+                <div class="form-hint hermes-files-hint" id="hermesFilesHint">Files Hermes creates — markdown, notes, uploads, and task outputs.</div>
+                <div class="workspace-path-mono" id="hermesFilesStatus"></div>
+                <div class="workspace-file-list hermes-files-list" id="workspaceFileList">
+                    <div class="workspace-empty-hint">Open this panel to load files.</div>
+                </div>
             </div>
         </aside>
 
@@ -491,8 +469,8 @@
                     </div>
 
                     <div class="form-group">
-                        <label>Hermes workspaces</label>
-                        <button class="action-btn btn-secondary" id="settingsWorkspacesBtn" type="button">Open workspace browser</button>
+                        <label>Hermes files</label>
+                        <button class="action-btn btn-secondary" id="settingsWorkspacesBtn" type="button">Open Hermes files</button>
                         <div class="form-hint">Browse Kanban task folders, pin paths to chat, and switch agent working directory.</div>
                     </div>
                 </section>
@@ -557,6 +535,72 @@
                     <button class="action-btn btn-secondary" id="cancelModelPickerBtn" type="button">Cancel</button>
                     <button class="action-btn btn-primary" id="confirmModelPickerBtn" type="button" disabled>Switch</button>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==========================================
+         SKILLS MANAGER MODAL
+         ========================================== -->
+    <div class="modal-overlay" id="skillsModal">
+        <div class="modal-content skills-modal-content glass-panel" role="dialog" aria-modal="true" aria-labelledby="skillsModalTitle">
+            <div class="modal-title-bar">
+                <div>
+                    <span class="modal-kicker">Hermes</span>
+                    <h2 id="skillsModalTitle">Skills</h2>
+                    <p class="skills-modal-path" id="skillsModalPath">Loading skills directory…</p>
+                </div>
+                <button class="modal-close" id="closeSkillsModalBtn" type="button" aria-label="Close skills manager">&times;</button>
+            </div>
+
+            <div class="skills-toolbar">
+                <input type="search" class="form-select skills-search" id="skillsSearch" placeholder="Filter skills…" autocomplete="off" />
+                <button class="settings-gear-btn skills-refresh-btn" id="refreshSkillsBtn" type="button" title="Refresh skills">
+                    <i data-lucide="refresh-cw" style="width:14px; height:14px;"></i>
+                </button>
+            </div>
+
+            <div class="skills-status" id="skillsStatus" hidden></div>
+
+            <div class="skills-columns">
+                <div class="skills-list-column">
+                    <div class="skills-column-title">Installed</div>
+                    <div class="skills-list" id="skillsList" role="listbox" aria-label="Installed skills"></div>
+                </div>
+                <div class="skills-editor-column">
+                    <div class="skills-column-title">SKILL.md</div>
+                    <div class="skills-editor-empty" id="skillsEditorEmpty">Select a skill to view or edit its instructions.</div>
+                    <textarea class="skills-editor" id="skillsEditor" hidden spellcheck="false" aria-label="Skill markdown content"></textarea>
+                </div>
+            </div>
+
+            <div class="modal-actions skills-modal-actions">
+                <p class="skills-reload-hint">After saving or toggling, run <code>/reload-skills</code> in Hermes chat to apply changes.</p>
+                <div class="skills-action-buttons">
+                    <button class="action-btn btn-secondary" id="cancelSkillsBtn" type="button">Close</button>
+                    <button class="action-btn btn-primary" id="saveSkillsBtn" type="button" disabled>Save skill</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==========================================
+         WORKSPACE FILE VIEWER
+         ========================================== -->
+    <div class="modal-overlay" id="workspaceFileViewerModal">
+        <div class="modal-content workspace-file-viewer-content glass-panel" role="dialog" aria-modal="true" aria-labelledby="workspaceFileViewerTitle">
+            <div class="modal-title-bar">
+                <div>
+                    <span class="modal-kicker">Workspace</span>
+                    <h2 id="workspaceFileViewerTitle">File</h2>
+                    <p class="workspace-file-viewer-path" id="workspaceFileViewerPath"></p>
+                </div>
+                <button class="modal-close" id="closeWorkspaceFileViewerBtn" type="button" aria-label="Close file viewer">&times;</button>
+            </div>
+            <div class="workspace-file-viewer-body" id="workspaceFileViewerBody"></div>
+            <div class="modal-actions workspace-file-viewer-actions">
+                <button class="action-btn btn-secondary" id="workspaceFileViewerRevealBtn" type="button">Open in Finder</button>
+                <button class="action-btn btn-primary" id="workspaceFileViewerCloseBtn" type="button">Close</button>
             </div>
         </div>
     </div>

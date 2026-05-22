@@ -163,9 +163,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         kanbanDashboardStatus: null,
         dashboardBootstrapTimer: null,
         chatCollapsedBeforeKanban: null,
-        agentWorkspaces: [],
-        workspaceBrowsePath: '',
-        workspaceBrowseEntries: [],
+        workspaceFiles: [],
+        workspaceViewerPath: '',
+        skillsItems: [],
+        skillsSelectedName: '',
+        skillsEditorBaseline: '',
+        skillsDir: '',
         hermesStatus: null,
         isVoiceActive: false,
         speechEnabled: JSON.parse(AetherUserData.getItem('aether_speech_enabled') ?? 'true'),
@@ -235,6 +238,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         historyDrawerToggle: document.getElementById('historyDrawerToggle'),
         historyDrawerCloseBtn: document.getElementById('historyDrawerCloseBtn'),
         sidebarDrawer: document.getElementById('sidebarDrawer'),
+        workspaceFilesBtn: document.getElementById('workspaceFilesBtn'),
         workspacesDrawerToggle: document.getElementById('workspacesDrawerToggle'),
         workspacesDrawerCloseBtn: document.getElementById('workspacesDrawerCloseBtn'),
         workspacesDrawer: document.getElementById('workspacesDrawer'),
@@ -248,22 +252,31 @@ document.addEventListener('DOMContentLoaded', async () => {
         dashboardSplashText: document.getElementById('dashboardSplashText'),
         settingsWorkspacesBtn: document.getElementById('settingsWorkspacesBtn'),
         hudCoreVisualizer: document.querySelector('.hud-core-visualizer'),
-        refreshWorkspacesBtn: document.getElementById('refreshWorkspacesBtn'),
-        kanbanBoardSelect: document.getElementById('kanbanBoardSelect'),
-        kanbanBoardHint: document.getElementById('kanbanBoardHint'),
-        kanbanDefaultWorkdir: document.getElementById('kanbanDefaultWorkdir'),
-        agentWorkspaceHint: document.getElementById('agentWorkspaceHint'),
-        agentTerminalCwd: document.getElementById('agentTerminalCwd'),
-        agentWorkspaceList: document.getElementById('agentWorkspaceList'),
-        workspaceList: document.getElementById('workspaceList'),
-        workspaceBrowseSection: document.getElementById('workspaceBrowseSection'),
-        workspaceBrowseTitle: document.getElementById('workspaceBrowseTitle'),
-        workspaceBrowsePath: document.getElementById('workspaceBrowsePath'),
+        avatarPokeTarget: document.getElementById('avatarPokeTarget'),
+        refreshHermesFilesBtn: document.getElementById('refreshHermesFilesBtn'),
+        hermesFilesHint: document.getElementById('hermesFilesHint'),
+        hermesFilesStatus: document.getElementById('hermesFilesStatus'),
         workspaceFileList: document.getElementById('workspaceFileList'),
-        workspaceRevealBtn: document.getElementById('workspaceRevealBtn'),
-        workspaceSwitchBtn: document.getElementById('workspaceSwitchBtn'),
-        workspacePinBtn: document.getElementById('workspacePinBtn'),
         workspacePinBadge: document.getElementById('workspacePinBadge'),
+        workspaceFileViewerModal: document.getElementById('workspaceFileViewerModal'),
+        closeWorkspaceFileViewerBtn: document.getElementById('closeWorkspaceFileViewerBtn'),
+        workspaceFileViewerCloseBtn: document.getElementById('workspaceFileViewerCloseBtn'),
+        workspaceFileViewerRevealBtn: document.getElementById('workspaceFileViewerRevealBtn'),
+        workspaceFileViewerTitle: document.getElementById('workspaceFileViewerTitle'),
+        workspaceFileViewerPath: document.getElementById('workspaceFileViewerPath'),
+        workspaceFileViewerBody: document.getElementById('workspaceFileViewerBody'),
+        skillsBtn: document.getElementById('skillsBtn'),
+        skillsModal: document.getElementById('skillsModal'),
+        closeSkillsModalBtn: document.getElementById('closeSkillsModalBtn'),
+        cancelSkillsBtn: document.getElementById('cancelSkillsBtn'),
+        saveSkillsBtn: document.getElementById('saveSkillsBtn'),
+        refreshSkillsBtn: document.getElementById('refreshSkillsBtn'),
+        skillsSearch: document.getElementById('skillsSearch'),
+        skillsList: document.getElementById('skillsList'),
+        skillsEditor: document.getElementById('skillsEditor'),
+        skillsEditorEmpty: document.getElementById('skillsEditorEmpty'),
+        skillsModalPath: document.getElementById('skillsModalPath'),
+        skillsStatus: document.getElementById('skillsStatus'),
         newChatBtn: document.getElementById('newChatBtn'),
 
         hudShell: document.getElementById('hudShell'),
@@ -429,17 +442,53 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (elements.settingsWorkspacesBtn) {
             elements.settingsWorkspacesBtn.addEventListener('click', () => {
                 closeSettingsModal();
-                openWorkspacesDrawer();
+                openWorkspaceFileBrowser();
             });
+        }
+        if (elements.workspaceFilesBtn) {
+            elements.workspaceFilesBtn.addEventListener('click', () => openWorkspaceFileBrowser());
         }
         if (elements.workspacesDrawerCloseBtn) {
             elements.workspacesDrawerCloseBtn.addEventListener('click', () => toggleWorkspacesDrawer(false));
         }
-        if (elements.refreshWorkspacesBtn) {
-            elements.refreshWorkspacesBtn.addEventListener('click', () => refreshKanbanWorkspaces());
+        if (elements.refreshHermesFilesBtn) {
+            elements.refreshHermesFilesBtn.addEventListener('click', () => refreshHermesFiles());
+        }
+        if (elements.skillsBtn) {
+            elements.skillsBtn.addEventListener('click', () => openSkillsModal());
+        }
+        if (elements.closeSkillsModalBtn) {
+            elements.closeSkillsModalBtn.addEventListener('click', () => closeSkillsModal());
+        }
+        if (elements.cancelSkillsBtn) {
+            elements.cancelSkillsBtn.addEventListener('click', () => closeSkillsModal());
+        }
+        if (elements.saveSkillsBtn) {
+            elements.saveSkillsBtn.addEventListener('click', () => saveSelectedSkill());
+        }
+        if (elements.refreshSkillsBtn) {
+            elements.refreshSkillsBtn.addEventListener('click', () => refreshHermesSkills());
+        }
+        if (elements.skillsSearch) {
+            elements.skillsSearch.addEventListener('input', () => renderSkillsList());
+        }
+        if (elements.skillsEditor) {
+            elements.skillsEditor.addEventListener('input', () => updateSkillsSaveState());
+        }
+        if (elements.skillsModal) {
+            elements.skillsModal.addEventListener('click', (e) => {
+                if (e.target === elements.skillsModal) closeSkillsModal();
+            });
         }
         if (elements.dashboardSplash) {
             elements.dashboardSplash.addEventListener('click', () => bootstrapHermesDashboard());
+        }
+        if (elements.avatarPokeTarget) {
+            elements.avatarPokeTarget.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (state.kanbanMode) return;
+                visualizer.pokeAvatar();
+            });
         }
         if (elements.hudCoreVisualizer) {
             elements.hudCoreVisualizer.addEventListener('click', () => {
@@ -453,17 +502,24 @@ document.addEventListener('DOMContentLoaded', async () => {
                 }
             });
         }
-        if (elements.kanbanBoardSelect) {
-            elements.kanbanBoardSelect.addEventListener('change', () => handleKanbanBoardSwitch());
+        if (elements.closeWorkspaceFileViewerBtn) {
+            elements.closeWorkspaceFileViewerBtn.addEventListener('click', closeWorkspaceFileViewer);
         }
-        if (elements.workspaceRevealBtn) {
-            elements.workspaceRevealBtn.addEventListener('click', () => revealSelectedWorkspace());
+        if (elements.workspaceFileViewerCloseBtn) {
+            elements.workspaceFileViewerCloseBtn.addEventListener('click', closeWorkspaceFileViewer);
         }
-        if (elements.workspacePinBtn) {
-            elements.workspacePinBtn.addEventListener('click', () => pinSelectedWorkspace());
+        if (elements.workspaceFileViewerRevealBtn) {
+            elements.workspaceFileViewerRevealBtn.addEventListener('click', () => {
+                if (!state.workspaceViewerPath) return;
+                ai.revealKanbanPath(state.workspaceViewerPath, state.activeKanbanBoard).catch((err) => {
+                    showToast('Open failed', err.message || 'Could not open file.', { variant: 'error' });
+                });
+            });
         }
-        if (elements.workspaceSwitchBtn) {
-            elements.workspaceSwitchBtn.addEventListener('click', () => switchSelectedAgentWorkspace());
+        if (elements.workspaceFileViewerModal) {
+            elements.workspaceFileViewerModal.addEventListener('click', (e) => {
+                if (e.target === elements.workspaceFileViewerModal) closeWorkspaceFileViewer();
+            });
         }
         
         // Settings triggers
@@ -538,6 +594,20 @@ document.addEventListener('DOMContentLoaded', async () => {
             renderModelPickerProviders();
             renderModelPickerModels();
             updateModelPickerConfirmState();
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && elements.workspaceFileViewerModal?.classList.contains('open')) {
+                e.preventDefault();
+                closeWorkspaceFileViewer();
+            }
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && elements.skillsModal?.classList.contains('open')) {
+                e.preventDefault();
+                closeSkillsModal();
+            }
         });
 
         document.addEventListener('keydown', (e) => {
@@ -667,16 +737,306 @@ document.addEventListener('DOMContentLoaded', async () => {
             ? !elements.workspacesDrawer.classList.contains('open')
             : forceOpen;
         elements.workspacesDrawer.classList.toggle('open', shouldOpen);
+        elements.workspaceFilesBtn?.classList.toggle('active', shouldOpen);
         if (shouldOpen) {
             if (elements.sidebarDrawer?.classList.contains('open')) {
                 toggleSidebarDrawer(false);
             }
-            refreshKanbanWorkspaces();
+            refreshHermesFiles();
         }
     }
 
-    function openWorkspacesDrawer() {
+    async function openWorkspaceFileBrowser() {
+        if (elements.workspacesDrawer?.classList.contains('open')) {
+            toggleWorkspacesDrawer(false);
+            return;
+        }
         toggleWorkspacesDrawer(true);
+    }
+
+    async function refreshHermesFiles() {
+        const statusEl = elements.hermesFilesStatus;
+        const hintEl = elements.hermesFilesHint;
+        if (elements.refreshHermesFilesBtn) {
+            elements.refreshHermesFilesBtn.classList.add('refreshing');
+        }
+        if (statusEl) statusEl.textContent = 'Loading files…';
+        try {
+            const result = await ai.getHermesFiles();
+            state.workspaceFiles = result.files || [];
+            renderWorkspaceFileList();
+            if (statusEl) {
+                const count = state.workspaceFiles.length;
+                statusEl.textContent = count
+                    ? `${count} file${count === 1 ? '' : 's'} from Hermes workspace`
+                    : 'No files yet — ask Hermes to create one.';
+            }
+            if (hintEl && result.roots?.length) {
+                hintEl.textContent = 'Files Hermes creates — markdown, notes, uploads, and task outputs.';
+            }
+        } catch (err) {
+            if (statusEl) statusEl.textContent = err.message || 'Could not load files.';
+            if (hintEl) hintEl.textContent = err.message || 'Failed to load Hermes files.';
+            appendSystemConsoleLine(`[FILES] ${err.message || 'Load failed'}`);
+        } finally {
+            elements.refreshHermesFilesBtn?.classList.remove('refreshing');
+        }
+    }
+
+    function setSkillsStatus(message, isError = false) {
+        const el = elements.skillsStatus;
+        if (!el) return;
+        if (!message) {
+            el.hidden = true;
+            el.textContent = '';
+            el.classList.remove('is-error');
+            return;
+        }
+        el.hidden = false;
+        el.textContent = message;
+        el.classList.toggle('is-error', !!isError);
+    }
+
+    function filteredSkillsItems() {
+        const query = String(elements.skillsSearch?.value || '').trim().toLowerCase();
+        if (!query) return state.skillsItems;
+        return state.skillsItems.filter((skill) => {
+            const haystack = [
+                skill.name,
+                skill.displayName,
+                skill.description,
+                ...(skill.tags || []),
+            ].join(' ').toLowerCase();
+            return haystack.includes(query);
+        });
+    }
+
+    function getSelectedSkillItem() {
+        return state.skillsItems.find((skill) => skill.name === state.skillsSelectedName) || null;
+    }
+
+    function updateSkillsSaveState() {
+        const selected = getSelectedSkillItem();
+        const dirty = !!selected
+            && elements.skillsEditor
+            && elements.skillsEditor.value !== state.skillsEditorBaseline;
+        if (elements.saveSkillsBtn) {
+            elements.saveSkillsBtn.disabled = !selected || !dirty;
+        }
+    }
+
+    function renderSkillsEditor() {
+        const selected = getSelectedSkillItem();
+        const editor = elements.skillsEditor;
+        const empty = elements.skillsEditorEmpty;
+        if (!editor || !empty) return;
+
+        if (!selected) {
+            editor.hidden = true;
+            editor.value = '';
+            state.skillsEditorBaseline = '';
+            empty.hidden = false;
+            updateSkillsSaveState();
+            return;
+        }
+
+        empty.hidden = true;
+        editor.hidden = false;
+        if (Object.prototype.hasOwnProperty.call(selected, 'content')) {
+            editor.value = selected.content ?? '';
+            state.skillsEditorBaseline = editor.value;
+        }
+        updateSkillsSaveState();
+    }
+
+    function renderSkillsList() {
+        const list = elements.skillsList;
+        if (!list) return;
+
+        const items = filteredSkillsItems();
+        list.replaceChildren();
+
+        if (!items.length) {
+            const hint = document.createElement('div');
+            hint.className = 'skills-empty-hint';
+            hint.textContent = state.skillsItems.length
+                ? 'No skills match your filter.'
+                : 'No skills installed yet. Run npm run hermes:install-skill to add the Aether skill.';
+            list.appendChild(hint);
+            renderSkillsEditor();
+            return;
+        }
+
+        const fragment = document.createDocumentFragment();
+        for (const skill of items) {
+            const row = document.createElement('div');
+            row.className = 'skill-row';
+            row.classList.toggle('active', skill.name === state.skillsSelectedName);
+            row.classList.toggle('is-disabled', !skill.enabled);
+
+            const main = document.createElement('button');
+            main.type = 'button';
+            main.className = 'skill-row-main';
+            main.title = skill.description || skill.displayName || skill.name;
+
+            const name = document.createElement('span');
+            name.className = 'skill-row-name';
+            name.textContent = skill.displayName || skill.name;
+
+            const desc = document.createElement('span');
+            desc.className = 'skill-row-desc';
+            desc.textContent = skill.description || skill.name;
+
+            main.appendChild(name);
+            main.appendChild(desc);
+            main.addEventListener('click', () => selectSkill(skill.name));
+
+            const toggle = document.createElement('button');
+            toggle.type = 'button';
+            toggle.className = `skill-toggle${skill.enabled ? ' is-on' : ''}`;
+            toggle.title = skill.enabled ? 'Disable skill' : 'Enable skill';
+            toggle.setAttribute('aria-label', `${skill.enabled ? 'Disable' : 'Enable'} ${skill.displayName || skill.name}`);
+            toggle.setAttribute('aria-pressed', skill.enabled ? 'true' : 'false');
+            toggle.addEventListener('click', (e) => {
+                e.stopPropagation();
+                toggleSkillEnabled(skill.name, !skill.enabled);
+            });
+
+            row.appendChild(main);
+            row.appendChild(toggle);
+            fragment.appendChild(row);
+        }
+
+        list.appendChild(fragment);
+        renderSkillsEditor();
+    }
+
+    async function selectSkill(name, options = {}) {
+        const { forceReload = false } = options;
+        if (!name) return;
+        if (state.skillsSelectedName === name && !forceReload) {
+            renderSkillsList();
+            return;
+        }
+
+        state.skillsSelectedName = name;
+        if (elements.skillsEditor) {
+            elements.skillsEditor.value = '';
+            state.skillsEditorBaseline = '';
+        }
+        setSkillsStatus('Loading skill…');
+        renderSkillsList();
+
+        try {
+            const result = await ai.getHermesSkill(name);
+            const index = state.skillsItems.findIndex((item) => item.name === name);
+            const merged = {
+                ...(index >= 0 ? state.skillsItems[index] : {}),
+                ...result,
+                content: result.content ?? '',
+            };
+            if (index >= 0) state.skillsItems[index] = merged;
+            else state.skillsItems.push(merged);
+            setSkillsStatus('');
+            renderSkillsList();
+        } catch (err) {
+            setSkillsStatus(err.message || 'Could not load skill.', true);
+        }
+    }
+
+    async function toggleSkillEnabled(name, enabled) {
+        if (!name) return;
+        setSkillsStatus(enabled ? 'Enabling skill…' : 'Disabling skill…');
+        try {
+            const result = await ai.setHermesSkillEnabled(name, enabled);
+            const index = state.skillsItems.findIndex((item) => item.name === name);
+            if (index >= 0) {
+                state.skillsItems[index] = { ...state.skillsItems[index], ...result };
+            }
+            setSkillsStatus('');
+            renderSkillsList();
+            showToast(
+                enabled ? 'Skill enabled' : 'Skill disabled',
+                `${result.displayName || name} — run /reload-skills in Hermes to apply.`,
+                { durationMs: 4200 }
+            );
+        } catch (err) {
+            setSkillsStatus(err.message || 'Could not update skill.', true);
+            showToast('Skill toggle failed', err.message || 'Could not update skill.', { variant: 'error' });
+        }
+    }
+
+    async function saveSelectedSkill() {
+        const selected = getSelectedSkillItem();
+        if (!selected || !elements.skillsEditor) return;
+
+        const content = elements.skillsEditor.value;
+        if (elements.saveSkillsBtn) elements.saveSkillsBtn.disabled = true;
+        setSkillsStatus('Saving skill…');
+
+        try {
+            const result = await ai.saveHermesSkill(selected.name, content);
+            const index = state.skillsItems.findIndex((item) => item.name === selected.name);
+            if (index >= 0) {
+                state.skillsItems[index] = { ...state.skillsItems[index], ...result, content: result.content ?? content };
+            }
+            state.skillsEditorBaseline = content;
+            setSkillsStatus('');
+            updateSkillsSaveState();
+            renderSkillsList();
+            showToast('Skill saved', `${result.displayName || selected.name} updated — run /reload-skills in Hermes to apply.`, { durationMs: 4200 });
+        } catch (err) {
+            setSkillsStatus(err.message || 'Could not save skill.', true);
+            showToast('Save failed', err.message || 'Could not save skill.', { variant: 'error' });
+            updateSkillsSaveState();
+        }
+    }
+
+    async function refreshHermesSkills() {
+        if (elements.refreshSkillsBtn) {
+            elements.refreshSkillsBtn.classList.add('refreshing');
+        }
+        setSkillsStatus('Loading skills…');
+        try {
+            const result = await ai.getHermesSkills();
+            state.skillsItems = result.items || [];
+            state.skillsDir = result.skillsDir || '';
+            if (elements.skillsModalPath) {
+                elements.skillsModalPath.textContent = state.skillsDir || 'Skills directory unavailable';
+            }
+            if (state.skillsSelectedName && !state.skillsItems.some((item) => item.name === state.skillsSelectedName)) {
+                state.skillsSelectedName = '';
+            }
+            setSkillsStatus('');
+            renderSkillsList();
+            if (state.skillsSelectedName) {
+                await selectSkill(state.skillsSelectedName, { forceReload: true });
+            }
+        } catch (err) {
+            setSkillsStatus(err.message || 'Could not load skills.', true);
+            if (elements.skillsList) {
+                elements.skillsList.replaceChildren();
+                const hint = document.createElement('div');
+                hint.className = 'skills-empty-hint';
+                hint.textContent = err.message || 'Could not load skills.';
+                elements.skillsList.appendChild(hint);
+            }
+        } finally {
+            elements.refreshSkillsBtn?.classList.remove('refreshing');
+        }
+    }
+
+    function openSkillsModal() {
+        elements.skillsModal?.classList.add('open');
+        elements.skillsBtn?.classList.add('active');
+        if (elements.skillsSearch) elements.skillsSearch.value = '';
+        refreshHermesSkills();
+    }
+
+    function closeSkillsModal() {
+        elements.skillsModal?.classList.remove('open');
+        elements.skillsBtn?.classList.remove('active');
+        setSkillsStatus('');
     }
 
     function setKanbanStageStatus(message, isError = false) {
@@ -1472,6 +1832,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                 );
             }
             syncReplayButtonsForSession();
+
+            if (elements.workspacesDrawer?.classList.contains('open')) {
+                refreshHermesFiles();
+            }
 
         } catch (err) {
             console.error("Aether telemetry failure: ", err);
@@ -2348,193 +2712,20 @@ document.addEventListener('DOMContentLoaded', async () => {
         badge.title = path;
     }
 
-    function renderKanbanBoardSelect(boards, current) {
-        const select = elements.kanbanBoardSelect;
-        if (!select) return;
-        select.innerHTML = '';
-        for (const board of boards) {
-            const opt = document.createElement('option');
-            opt.value = board.slug;
-            const countLabel = board.total != null ? ` · ${board.total}` : '';
-            opt.textContent = `${board.name || board.slug}${countLabel}`;
-            select.appendChild(opt);
-        }
-        const active = current || state.activeKanbanBoard || 'default';
-        select.value = active;
-        state.activeKanbanBoard = active;
+    function formatWorkspaceFileSize(bytes) {
+        const size = Number(bytes);
+        if (!Number.isFinite(size) || size < 0) return '';
+        if (size < 1024) return `${size} B`;
+        if (size < 1024 * 1024) return `${(size / 1024).toFixed(size >= 10240 ? 0 : 1)} KB`;
+        return `${(size / (1024 * 1024)).toFixed(1)} MB`;
     }
 
-    function renderWorkspaceItems(listEl, items, { onSelect, emptyText }) {
-        if (!listEl) return;
-        listEl.replaceChildren();
-        if (!items.length) {
-            const empty = document.createElement('div');
-            empty.className = 'workspace-empty-hint';
-            empty.textContent = emptyText || 'No workspaces found.';
-            listEl.appendChild(empty);
-            return;
-        }
-        const fragment = document.createDocumentFragment();
-        for (const item of items) {
-            if (!item.path) continue;
-            const btn = document.createElement('button');
-            btn.type = 'button';
-            btn.className = `workspace-item${state.selectedWorkspacePath === item.path ? ' active' : ''}`;
-            btn.dataset.path = item.path;
-
-            const title = document.createElement('span');
-            title.className = 'workspace-item-title';
-            title.textContent = item.title || item.id;
-
-            const meta = document.createElement('span');
-            meta.className = 'workspace-item-meta';
-            const kind = item.workspaceKind || item.kind || 'workspace';
-            meta.textContent = `${item.status || kind} · ${kind}`;
-
-            const pathEl = document.createElement('span');
-            pathEl.className = 'workspace-item-path';
-            pathEl.textContent = shortenWorkspacePath(item.path);
-
-            btn.appendChild(title);
-            btn.appendChild(meta);
-            btn.appendChild(pathEl);
-            btn.addEventListener('click', () => onSelect(item));
-            fragment.appendChild(btn);
-        }
-        listEl.appendChild(fragment);
-    }
-
-    function renderAgentWorkspaceList(items) {
-        renderWorkspaceItems(elements.agentWorkspaceList, items, {
-            emptyText: 'No project workspaces yet. Hermes registers projects when you work in a directory.',
-            onSelect: (item) => selectWorkspace(item),
-        });
-    }
-
-    function renderKanbanWorkspaceList(items) {
-        renderWorkspaceItems(elements.workspaceList, items, {
-            emptyText: 'No task workspaces on this board yet.',
-            onSelect: (item) => selectWorkspace(item),
-        });
-    }
-
-    async function refreshAgentWorkspaces() {
-        const hint = elements.agentWorkspaceHint;
-        const cwdEl = elements.agentTerminalCwd;
-        try {
-            const result = await ai.getAgentWorkspaces();
-            state.agentWorkspaces = (result.items || []).filter((item) => item.path);
-            renderAgentWorkspaceList(state.agentWorkspaces);
-
-            if (cwdEl) {
-                if (result.terminalPath) {
-                    cwdEl.hidden = false;
-                    cwdEl.textContent = `Active terminal.cwd: ${result.terminalPath}`;
-                } else if (result.terminalCwd) {
-                    cwdEl.hidden = false;
-                    cwdEl.textContent = `Active terminal.cwd: ${result.terminalCwd}`;
-                } else {
-                    cwdEl.hidden = true;
-                }
-            }
-            if (hint) {
-                hint.textContent = `${state.agentWorkspaces.length} project workspace${state.agentWorkspaces.length === 1 ? '' : 's'} (terminal.cwd, checkpoints, profile).`;
-            }
-        } catch (err) {
-            if (hint) hint.textContent = err.message || 'Failed to load agent workspaces.';
-        }
-    }
-
-    async function refreshKanbanWorkspaces() {
-        await refreshAgentWorkspaces();
-        const hint = elements.kanbanBoardHint;
-        if (hint) hint.textContent = 'Loading Kanban workspaces…';
-
-        try {
-            const boardsResult = await ai.getKanbanBoards();
-            if (!boardsResult.available) {
-                if (hint) {
-                    hint.textContent = boardsResult.hint || boardsResult.error || 'Kanban not initialized. Run `hermes kanban init`.';
-                }
-                renderKanbanWorkspaceList([]);
-                if (elements.workspaceBrowseSection) elements.workspaceBrowseSection.hidden = true;
-                return;
-            }
-
-            state.kanbanBoards = boardsResult.boards || [];
-            const current = boardsResult.current || state.activeKanbanBoard || 'default';
-            state.activeKanbanBoard = current;
-            AetherUserData.setItem('aether_kanban_board', current);
-            renderKanbanBoardSelect(state.kanbanBoards, current);
-
-            const wsResult = await ai.getKanbanWorkspaces(current);
-            state.kanbanWorkspaces = wsResult.items || [];
-            renderKanbanWorkspaceList(state.kanbanWorkspaces);
-
-            const defaultWd = elements.kanbanDefaultWorkdir;
-            if (defaultWd) {
-                if (wsResult.defaultWorkdir) {
-                    defaultWd.hidden = false;
-                    defaultWd.textContent = `Default workdir: ${wsResult.defaultWorkdir}`;
-                } else {
-                    defaultWd.hidden = true;
-                    defaultWd.textContent = '';
-                }
-            }
-
-            if (hint) {
-                hint.textContent = `${state.kanbanWorkspaces.length} workspace${state.kanbanWorkspaces.length === 1 ? '' : 's'} on board "${current}".`;
-            }
-        } catch (err) {
-            if (hint) hint.textContent = err.message || 'Failed to load workspaces.';
-            appendSystemConsoleLine(`[WORKSPACE] ${err.message || 'Load failed'}`);
-        }
-    }
-
-    async function handleKanbanBoardSwitch() {
-        const slug = elements.kanbanBoardSelect?.value;
-        if (!slug || slug === state.activeKanbanBoard) return;
-        try {
-            await ai.switchKanbanBoard(slug);
-            state.activeKanbanBoard = slug;
-            AetherUserData.setItem('aether_kanban_board', slug);
-            state.selectedWorkspacePath = '';
-            state.selectedWorkspaceTitle = '';
-            if (elements.workspaceBrowseSection) elements.workspaceBrowseSection.hidden = true;
-            await refreshKanbanWorkspaces();
-            appendSystemConsoleLine(`[WORKSPACE] Switched Kanban board to "${slug}".`);
-        } catch (err) {
-            showToast('Board switch failed', err.message || 'Could not switch board.', { variant: 'error' });
-            if (elements.kanbanBoardSelect) elements.kanbanBoardSelect.value = state.activeKanbanBoard;
-        }
-    }
-
-    async function selectWorkspace(item) {
-        if (!item?.path) return;
-        state.selectedWorkspacePath = item.path;
-        state.selectedWorkspaceTitle = item.title || item.id;
-        renderAgentWorkspaceList(state.agentWorkspaces);
-        renderKanbanWorkspaceList(state.kanbanWorkspaces);
-        await browseWorkspaceAt(item.path);
-    }
-
-    async function browseWorkspaceAt(pathValue, board) {
-        const boardSlug = board || state.activeKanbanBoard || 'default';
-        try {
-            const result = await ai.browseKanbanPath(pathValue, boardSlug);
-            state.workspaceBrowsePath = result.path || pathValue;
-            state.workspaceBrowseEntries = result.entries || [];
-            renderWorkspaceFileList();
-            if (elements.workspaceBrowseSection) elements.workspaceBrowseSection.hidden = false;
-            if (elements.workspaceBrowseTitle) {
-                elements.workspaceBrowseTitle.textContent = `Contents · ${state.selectedWorkspaceTitle || 'workspace'}`;
-            }
-            if (elements.workspaceBrowsePath) {
-                elements.workspaceBrowsePath.textContent = state.workspaceBrowsePath;
-            }
-        } catch (err) {
-            showToast('Browse failed', err.message || 'Could not read workspace.', { variant: 'error' });
-        }
+    function workspaceFileIconName(file) {
+        const name = String(file?.relativePath || file?.name || '').toLowerCase();
+        if (/\.(png|jpe?g|gif|webp|svg|bmp|ico|avif)$/.test(name)) return 'image';
+        if (/\.(md|markdown|txt|log)$/.test(name)) return 'file-text';
+        if (/\.(json|ya?ml|toml|xml|csv)$/.test(name)) return 'file-code';
+        return 'file';
     }
 
     function renderWorkspaceFileList() {
@@ -2542,82 +2733,115 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (!list) return;
         list.replaceChildren();
 
-        if (!state.workspaceBrowseEntries.length) {
+        const files = state.workspaceFiles.filter((entry) => entry.path);
+        if (!files.length) {
             const empty = document.createElement('div');
             empty.className = 'workspace-empty-hint';
-            empty.textContent = 'This folder is empty.';
+            empty.textContent = 'No files yet. Ask Hermes to create a markdown file or upload something.';
             list.appendChild(empty);
             return;
         }
 
         const fragment = document.createDocumentFragment();
-        for (const entry of state.workspaceBrowseEntries) {
+        for (const file of files) {
             const row = document.createElement('button');
             row.type = 'button';
-            row.className = `workspace-file-row${entry.type === 'directory' ? ' is-dir' : ''}`;
+            row.className = 'workspace-file-row';
+            row.title = 'Open and read file';
 
             const icon = document.createElement('span');
-            icon.innerHTML = entry.type === 'directory'
-                ? '<i data-lucide="folder"></i>'
-                : '<i data-lucide="file"></i>';
+            icon.innerHTML = `<i data-lucide="${workspaceFileIconName(file)}"></i>`;
+
+            const meta = document.createElement('span');
+            meta.className = 'workspace-file-meta';
 
             const label = document.createElement('span');
-            label.textContent = entry.name;
+            label.className = 'workspace-file-name';
+            label.textContent = file.relativePath || file.name;
 
+            const size = document.createElement('span');
+            size.className = 'workspace-file-size';
+            size.textContent = formatWorkspaceFileSize(file.size);
+
+            meta.appendChild(label);
+            meta.appendChild(size);
             row.appendChild(icon);
-            row.appendChild(label);
-
-            if (entry.type === 'directory') {
-                row.addEventListener('click', () => {
-                    const next = `${state.workspaceBrowsePath.replace(/\/$/, '')}/${entry.name}`;
-                    browseWorkspaceAt(next);
-                });
-            }
-
+            row.appendChild(meta);
+            row.addEventListener('click', () => openWorkspaceFileViewer(file.path, file.relativePath || file.name));
             fragment.appendChild(row);
         }
         list.appendChild(fragment);
         refreshBubbleIcons(list);
     }
 
-    async function revealSelectedWorkspace() {
-        const pathValue = state.workspaceBrowsePath || state.selectedWorkspacePath;
-        if (!pathValue) return;
+    function closeWorkspaceFileViewer() {
+        elements.workspaceFileViewerModal?.classList.remove('open');
+        state.workspaceViewerPath = '';
+        if (elements.workspaceFileViewerBody) elements.workspaceFileViewerBody.replaceChildren();
+    }
+
+    async function openWorkspaceFileViewer(filePath, displayName) {
+        if (!filePath) return;
+        state.workspaceViewerPath = filePath;
+        elements.workspaceFileViewerModal?.classList.add('open');
+        if (elements.workspaceFileViewerTitle) {
+            elements.workspaceFileViewerTitle.textContent = displayName || filePath.split('/').pop() || 'File';
+        }
+        if (elements.workspaceFileViewerPath) {
+            elements.workspaceFileViewerPath.textContent = filePath;
+        }
+        if (elements.workspaceFileViewerBody) {
+            elements.workspaceFileViewerBody.replaceChildren();
+            const loading = document.createElement('div');
+            loading.className = 'workspace-file-viewer-loading';
+            loading.textContent = 'Loading file…';
+            elements.workspaceFileViewerBody.appendChild(loading);
+        }
+
         try {
-            await ai.revealKanbanPath(pathValue, state.activeKanbanBoard);
+            const result = await ai.readWorkspaceFile(filePath, state.activeKanbanBoard);
+            renderWorkspaceFileViewerContent(result);
         } catch (err) {
-            showToast('Reveal failed', err.message || 'Could not open folder.', { variant: 'error' });
+            renderWorkspaceFileViewerError(err.message || 'Could not read file.');
         }
     }
 
-    async function switchSelectedAgentWorkspace() {
-        const pathValue = state.selectedWorkspacePath || state.workspaceBrowsePath;
-        if (!pathValue) return;
-        try {
-            const result = await ai.switchAgentWorkspace(pathValue);
-            state.activeWorkspacePath = pathValue;
-            AetherUserData.setItem('aether_active_workspace_path', pathValue);
-            updateWorkspacePinBadge();
-            await refreshAgentWorkspaces();
-            showToast(
-                'Agent workspace switched',
-                result.hint || shortenWorkspacePath(pathValue),
-                { durationMs: 5200 }
-            );
-            appendSystemConsoleLine(`[WORKSPACE] terminal.cwd → ${pathValue}`);
-        } catch (err) {
-            showToast('Switch failed', err.hint || err.message || 'Could not switch workspace.', { variant: 'error', durationMs: 6200 });
-        }
+    function renderWorkspaceFileViewerError(message) {
+        const body = elements.workspaceFileViewerBody;
+        if (!body) return;
+        body.replaceChildren();
+        const error = document.createElement('div');
+        error.className = 'workspace-file-viewer-error';
+        error.textContent = message;
+        body.appendChild(error);
     }
 
-    function pinSelectedWorkspace() {
-        const pathValue = state.selectedWorkspacePath || state.workspaceBrowsePath;
-        if (!pathValue) return;
-        state.activeWorkspacePath = pathValue;
-        AetherUserData.setItem('aether_active_workspace_path', pathValue);
-        updateWorkspacePinBadge();
-        showToast('Workspace pinned', shortenWorkspacePath(pathValue), { durationMs: 2200 });
-        appendSystemConsoleLine(`[WORKSPACE] Pinned ${pathValue}`);
+    function renderWorkspaceFileViewerContent(result) {
+        const body = elements.workspaceFileViewerBody;
+        if (!body) return;
+        body.replaceChildren();
+
+        if (result.kind === 'image') {
+            const img = document.createElement('img');
+            img.className = 'workspace-file-viewer-image';
+            img.alt = result.name || 'Workspace image';
+            img.src = ai.workspaceFileUrl(result.path, state.activeKanbanBoard);
+            body.appendChild(img);
+            return;
+        }
+
+        if (result.kind === 'text') {
+            const pre = document.createElement('pre');
+            pre.className = 'workspace-file-viewer-text';
+            pre.textContent = result.content || '';
+            body.appendChild(pre);
+            return;
+        }
+
+        const notice = document.createElement('div');
+        notice.className = 'workspace-file-viewer-binary';
+        notice.textContent = 'This file cannot be previewed in the HUD. Use Open in Finder to view it locally.';
+        body.appendChild(notice);
     }
 
     function buildMessageWithWorkspaceContext(text) {

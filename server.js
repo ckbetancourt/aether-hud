@@ -611,21 +611,45 @@ async function probeHermesDashboardStatus() {
 const {
   listAgentWorkspaces,
   getAgentBrowseRoots,
+  getHermesOutputRoots,
+  listHermesOutputFiles,
   switchAgentWorkspace,
   addUserFavorite,
 } = require('./lib/hermes-workspaces.js');
 
-const { assertBrowseAllowed, browseDirectory } = require('./lib/workspace-sandbox.js');
+const {
+  listHermesSkills,
+  getHermesSkill,
+  saveHermesSkill,
+  setHermesSkillEnabled,
+} = require('./lib/hermes-skills.js');
+
+const { assertBrowseAllowed, browseDirectory, listWorkspaceFiles, readWorkspaceFile, mimeFromExt } = require('./lib/workspace-sandbox.js');
 
 function combinedBrowseRoots(boardSlug) {
   const kanban = getKanbanBrowseRoots(boardSlug).roots;
   const agent = getAgentBrowseRoots();
-  return [...new Set([...agent, ...kanban])];
+  const hermes = getHermesOutputRoots();
+  return [...new Set([...agent, ...kanban, ...hermes])];
 }
 
 function browseWorkspacePath(requestedPath, boardSlug) {
   const abs = assertBrowseAllowed(requestedPath, combinedBrowseRoots(boardSlug));
   return browseDirectory(abs);
+}
+
+function listWorkspaceFilesPath(requestedPath, boardSlug) {
+  const abs = assertBrowseAllowed(requestedPath, combinedBrowseRoots(boardSlug));
+  return listWorkspaceFiles(abs);
+}
+
+function readWorkspaceFilePath(requestedPath, boardSlug) {
+  const abs = assertBrowseAllowed(requestedPath, combinedBrowseRoots(boardSlug));
+  return readWorkspaceFile(abs);
+}
+
+function resolveWorkspaceFilePath(requestedPath, boardSlug) {
+  return assertBrowseAllowed(requestedPath, combinedBrowseRoots(boardSlug));
 }
 
 function revealWorkspacePath(requestedPath, boardSlug) {
@@ -1609,6 +1633,34 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  const skillsToggleMatch = pathname.match(/^\/api\/hermes\/skills\/([^/]+)\/toggle$/);
+  if (req.method === 'POST' && skillsToggleMatch) {
+    try {
+      const body = await readBody(req);
+      const result = setHermesSkillEnabled(decodeURIComponent(skillsToggleMatch[1]), body?.enabled);
+      sendJson(res, 200, result);
+    } catch (e) {
+      const status = e.statusCode || 502;
+      console.error('[api/hermes/skills/toggle]', e.message || e);
+      sendJson(res, status, { available: false, error: e.message || 'Toggle failed' });
+    }
+    return;
+  }
+
+  const skillsNameMatch = pathname.match(/^\/api\/hermes\/skills\/([^/]+)$/);
+  if (req.method === 'PUT' && skillsNameMatch) {
+    try {
+      const body = await readBody(req);
+      const result = saveHermesSkill(decodeURIComponent(skillsNameMatch[1]), body?.content);
+      sendJson(res, 200, result);
+    } catch (e) {
+      const status = e.statusCode || 502;
+      console.error('[api/hermes/skills/save]', e.message || e);
+      sendJson(res, status, { available: false, error: e.message || 'Save failed' });
+    }
+    return;
+  }
+
   if (req.method === 'POST' && pathname === '/api/tts/replay-cache/register') {
     try {
       const body = await readBody(req);
@@ -1751,6 +1803,40 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (pathname === '/api/hermes/files') {
+      try {
+        const result = listHermesOutputFiles();
+        sendJson(res, 200, result);
+      } catch (e) {
+        console.error('[api/hermes/files]', e.message || e);
+        sendJson(res, 502, { available: false, files: [], error: e.message || 'Hermes files unavailable' });
+      }
+      return;
+    }
+
+    if (pathname === '/api/hermes/skills') {
+      try {
+        const result = listHermesSkills();
+        sendJson(res, 200, result);
+      } catch (e) {
+        console.error('[api/hermes/skills]', e.message || e);
+        sendJson(res, 502, { available: false, items: [], error: e.message || 'Skills unavailable' });
+      }
+      return;
+    }
+
+    if (skillsNameMatch) {
+      try {
+        const result = getHermesSkill(decodeURIComponent(skillsNameMatch[1]));
+        sendJson(res, 200, result);
+      } catch (e) {
+        const status = e.statusCode || 502;
+        console.error('[api/hermes/skills/get]', e.message || e);
+        sendJson(res, status, { available: false, error: e.message || 'Skill not found' });
+      }
+      return;
+    }
+
     const kanbanBrowseMatch = pathname === '/api/hermes/kanban/browse';
     if (kanbanBrowseMatch) {
       const browsePath = u.searchParams.get('path') || '';
@@ -1762,6 +1848,67 @@ const server = http.createServer(async (req, res) => {
         const status = e.statusCode || 502;
         console.error('[api/hermes/kanban/browse]', e.message || e);
         sendJson(res, status, { available: false, error: e.message || 'Browse failed' });
+      }
+      return;
+    }
+
+    const kanbanFilesMatch = pathname === '/api/hermes/kanban/files';
+    if (kanbanFilesMatch) {
+      const filesPath = u.searchParams.get('path') || '';
+      const board = u.searchParams.get('board') || '';
+      try {
+        const result = listWorkspaceFilesPath(filesPath, board || undefined);
+        sendJson(res, 200, { available: true, ...result });
+      } catch (e) {
+        const status = e.statusCode || 502;
+        console.error('[api/hermes/kanban/files]', e.message || e);
+        sendJson(res, status, { available: false, error: e.message || 'File list failed' });
+      }
+      return;
+    }
+
+    const kanbanReadMatch = pathname === '/api/hermes/kanban/read';
+    if (kanbanReadMatch) {
+      const readPath = u.searchParams.get('path') || '';
+      const board = u.searchParams.get('board') || '';
+      try {
+        const result = readWorkspaceFilePath(readPath, board || undefined);
+        sendJson(res, 200, { available: true, ...result });
+      } catch (e) {
+        const status = e.statusCode || 502;
+        console.error('[api/hermes/kanban/read]', e.message || e);
+        sendJson(res, status, { available: false, error: e.message || 'Read failed' });
+      }
+      return;
+    }
+
+    const kanbanFileMatch = pathname === '/api/hermes/kanban/file';
+    if (kanbanFileMatch) {
+      const filePath = u.searchParams.get('path') || '';
+      const board = u.searchParams.get('board') || '';
+      try {
+        const abs = resolveWorkspaceFilePath(filePath, board || undefined);
+        if (!fs.existsSync(abs)) {
+          sendJson(res, 404, { error: 'File not found' });
+          return;
+        }
+        const st = fs.statSync(abs);
+        if (!st.isFile()) {
+          sendJson(res, 400, { error: 'Path is not a file' });
+          return;
+        }
+        const ext = path.extname(abs).toLowerCase();
+        res.writeHead(200, {
+          'Content-Type': mimeFromExt(ext),
+          'Content-Length': st.size,
+          'Cache-Control': 'no-store',
+          ...corsHeaders(),
+        });
+        fs.createReadStream(abs).pipe(res);
+      } catch (e) {
+        const status = e.statusCode || 502;
+        console.error('[api/hermes/kanban/file]', e.message || e);
+        sendJson(res, status, { available: false, error: e.message || 'File unavailable' });
       }
       return;
     }

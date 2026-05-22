@@ -105,6 +105,30 @@ class JarvisHUD {
         this.presentationMode = 'default';
         this.coreVisualizerEl = this.canvas?.closest('.hud-core-visualizer') || null;
         this._kanbanDriftPhase = Math.random() * Math.PI * 2;
+        this.poke = {
+            active: false,
+            reaction: null,
+            startedAt: 0,
+            duration: 0,
+            intensity: 0,
+            recentTimestamps: [],
+            cooldownUntil: 0,
+            labelTimer: null,
+        };
+        this.pokeStatusMessages = {
+            laugh: ['Hehe!', '*giggles*', 'That tickles!'],
+            tickle: ['Eeee!', '*squirms*', 'Stop— hehe!'],
+            surprised: ['Oh!', 'Hi there!', 'Boop!'],
+            annoyed: ['Hey…', 'Again?', 'Cut it out…'],
+            mad: ['OK STOP!', 'I mean it!', 'Enough already!'],
+        };
+        this.pokeDurations = {
+            laugh: 1350,
+            tickle: 1650,
+            surprised: 850,
+            annoyed: 1100,
+            mad: 2000,
+        };
 
         this.postTalkVariants = [
             { id: 'pt-stage-soft-return', layer: 'stage', intensity: 'subtle', weight: 1.5, durationScale: 0.88 },
@@ -995,6 +1019,16 @@ class JarvisHUD {
             return;
         }
 
+        if (this.poke.active) {
+            target = this.getPokeStageTarget();
+            const ease = this.poke.reaction === 'tickle' ? 0.22 : 0.14;
+            this.stageMotion.x += (target.x - this.stageMotion.x) * ease;
+            this.stageMotion.y += (target.y - this.stageMotion.y) * ease;
+            this.stageMotion.rotate += (target.rotate - this.stageMotion.rotate) * ease;
+            this.stageMotion.scale += (target.scale - this.stageMotion.scale) * ease;
+            return;
+        }
+
         if (this.state === 'thinking') {
             const stageId = behavior?.thinkingLayers?.stage || 'th-stage-orbit';
             target = this.getThinkingStageTarget(this.avatarForm, stageId);
@@ -1661,7 +1695,7 @@ class JarvisHUD {
         }
 
         this.updateAvatarBehavior();
-        
+        this.updatePokeInteraction();
         const primaryColor = this.accentTheme.primary;
         const secondaryColor = this.accentTheme.secondary;
         const glowColor = this.accentTheme.glow;
@@ -2285,6 +2319,219 @@ class JarvisHUD {
         }
     }
 
+    canAcceptPoke() {
+        if (this.presentationMode === 'kanban') return false;
+        if (this.state !== 'idle') return false;
+        return performance.now() >= this.poke.cooldownUntil;
+    }
+
+    pokeAvatar() {
+        if (!this.canAcceptPoke()) return false;
+        const now = performance.now();
+        this.poke.recentTimestamps = this.poke.recentTimestamps.filter((t) => now - t < 4000);
+        this.poke.recentTimestamps.push(now);
+        const count = this.poke.recentTimestamps.length;
+
+        let reaction;
+        if (count >= 7) {
+            reaction = 'mad';
+            this.poke.recentTimestamps = [];
+            this.poke.cooldownUntil = now + 3200;
+        } else if (count >= 5) {
+            reaction = 'annoyed';
+        } else {
+            const roll = Math.random();
+            reaction = roll < 0.38 ? 'laugh' : roll < 0.72 ? 'tickle' : 'surprised';
+        }
+
+        this.startPokeReaction(reaction, now);
+        return true;
+    }
+
+    startPokeReaction(reaction, now = performance.now()) {
+        const duration = this.pokeDurations[reaction] || 1200;
+        this.poke.active = true;
+        this.poke.reaction = reaction;
+        this.poke.startedAt = now;
+        this.poke.duration = duration;
+        this.poke.intensity = 1;
+
+        if (this.avatarBehavior) {
+            this.avatarBehavior.action = 'none';
+            this.avatarBehavior.actionIntensity = 0;
+        }
+
+        if (this.isCreatureAvatar()) {
+            if (reaction === 'laugh' || reaction === 'tickle' || reaction === 'surprised') {
+                this.creatureMouthShape = reaction === 'surprised' ? 'round' : 'smile';
+                this.creatureMouthOpen = reaction === 'laugh' ? 0.22 : 0.12;
+            } else {
+                this.creatureMouthShape = 'flat';
+                this.creatureMouthOpen = 0.04;
+            }
+            this.syncLegacyCreatureFields();
+        }
+
+        this.coreVisualizerEl?.classList.toggle('poke-mad', reaction === 'mad');
+        const statusLabel = document.getElementById('hudOrbLabel');
+        statusLabel?.classList.toggle('poke-mad-label', reaction === 'mad' || reaction === 'annoyed');
+
+        const messages = this.pokeStatusMessages[reaction] || this.pokeStatusMessages.surprised;
+        this.showPokeStatus(messages[Math.floor(Math.random() * messages.length)], duration);
+
+        const shockScale = reaction === 'mad' ? 1.35 : reaction === 'annoyed' ? 1.1 : 0.75;
+        this.shockwaves.push({
+            radius: 8,
+            maxRadius: 220 * shockScale,
+            speed: reaction === 'mad' ? 14 : 10,
+            alpha: reaction === 'mad' ? 0.95 : 0.65,
+            width: reaction === 'mad' ? 4 : 2.5,
+        });
+
+        if (this.isCreatureAvatar()) {
+            this.syncCreatureAvatarShell();
+        }
+    }
+
+    showPokeStatus(message, duration) {
+        const statusLabel = document.getElementById('hudOrbLabel');
+        if (!statusLabel || !message) return;
+        statusLabel.textContent = message;
+        clearTimeout(this.poke.labelTimer);
+        this.poke.labelTimer = setTimeout(() => {
+            if (this.poke.active) return;
+            this.setState(this.state);
+            statusLabel.classList.remove('poke-mad-label');
+        }, duration + 80);
+    }
+
+    getPokeStageTarget() {
+        const poke = this.poke;
+        if (!poke.active) return { x: 0, y: 0, rotate: 0, scale: 1 };
+        const t = Math.min(1, (performance.now() - poke.startedAt) / Math.max(1, poke.duration));
+        const i = Math.sin(t * Math.PI);
+        const wobble = Math.sin(t * Math.PI * (poke.reaction === 'tickle' ? 14 : 8));
+
+        switch (poke.reaction) {
+            case 'laugh':
+                return {
+                    x: 6 * wobble * i,
+                    y: -20 * i * Math.abs(Math.sin(t * Math.PI * 5)),
+                    rotate: 5 * wobble * i,
+                    scale: 1 + 0.04 * i,
+                };
+            case 'tickle':
+                return {
+                    x: 24 * Math.sin(t * Math.PI * 11) * i,
+                    y: 14 * Math.cos(t * Math.PI * 9) * i,
+                    rotate: 10 * Math.sin(t * Math.PI * 13) * i,
+                    scale: 1 + 0.03 * Math.sin(t * Math.PI * 6) * i,
+                };
+            case 'surprised':
+                return {
+                    x: 0,
+                    y: -28 * Math.sin(t * Math.PI) * (t < 0.55 ? 1 : 1 - (t - 0.55) / 0.45),
+                    rotate: 0,
+                    scale: 1 + 0.06 * Math.sin(t * Math.PI),
+                };
+            case 'annoyed':
+                return {
+                    x: 8 * Math.sin(t * Math.PI * 6) * i,
+                    y: -4 * i,
+                    rotate: -6 * i * (t < 0.5 ? 1 : -0.6),
+                    scale: 1 - 0.02 * i,
+                };
+            case 'mad':
+                return {
+                    x: 10 * Math.sin(t * Math.PI * 18) * i,
+                    y: 3 * Math.sin(t * Math.PI * 12) * i,
+                    rotate: -4 * i + 3 * Math.sin(t * Math.PI * 20) * i,
+                    scale: 1 - 0.05 * i,
+                };
+            default:
+                return { x: 0, y: 0, rotate: 0, scale: 1 };
+        }
+    }
+
+    updatePokeInteraction(now = performance.now()) {
+        const poke = this.poke;
+        if (!poke.active) return;
+
+        const progress = (now - poke.startedAt) / Math.max(1, poke.duration);
+        poke.intensity = Math.sin(Math.min(1, progress) * Math.PI);
+
+        if (progress >= 1) {
+            poke.active = false;
+            poke.reaction = null;
+            poke.intensity = 0;
+            this.coreVisualizerEl?.classList.remove('poke-mad');
+            document.getElementById('hudOrbLabel')?.classList.remove('poke-mad-label');
+            if (this.isCreatureAvatar()) {
+                this.creatureMouthShape = 'closed';
+                this.creatureMouthOpen = 0;
+                this.syncLegacyCreatureFields();
+                this.syncCreatureAvatarShell();
+            } else {
+                this.setState(this.state);
+            }
+        } else if (this.isCreatureAvatar() && (poke.reaction === 'laugh' || poke.reaction === 'tickle')) {
+            this.creatureMouthOpen = 0.08 + poke.intensity * 0.18;
+            this.syncLegacyCreatureFields();
+            this.syncCreatureAvatarShell();
+        }
+    }
+
+    applyPokeBlobOverlay(targets) {
+        if (!this.poke.active || this.avatarForm !== 'classic-blob') return false;
+        const i = this.poke.intensity;
+        const reaction = this.poke.reaction;
+
+        switch (reaction) {
+            case 'laugh':
+                targets.targetScale += 0.1 * i;
+                targets.targetWeight1 += 0.06 * i;
+                targets.targetWeight2 += 0.05 * i;
+                targets.targetStretchY += 0.04 * i;
+                this.blobCoreShimmer = i * 0.9;
+                this.blobRingPulse = i * 0.6;
+                break;
+            case 'tickle':
+                targets.targetLobe1 += 1.2 * i * Math.sin(this.time * 8);
+                targets.targetLobe3 -= 0.9 * i * Math.cos(this.time * 7);
+                targets.targetStretchX += 0.06 * i * Math.sin(this.time * 10);
+                targets.targetStretchY += 0.05 * i * Math.cos(this.time * 9);
+                targets.targetScale += 0.04 * i;
+                this.blobCoreShimmer = i * 0.7;
+                break;
+            case 'surprised':
+                targets.targetScale += 0.14 * i;
+                targets.targetStretchY -= 0.08 * i;
+                this.blobRingPulse = i * 1.1;
+                this.blobCoreShimmer = i * 0.85;
+                break;
+            case 'annoyed':
+                targets.targetScale -= 0.06 * i;
+                targets.targetStretchX = 1 - 0.04 * i;
+                targets.targetLobe2 += 0.6 * i;
+                this.blobRingPulse = i * 0.5;
+                break;
+            case 'mad':
+                targets.targetScale -= 0.12 * i;
+                targets.targetStretchX = 0.92 + (1 - i) * 0.08;
+                targets.targetStretchY = 1.04 - i * 0.06;
+                targets.targetLobe1 += 1.5 * i;
+                targets.targetLobe4 += 1.2 * i;
+                targets.targetWeight1 += 0.1 * i;
+                this.blobCoreShimmer = i * 0.4;
+                this.blobRingPulse = i * 1.2;
+                targets.noiseAmpBoost = (targets.noiseAmpBoost || 0) + 12 * i;
+                break;
+            default:
+                break;
+        }
+        return true;
+    }
+
     triggerThinkingToolBurst(toolName = '') {
         if (this.state !== 'thinking') return;
         const name = String(toolName || '').toLowerCase();
@@ -2319,6 +2566,7 @@ class JarvisHUD {
         this.blobRingPulse = 0;
         this.blobLaserBoost = 0;
         if (this.avatarForm !== 'classic-blob') return;
+        if (this.applyPokeBlobOverlay(targets)) return;
 
         const behavior = this.avatarBehavior;
         const action = behavior?.action;
@@ -2465,7 +2713,7 @@ class JarvisHUD {
                 this.refreshThinkingLayersIfDue(now);
             }
             const phaseRange = this.getActionRangeForState(this.state, profile);
-            if (now >= behavior.nextPhaseActionAt && behavior.action === 'none') {
+            if (!this.poke.active && now >= behavior.nextPhaseActionAt && behavior.action === 'none') {
                 if (this.presentationMode !== 'kanban' || this.state !== 'idle') {
                     this.triggerPhaseAvatarAction(now);
                 } else {
@@ -2766,7 +3014,20 @@ class JarvisHUD {
         }
         this.avatarLayer.dataset.state = this.state;
         this.avatarLayer.dataset.action = behavior.action || 'none';
-        this.avatarLayer.dataset.expression = behavior.expression || this.getExpressionForState(this.state);
+        if (this.poke.active && this.poke.reaction) {
+            this.avatarLayer.dataset.poke = this.poke.reaction;
+            const pokeExpressions = {
+                laugh: 'happy',
+                tickle: 'happy',
+                surprised: 'attentive',
+                annoyed: 'focused',
+                mad: 'focused',
+            };
+            this.avatarLayer.dataset.expression = pokeExpressions[this.poke.reaction] || 'neutral';
+        } else {
+            delete this.avatarLayer.dataset.poke;
+            this.avatarLayer.dataset.expression = behavior.expression || this.getExpressionForState(this.state);
+        }
         this.syncCreatureMouthRig(pose);
     }
 

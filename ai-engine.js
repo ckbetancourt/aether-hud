@@ -545,6 +545,106 @@ class AIEngine {
         return data;
     }
 
+    async listWorkspaceFiles(pathValue, board) {
+        const baseUrl = this.resolveLlmBackendBaseUrl();
+        if (!baseUrl || !pathValue) return { available: false, files: [] };
+        const params = new URLSearchParams({ path: String(pathValue) });
+        if (board) params.set('board', String(board));
+        const response = await fetch(`${baseUrl}/api/hermes/kanban/files?${params}`);
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(data.error || data.message || `HTTP ${response.status}`);
+        }
+        return data;
+    }
+
+    async getHermesFiles() {
+        const baseUrl = this.resolveLlmBackendBaseUrl();
+        if (!baseUrl) return { available: false, files: [] };
+        const response = await fetch(`${baseUrl}/api/hermes/files`);
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(data.error || data.message || `HTTP ${response.status}`);
+        }
+        return data;
+    }
+
+    async getHermesSkills() {
+        const baseUrl = this.resolveLlmBackendBaseUrl();
+        if (!baseUrl) return { available: false, items: [] };
+        const response = await fetch(`${baseUrl}/api/hermes/skills`);
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(data.error || data.message || `HTTP ${response.status}`);
+        }
+        return data;
+    }
+
+    async getHermesSkill(name) {
+        const baseUrl = this.resolveLlmBackendBaseUrl();
+        if (!baseUrl || !name) throw new Error('Skill name is required.');
+        const encoded = encodeURIComponent(String(name));
+        const response = await fetch(`${baseUrl}/api/hermes/skills/${encoded}`);
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(data.error || data.message || `HTTP ${response.status}`);
+        }
+        return data;
+    }
+
+    async saveHermesSkill(name, content) {
+        const baseUrl = this.resolveLlmBackendBaseUrl();
+        if (!baseUrl || !name) throw new Error('Skill name is required.');
+        const encoded = encodeURIComponent(String(name));
+        const response = await fetch(`${baseUrl}/api/hermes/skills/${encoded}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(data.error || data.message || `HTTP ${response.status}`);
+        }
+        return data;
+    }
+
+    async setHermesSkillEnabled(name, enabled) {
+        const baseUrl = this.resolveLlmBackendBaseUrl();
+        if (!baseUrl || !name) throw new Error('Skill name is required.');
+        const encoded = encodeURIComponent(String(name));
+        const response = await fetch(`${baseUrl}/api/hermes/skills/${encoded}/toggle`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ enabled: !!enabled }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(data.error || data.message || `HTTP ${response.status}`);
+        }
+        return data;
+    }
+
+    async readWorkspaceFile(pathValue, board) {
+        const baseUrl = this.resolveLlmBackendBaseUrl();
+        if (!baseUrl || !pathValue) throw new Error('Path is required.');
+        const params = new URLSearchParams({ path: String(pathValue) });
+        if (board) params.set('board', String(board));
+        const response = await fetch(`${baseUrl}/api/hermes/kanban/read?${params}`);
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(data.error || data.message || `HTTP ${response.status}`);
+        }
+        return data;
+    }
+
+    workspaceFileUrl(pathValue, board) {
+        const baseUrl = this.resolveLlmBackendBaseUrl();
+        if (!baseUrl || !pathValue) return '';
+        const params = new URLSearchParams({ path: String(pathValue) });
+        if (board) params.set('board', String(board));
+        return `${baseUrl}/api/hermes/kanban/file?${params}`;
+    }
+
     async revealKanbanPath(pathValue, board) {
         const baseUrl = this.resolveLlmBackendBaseUrl();
         if (!baseUrl || !pathValue) throw new Error('Path is required.');
