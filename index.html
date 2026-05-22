@@ -146,6 +146,280 @@
             <aside class="kanban-drawer-root" id="kanbanDrawerRoot" hidden aria-label="Task details"></aside>
         </section>
 
+        <!-- Full-viewport settings page -->
+        <section class="settings-page glass-panel" id="settingsPage" hidden aria-label="Settings">
+            <header class="settings-page-header">
+                <div class="settings-page-header-start">
+                    <button type="button" class="settings-page-back" id="closeSettingsBtn" aria-label="Back to HUD">
+                        <i data-lucide="arrow-left" style="width:18px; height:18px;"></i>
+                    </button>
+                    <div>
+                        <span class="modal-kicker">Aether HUD</span>
+                        <h2 id="settingsModalTitle">Settings</h2>
+                    </div>
+                </div>
+                <span class="badge badge-status" id="settingsHermesBadge">HERMES</span>
+            </header>
+
+            <div class="settings-page-body">
+                <nav class="settings-sidebar" aria-label="Settings sections">
+                    <div class="settings-sidebar-group">
+                        <span class="settings-sidebar-label">HUD</span>
+                        <button type="button" class="settings-nav-item active" data-settings-section="appearance" aria-current="page">Appearance</button>
+                        <button type="button" class="settings-nav-item" data-settings-section="response">Response</button>
+                    </div>
+                    <div class="settings-sidebar-group">
+                        <span class="settings-sidebar-label">Voice &amp; Input</span>
+                        <button type="button" class="settings-nav-item" data-settings-section="speech">Speech</button>
+                        <button type="button" class="settings-nav-item" data-settings-section="microphone">Microphone</button>
+                    </div>
+                    <div class="settings-sidebar-group">
+                        <span class="settings-sidebar-label">Hermes</span>
+                        <button type="button" class="settings-nav-item" data-settings-section="agent">Agent</button>
+                        <button type="button" class="settings-nav-item" data-settings-section="context">Context</button>
+                        <button type="button" class="settings-nav-item" data-settings-section="skills">Skills</button>
+                        <button type="button" class="settings-nav-item" data-settings-section="jobs">Jobs</button>
+                        <button type="button" class="settings-nav-item" data-settings-section="config">Config</button>
+                    </div>
+                    <div class="settings-sidebar-group">
+                        <span class="settings-sidebar-label">Data</span>
+                        <button type="button" class="settings-nav-item" data-settings-section="vault">Vault</button>
+                    </div>
+                </nav>
+
+                <main class="settings-content">
+                    <section class="settings-panel active" id="settingsPanelAppearance" data-settings-panel="appearance">
+                        <div class="settings-panel-heading">
+                            <h3>Appearance</h3>
+                            <p>Control HUD contrast, surface tone, and readability.</p>
+                        </div>
+                        <div class="form-group">
+                            <label for="displayNameInput">Assistant name</label>
+                            <input type="text" class="form-select" id="displayNameInput" maxlength="32" placeholder="Aether" autocomplete="off" />
+                            <div class="form-hint">Shown in the header, status label, chat composer, and assistant replies.</div>
+                        </div>
+                        <div class="form-group">
+                            <label>Color mode</label>
+                            <div class="color-mode-row" id="colorModeRow" role="group" aria-label="Appearance mode"></div>
+                            <div class="form-hint">Control the HUD surface tone and contrast.</div>
+                        </div>
+                        <div class="form-group">
+                            <label>HUD accent</label>
+                            <div class="accent-swatch-row" id="accentSwatchRow" role="group" aria-label="HUD accent color">
+                                <button type="button" class="accent-swatch active" data-accent-theme="jarvis-red" title="Jarvis Red" aria-label="Jarvis Red" aria-pressed="true" style="--swatch-primary: #ff4436; --swatch-secondary: #ff6e40;"></button>
+                                <button type="button" class="accent-swatch" data-accent-theme="jarvis-blue" title="Jarvis Blue" aria-label="Jarvis Blue" aria-pressed="false" style="--swatch-primary: #00c8ff; --swatch-secondary: #00e8ff;"></button>
+                                <button type="button" class="accent-swatch" data-accent-theme="amber" title="Amber" aria-label="Amber" aria-pressed="false" style="--swatch-primary: #ff9800; --swatch-secondary: #ffb74d;"></button>
+                                <button type="button" class="accent-swatch" data-accent-theme="emerald" title="Emerald" aria-label="Emerald" aria-pressed="false" style="--swatch-primary: #00f5a0; --swatch-secondary: #00d9f6;"></button>
+                                <button type="button" class="accent-swatch" data-accent-theme="violet" title="Violet" aria-label="Violet" aria-pressed="false" style="--swatch-primary: #f107a3; --swatch-secondary: #7b2ff7;"></button>
+                                <button type="button" class="accent-swatch" data-accent-theme="wisp" title="Wisp" aria-label="Wisp" aria-pressed="false" style="--swatch-primary: #b9a7ff; --swatch-secondary: #f3ecff;"></button>
+                                <button type="button" class="accent-swatch" data-accent-theme="gold" title="Gold" aria-label="Gold" aria-pressed="false" style="--swatch-primary: #ffd200; --swatch-secondary: #f7971e;"></button>
+                            </div>
+                            <div class="form-hint">Controls orb, Nova, chat highlights, and HUD glow color.</div>
+                        </div>
+                        <div class="form-group">
+                            <label>Avatar form</label>
+                            <div class="avatar-form-row" id="avatarFormRow" role="group" aria-label="Aether avatar form">
+                                <button type="button" class="avatar-form-btn active" data-avatar-form="classic-blob" aria-pressed="true">Classic Blob</button>
+                                <button type="button" class="avatar-form-btn" data-avatar-form="nova" aria-pressed="false">Nova</button>
+                                <button type="button" class="avatar-form-btn" data-avatar-form="wisp" aria-pressed="false">Wisp</button>
+                                <button type="button" class="avatar-form-btn" data-avatar-form="eve" aria-pressed="false">EVE</button>
+                            </div>
+                            <div class="form-hint">Choose the central Aether visualization. Nova, Wisp, and EVE are companion creature forms.</div>
+                        </div>
+                    </section>
+
+                    <section class="settings-panel" id="settingsPanelResponse" data-settings-panel="response" hidden>
+                        <div class="settings-panel-heading">
+                            <h3>Response</h3>
+                            <p>Tune response rendering and streaming feel.</p>
+                        </div>
+                        <div class="form-group">
+                            <label for="simulationSpeed">AI typewriting delay</label>
+                            <div class="range-control">
+                                <input type="range" id="simulationSpeed" min="1" max="10" step="1" value="5">
+                                <span id="simulationSpeedVal">Normal</span>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="settings-panel" id="settingsPanelSpeech" data-settings-panel="speech" hidden>
+                        <div class="settings-panel-heading">
+                            <h3>Speech</h3>
+                            <p>Choose voice output, preview voices, and tune replay behavior.</p>
+                        </div>
+                        <div class="form-group">
+                            <label for="ttsProvider">Speech engine</label>
+                            <select class="form-select" id="ttsProvider">
+                                <option value="browser">Browser (built-in)</option>
+                                <option value="elevenlabs">ElevenLabs</option>
+                                <option value="omnivoice">OmniVoice (local)</option>
+                            </select>
+                        </div>
+                        <div class="form-group" id="omnivoiceInstructGroup" hidden>
+                            <label for="omnivoiceInstruct">Voice design instruct</label>
+                            <input type="text" class="form-select" id="omnivoiceInstruct" placeholder="female, low pitch, british accent" autocomplete="off" />
+                            <div class="form-hint">Used when no clone sample is selected. Ignored when a sample is chosen.</div>
+                        </div>
+                        <div class="form-group">
+                            <label for="synthVoice">Speech voice</label>
+                            <div class="voice-select-row">
+                                <select class="form-select" id="synthVoice"></select>
+                                <button type="button" class="voice-preview-btn" id="voicePreviewBtn" title="Play voice sample">
+                                    <i data-lucide="volume-2" style="width:16px; height:16px;"></i>
+                                </button>
+                            </div>
+                            <div class="form-hint" id="ttsProviderHint">Uses your browser&apos;s built-in speech synthesis (no model download).</div>
+                        </div>
+                        <div class="settings-grid-compact">
+                            <div class="form-group">
+                                <label for="synthSpeed">Telemetry vocal speed</label>
+                                <div class="range-control">
+                                    <input type="range" id="synthSpeed" min="0.5" max="2" step="0.1" value="1.0">
+                                    <span id="synthSpeedVal">1.0x</span>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="ttsReplayCacheSize">Replay history size</label>
+                                <div class="range-control">
+                                    <input type="range" id="ttsReplayCacheSize" min="1" max="20" step="1" value="5">
+                                    <span id="ttsReplayCacheSizeVal">5</span>
+                                </div>
+                                <div class="form-hint">Keeps the last N spoken replies for replay.</div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="settings-panel" id="settingsPanelMicrophone" data-settings-panel="microphone" hidden>
+                        <div class="settings-panel-heading">
+                            <h3>Microphone</h3>
+                            <p>Control how spoken input is routed in the HUD.</p>
+                        </div>
+                        <div class="form-group">
+                            <label for="voiceInputBehavior">Microphone voice behavior</label>
+                            <select class="form-select" id="voiceInputBehavior">
+                                <option value="auto">Auto-detect (Fill Chat when open, Send when closed)</option>
+                                <option value="chat">Always insert into Chat Input</option>
+                                <option value="llm">Always send directly to LLM</option>
+                            </select>
+                            <div class="form-hint">Control whether spoken audio queries Aether immediately or populates the composer for review.</div>
+                        </div>
+                    </section>
+
+                    <section class="settings-panel" id="settingsPanelAgent" data-settings-panel="agent" hidden>
+                        <div class="settings-panel-heading">
+                            <h3>Agent</h3>
+                            <p>Hermes profile and model selection for the active session.</p>
+                        </div>
+                        <div class="form-group">
+                            <label for="hermesProfileSelect">Hermes runtime profile</label>
+                            <select class="form-select" id="hermesProfileSelect">
+                                <option value="">Hermes default profile</option>
+                            </select>
+                            <div class="form-hint" id="hermesStatusText">Hermes mode is detected from the local Aether server.</div>
+                        </div>
+                        <div class="form-group">
+                            <label>Active model</label>
+                            <div class="settings-agent-model-row">
+                                <span class="settings-agent-model-display" id="settingsAgentModelDisplay">(loading…)</span>
+                                <button class="action-btn btn-secondary" type="button" id="settingsChangeModelBtn">Change model</button>
+                            </div>
+                            <div class="form-hint">Quick model switching is also available from the bottom HUD pill.</div>
+                        </div>
+                    </section>
+
+                    <section class="settings-panel" id="settingsPanelContext" data-settings-panel="context" hidden>
+                        <div class="settings-panel-heading">
+                            <h3>Hermes context files</h3>
+                            <p>Edit MEMORY.md, USER.md, SOUL.md, and project context files Hermes injects into every conversation.</p>
+                        </div>
+                        <div class="context-file-list" id="contextFileList"></div>
+                        <div class="form-group" id="contextEditorGroup" hidden>
+                            <label for="contextFileEditor" id="contextEditorLabel">Editor</label>
+                            <textarea class="form-select context-file-editor" id="contextFileEditor" rows="12" spellcheck="false"></textarea>
+                            <div class="form-hint" id="contextEditorHint"></div>
+                            <button class="action-btn btn-primary" type="button" id="saveContextFileBtn" style="margin-top:8px;">Save file</button>
+                        </div>
+                    </section>
+
+                    <section class="settings-panel settings-panel-skills" id="settingsPanelSkills" data-settings-panel="skills" hidden>
+                        <div class="settings-panel-heading">
+                            <h3>Skills</h3>
+                            <p class="skills-modal-path" id="skillsModalPath">Loading skills directory…</p>
+                        </div>
+                        <div class="skills-toolbar">
+                            <input type="search" class="form-select skills-search" id="skillsSearch" placeholder="Filter skills…" autocomplete="off" />
+                            <button class="settings-gear-btn skills-refresh-btn" id="refreshSkillsBtn" type="button" title="Refresh skills">
+                                <i data-lucide="refresh-cw" style="width:14px; height:14px;"></i>
+                            </button>
+                        </div>
+                        <div class="skills-filter-row" role="tablist" aria-label="Skill source filters">
+                            <button class="skills-filter-btn active" type="button" role="tab" data-skills-filter="all" aria-selected="true">All</button>
+                            <button class="skills-filter-btn" type="button" role="tab" data-skills-filter="native" aria-selected="false">Native</button>
+                            <button class="skills-filter-btn" type="button" role="tab" data-skills-filter="custom" aria-selected="false">Custom</button>
+                        </div>
+                        <div class="skills-status" id="skillsStatus" hidden></div>
+                        <div class="skills-columns settings-skills-columns">
+                            <div class="skills-list-column">
+                                <div class="skills-column-title">Installed</div>
+                                <div class="skills-list" id="skillsList" role="listbox" aria-label="Installed skills"></div>
+                            </div>
+                            <div class="skills-editor-column">
+                                <div class="skills-column-title">SKILL.md</div>
+                                <div class="skills-editor-empty" id="skillsEditorEmpty">Select a skill to view or edit its instructions.</div>
+                                <textarea class="skills-editor" id="skillsEditor" hidden spellcheck="false" aria-label="Skill markdown content"></textarea>
+                            </div>
+                        </div>
+                        <div class="settings-skills-actions">
+                            <p class="skills-reload-hint">After saving or toggling, reload skills in the gateway or start a new session.</p>
+                            <div class="skills-action-buttons">
+                                <button class="action-btn btn-secondary" id="reloadSkillsBtn" type="button">Reload in gateway</button>
+                                <button class="action-btn btn-primary" id="saveSkillsBtn" type="button" disabled>Save skill</button>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="settings-panel" id="settingsPanelJobs" data-settings-panel="jobs" hidden>
+                        <div class="settings-panel-heading">
+                            <h3>Scheduled jobs</h3>
+                            <p>Hermes cron jobs via the gateway Jobs API. Requires API_SERVER_ENABLED on the gateway.</p>
+                        </div>
+                        <div class="jobs-toolbar">
+                            <button class="action-btn btn-secondary" type="button" id="refreshJobsBtn">Refresh</button>
+                            <button class="action-btn btn-primary" type="button" id="newJobBtn">New job</button>
+                        </div>
+                        <div class="jobs-list" id="jobsListPanel">
+                            <div class="form-hint">Loading jobs…</div>
+                        </div>
+                    </section>
+
+                    <section class="settings-panel" id="settingsPanelConfig" data-settings-panel="config" hidden>
+                        <div class="settings-panel-heading">
+                            <h3>Hermes runtime config</h3>
+                            <p>Read-only summary of MCP servers, toolsets, terminal backend, and security settings from config.yaml.</p>
+                        </div>
+                        <div class="config-summary" id="configSummaryPanel">
+                            <div class="form-hint">Loading config…</div>
+                        </div>
+                    </section>
+
+                    <section class="settings-panel" id="settingsPanelVault" data-settings-panel="vault" hidden>
+                        <div class="settings-panel-heading">
+                            <h3>Aether Vault</h3>
+                            <p>Indexed files Hermes creates — previews read from originals on disk.</p>
+                        </div>
+                        <div class="form-group">
+                            <button class="action-btn btn-secondary" id="settingsWorkspacesBtn" type="button">Open vault</button>
+                            <div class="form-hint">Browse Kanban task folders, pin paths to chat, and switch agent working directory. See <code>docs/VAULT.md</code>.</div>
+                        </div>
+                    </section>
+                </main>
+            </div>
+
+            <footer class="settings-page-footer">
+                <button class="action-btn btn-primary" id="saveSettingsBtn" type="button">Save configurations</button>
+            </footer>
+        </section>
+
         <!-- Dashboard bootstrap splash (sessions / model picker) -->
         <div class="dashboard-splash" id="dashboardSplash" hidden aria-live="polite">
             <span class="dashboard-splash-text" id="dashboardSplashText">Starting Hermes dashboard…</span>
@@ -350,223 +624,6 @@
     </div>
 
     <!-- ==========================================
-         SETTING MODAL OVERLAY
-         ========================================== -->
-    <div class="modal-overlay" id="settingsModal">
-        <div class="modal-content glass-panel" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle">
-            <div class="modal-title-bar">
-                <div>
-                    <span class="modal-kicker">Aether HUD</span>
-                    <h2 id="settingsModalTitle">Systems Configs</h2>
-                </div>
-                <button class="modal-close" id="closeSettingsBtn" type="button" aria-label="Close settings">&times;</button>
-            </div>
-
-            <div class="settings-tabs" role="tablist" aria-label="Settings sections">
-                <button class="settings-tab active" type="button" role="tab" id="settingsTabAppearance" aria-selected="true" aria-controls="settingsPanelAppearance" data-settings-tab="appearance">Appearance</button>
-                <button class="settings-tab" type="button" role="tab" id="settingsTabSpeech" aria-selected="false" aria-controls="settingsPanelSpeech" data-settings-tab="speech">Speech</button>
-                <button class="settings-tab" type="button" role="tab" id="settingsTabRuntime" aria-selected="false" aria-controls="settingsPanelRuntime" data-settings-tab="runtime">Runtime</button>
-                <button class="settings-tab" type="button" role="tab" id="settingsTabContext" aria-selected="false" aria-controls="settingsPanelContext" data-settings-tab="context">Context</button>
-                <button class="settings-tab" type="button" role="tab" id="settingsTabConfig" aria-selected="false" aria-controls="settingsPanelConfig" data-settings-tab="config">Config</button>
-                <button class="settings-tab" type="button" role="tab" id="settingsTabJobs" aria-selected="false" aria-controls="settingsPanelJobs" data-settings-tab="jobs">Jobs</button>
-                <button class="settings-tab" type="button" role="tab" id="settingsTabResponse" aria-selected="false" aria-controls="settingsPanelResponse" data-settings-tab="response">Response</button>
-            </div>
-            
-            <div class="modal-body">
-                <section class="settings-panel active" id="settingsPanelAppearance" role="tabpanel" aria-labelledby="settingsTabAppearance" data-settings-panel="appearance">
-                    <div class="settings-panel-heading">
-                        <h3>Appearance</h3>
-                        <p>Control HUD contrast, surface tone, and readability.</p>
-                    </div>
-                    <div class="form-group">
-                        <label for="displayNameInput">Assistant name</label>
-                        <input type="text" class="form-select" id="displayNameInput" maxlength="32" placeholder="Aether" autocomplete="off" />
-                        <div class="form-hint">Shown in the header, status label, chat composer, and assistant replies.</div>
-                    </div>
-                    <div class="form-group">
-                        <label>Color mode</label>
-                        <div class="color-mode-row" id="colorModeRow" role="group" aria-label="Appearance mode"></div>
-                        <div class="form-hint">Control the HUD surface tone and contrast.</div>
-                    </div>
-                    <div class="form-group">
-                        <label>HUD accent</label>
-                        <div class="accent-swatch-row" id="accentSwatchRow" role="group" aria-label="HUD accent color">
-                            <button type="button" class="accent-swatch active" data-accent-theme="jarvis-red" title="Jarvis Red" aria-label="Jarvis Red" aria-pressed="true" style="--swatch-primary: #ff4436; --swatch-secondary: #ff6e40;"></button>
-                            <button type="button" class="accent-swatch" data-accent-theme="jarvis-blue" title="Jarvis Blue" aria-label="Jarvis Blue" aria-pressed="false" style="--swatch-primary: #00c8ff; --swatch-secondary: #00e8ff;"></button>
-                            <button type="button" class="accent-swatch" data-accent-theme="amber" title="Amber" aria-label="Amber" aria-pressed="false" style="--swatch-primary: #ff9800; --swatch-secondary: #ffb74d;"></button>
-                            <button type="button" class="accent-swatch" data-accent-theme="emerald" title="Emerald" aria-label="Emerald" aria-pressed="false" style="--swatch-primary: #00f5a0; --swatch-secondary: #00d9f6;"></button>
-                            <button type="button" class="accent-swatch" data-accent-theme="violet" title="Violet" aria-label="Violet" aria-pressed="false" style="--swatch-primary: #f107a3; --swatch-secondary: #7b2ff7;"></button>
-                            <button type="button" class="accent-swatch" data-accent-theme="wisp" title="Wisp" aria-label="Wisp" aria-pressed="false" style="--swatch-primary: #b9a7ff; --swatch-secondary: #f3ecff;"></button>
-                            <button type="button" class="accent-swatch" data-accent-theme="gold" title="Gold" aria-label="Gold" aria-pressed="false" style="--swatch-primary: #ffd200; --swatch-secondary: #f7971e;"></button>
-                        </div>
-                        <div class="form-hint">Controls orb, Nova, chat highlights, and HUD glow color.</div>
-                    </div>
-                    <div class="form-group">
-                        <label>Avatar form</label>
-                        <div class="avatar-form-row" id="avatarFormRow" role="group" aria-label="Aether avatar form">
-                            <button type="button" class="avatar-form-btn active" data-avatar-form="classic-blob" aria-pressed="true">
-                                Classic Blob
-                            </button>
-                            <button type="button" class="avatar-form-btn" data-avatar-form="nova" aria-pressed="false">
-                                Nova
-                            </button>
-                            <button type="button" class="avatar-form-btn" data-avatar-form="wisp" aria-pressed="false">
-                                Wisp
-                            </button>
-                            <button type="button" class="avatar-form-btn" data-avatar-form="eve" aria-pressed="false">
-                                EVE
-                            </button>
-                        </div>
-                        <div class="form-hint">Choose the central Aether visualization. Nova, Wisp, and EVE are companion creature forms.</div>
-                    </div>
-                </section>
-
-                <section class="settings-panel" id="settingsPanelSpeech" role="tabpanel" aria-labelledby="settingsTabSpeech" data-settings-panel="speech" hidden>
-                    <div class="settings-panel-heading">
-                        <h3>Speech</h3>
-                        <p>Choose voice output, preview voices, and tune replay behavior.</p>
-                    </div>
-                    <div class="form-group">
-                        <label for="ttsProvider">Speech engine</label>
-                        <select class="form-select" id="ttsProvider">
-                            <option value="browser">Browser (built-in)</option>
-                            <option value="elevenlabs">ElevenLabs</option>
-                            <option value="omnivoice">OmniVoice (local)</option>
-                        </select>
-                    </div>
-
-                    <div class="form-group" id="omnivoiceInstructGroup" hidden>
-                        <label for="omnivoiceInstruct">Voice design instruct</label>
-                        <input type="text" class="form-select" id="omnivoiceInstruct"
-                            placeholder="female, low pitch, british accent"
-                            autocomplete="off" />
-                        <div class="form-hint">Used when no clone sample is selected. Ignored when a sample is chosen.</div>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="synthVoice">Speech voice</label>
-                        <div class="voice-select-row">
-                            <select class="form-select" id="synthVoice"></select>
-                            <button type="button" class="voice-preview-btn" id="voicePreviewBtn" title="Play voice sample">
-                                <i data-lucide="volume-2" style="width:16px; height:16px;"></i>
-                            </button>
-                        </div>
-                        <div class="form-hint" id="ttsProviderHint">Uses your browser&apos;s built-in speech synthesis (no model download).</div>
-                    </div>
-
-                    <div class="settings-grid-compact">
-                        <div class="form-group">
-                            <label for="synthSpeed">Telemetry vocal speed</label>
-                            <div class="range-control">
-                                <input type="range" id="synthSpeed" min="0.5" max="2" step="0.1" value="1.0">
-                                <span id="synthSpeedVal">1.0x</span>
-                            </div>
-                        </div>
-
-                        <div class="form-group">
-                            <label for="ttsReplayCacheSize">Replay history size</label>
-                            <div class="range-control">
-                                <input type="range" id="ttsReplayCacheSize" min="1" max="20" step="1" value="5">
-                                <span id="ttsReplayCacheSizeVal">5</span>
-                            </div>
-                            <div class="form-hint">Keeps the last N spoken replies for replay.</div>
-                        </div>
-                    </div>
-                </section>
-
-                <section class="settings-panel" id="settingsPanelRuntime" role="tabpanel" aria-labelledby="settingsTabRuntime" data-settings-panel="runtime" hidden>
-                    <div class="settings-panel-heading">
-                        <h3>Runtime</h3>
-                        <p>Select how Aether routes voice input and which Hermes profile is active.</p>
-                    </div>
-                    <div class="form-group">
-                        <label for="voiceInputBehavior">Microphone voice behavior</label>
-                        <select class="form-select" id="voiceInputBehavior">
-                            <option value="auto">Auto-detect (Fill Chat when open, Send when closed)</option>
-                            <option value="chat">Always insert into Chat Input</option>
-                            <option value="llm">Always send directly to LLM</option>
-                        </select>
-                        <div class="form-hint">Control whether spoken audio queries Aether immediately or populates the composer for review.</div>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="hermesProfileSelect">Hermes runtime profile</label>
-                        <select class="form-select" id="hermesProfileSelect">
-                            <option value="">Hermes default profile</option>
-                        </select>
-                        <div class="form-hint" id="hermesStatusText">Hermes mode is detected from the local Aether server.</div>
-                    </div>
-
-                    <div class="form-group">
-                        <label>Aether Vault</label>
-                        <button class="action-btn btn-secondary" id="settingsWorkspacesBtn" type="button">Open vault</button>
-                        <div class="form-hint">Indexed files Hermes creates — previews read from originals on disk. See <code>docs/VAULT.md</code>.</div>
-                        <div class="form-hint">Browse Kanban task folders, pin paths to chat, and switch agent working directory.</div>
-                    </div>
-                </section>
-
-                <section class="settings-panel" id="settingsPanelContext" role="tabpanel" aria-labelledby="settingsTabContext" data-settings-panel="context" hidden>
-                    <div class="settings-panel-heading">
-                        <h3>Hermes context files</h3>
-                        <p>Edit MEMORY.md, USER.md, SOUL.md, and project context files Hermes injects into every conversation.</p>
-                    </div>
-                    <div class="context-file-list" id="contextFileList"></div>
-                    <div class="form-group" id="contextEditorGroup" hidden>
-                        <label for="contextFileEditor" id="contextEditorLabel">Editor</label>
-                        <textarea class="form-select context-file-editor" id="contextFileEditor" rows="12" spellcheck="false"></textarea>
-                        <div class="form-hint" id="contextEditorHint"></div>
-                        <button class="action-btn btn-primary" type="button" id="saveContextFileBtn" style="margin-top:8px;">Save file</button>
-                    </div>
-                </section>
-
-                <section class="settings-panel" id="settingsPanelConfig" role="tabpanel" aria-labelledby="settingsTabConfig" data-settings-panel="config" hidden>
-                    <div class="settings-panel-heading">
-                        <h3>Hermes runtime config</h3>
-                        <p>Read-only summary of MCP servers, toolsets, terminal backend, and security settings from config.yaml.</p>
-                    </div>
-                    <div class="config-summary" id="configSummaryPanel">
-                        <div class="form-hint">Loading config…</div>
-                    </div>
-                </section>
-
-                <section class="settings-panel" id="settingsPanelJobs" role="tabpanel" aria-labelledby="settingsTabJobs" data-settings-panel="jobs" hidden>
-                    <div class="settings-panel-heading">
-                        <h3>Scheduled jobs</h3>
-                        <p>Hermes cron jobs via the gateway Jobs API. Requires API_SERVER_ENABLED on the gateway.</p>
-                    </div>
-                    <div class="jobs-toolbar">
-                        <button class="action-btn btn-secondary" type="button" id="refreshJobsBtn">Refresh</button>
-                        <button class="action-btn btn-primary" type="button" id="newJobBtn">New job</button>
-                    </div>
-                    <div class="jobs-list" id="jobsListPanel">
-                        <div class="form-hint">Loading jobs…</div>
-                    </div>
-                </section>
-
-                <section class="settings-panel" id="settingsPanelResponse" role="tabpanel" aria-labelledby="settingsTabResponse" data-settings-panel="response" hidden>
-                    <div class="settings-panel-heading">
-                        <h3>Response</h3>
-                        <p>Tune response rendering and streaming feel.</p>
-                    </div>
-                    <div class="form-group">
-                        <label for="simulationSpeed">AI typewriting delay</label>
-                        <div class="range-control">
-                            <input type="range" id="simulationSpeed" min="1" max="10" step="1" value="5">
-                            <span id="simulationSpeedVal">Normal</span>
-                        </div>
-                    </div>
-                </section>
-            </div>
-            
-            <div class="modal-actions">
-                <button class="action-btn btn-primary" id="saveSettingsBtn" type="button">
-                    Save configurations
-                </button>
-            </div>
-        </div>
-    </div>
-
-    <!-- ==========================================
          MODEL PICKER MODAL
          ========================================== -->
     <div class="modal-overlay" id="modelPickerModal">
@@ -602,58 +659,6 @@
                 <div class="model-picker-action-buttons">
                     <button class="action-btn btn-secondary" id="cancelModelPickerBtn" type="button">Cancel</button>
                     <button class="action-btn btn-primary" id="confirmModelPickerBtn" type="button" disabled>Switch</button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- ==========================================
-         SKILLS MANAGER MODAL
-         ========================================== -->
-    <div class="modal-overlay" id="skillsModal">
-        <div class="modal-content skills-modal-content glass-panel" role="dialog" aria-modal="true" aria-labelledby="skillsModalTitle">
-            <div class="modal-title-bar">
-                <div>
-                    <span class="modal-kicker">Hermes</span>
-                    <h2 id="skillsModalTitle">Skills</h2>
-                    <p class="skills-modal-path" id="skillsModalPath">Loading skills directory…</p>
-                </div>
-                <button class="modal-close" id="closeSkillsModalBtn" type="button" aria-label="Close skills manager">&times;</button>
-            </div>
-
-            <div class="skills-toolbar">
-                <input type="search" class="form-select skills-search" id="skillsSearch" placeholder="Filter skills…" autocomplete="off" />
-                <button class="settings-gear-btn skills-refresh-btn" id="refreshSkillsBtn" type="button" title="Refresh skills">
-                    <i data-lucide="refresh-cw" style="width:14px; height:14px;"></i>
-                </button>
-            </div>
-
-            <div class="skills-filter-row" role="tablist" aria-label="Skill source filters">
-                <button class="skills-filter-btn active" type="button" role="tab" data-skills-filter="all" aria-selected="true">All</button>
-                <button class="skills-filter-btn" type="button" role="tab" data-skills-filter="native" aria-selected="false">Native</button>
-                <button class="skills-filter-btn" type="button" role="tab" data-skills-filter="custom" aria-selected="false">Custom</button>
-            </div>
-
-            <div class="skills-status" id="skillsStatus" hidden></div>
-
-            <div class="skills-columns">
-                <div class="skills-list-column">
-                    <div class="skills-column-title">Installed</div>
-                    <div class="skills-list" id="skillsList" role="listbox" aria-label="Installed skills"></div>
-                </div>
-                <div class="skills-editor-column">
-                    <div class="skills-column-title">SKILL.md</div>
-                    <div class="skills-editor-empty" id="skillsEditorEmpty">Select a skill to view or edit its instructions.</div>
-                    <textarea class="skills-editor" id="skillsEditor" hidden spellcheck="false" aria-label="Skill markdown content"></textarea>
-                </div>
-            </div>
-
-            <div class="modal-actions skills-modal-actions">
-                <p class="skills-reload-hint">After saving or toggling, reload skills in the gateway or start a new session.</p>
-                <div class="skills-action-buttons">
-                    <button class="action-btn btn-secondary" id="reloadSkillsBtn" type="button">Reload in gateway</button>
-                    <button class="action-btn btn-secondary" id="cancelSkillsBtn" type="button">Close</button>
-                    <button class="action-btn btn-primary" id="saveSkillsBtn" type="button" disabled>Save skill</button>
                 </div>
             </div>
         </div>

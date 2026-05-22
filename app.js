@@ -162,6 +162,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         kanbanBoardInstance: null,
         kanbanDashboardStatus: null,
         dashboardBootstrapTimer: null,
+        settingsMode: false,
+        settingsSection: 'appearance',
+        chatCollapsedBeforeSettings: null,
         chatCollapsedBeforeKanban: null,
         workspaceFiles: [],
         workspaceViewerPath: '',
@@ -191,6 +194,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     state.globalColorMode = loadColorMode();
     state.avatarForm = loadAvatarForm();
     AetherUserData.removeItem('aether_session_model_prefs');
+
+    const SETTINGS_SECTIONS = new Set([
+        'appearance',
+        'response',
+        'speech',
+        'microphone',
+        'agent',
+        'context',
+        'skills',
+        'jobs',
+        'config',
+        'vault',
+    ]);
 
     const modelPickerState = {
         providers: [],
@@ -229,7 +245,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         settingsPillBtn: document.getElementById('settingsPillBtn'),
         closeSettingsBtn: document.getElementById('closeSettingsBtn'),
         saveSettingsBtn: document.getElementById('saveSettingsBtn'),
-        settingsModal: document.getElementById('settingsModal'),
+        settingsPage: document.getElementById('settingsPage'),
+        settingsAgentModelDisplay: document.getElementById('settingsAgentModelDisplay'),
+        settingsChangeModelBtn: document.getElementById('settingsChangeModelBtn'),
+        settingsHermesBadge: document.getElementById('settingsHermesBadge'),
         
         voiceRecognitionBtn: document.getElementById('voiceRecognitionBtn'),
         modelBtn: document.getElementById('modelBtn'),
@@ -282,9 +301,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         workspaceFileViewerPath: document.getElementById('workspaceFileViewerPath'),
         workspaceFileViewerBody: document.getElementById('workspaceFileViewerBody'),
         skillsBtn: document.getElementById('skillsBtn'),
-        skillsModal: document.getElementById('skillsModal'),
-        closeSkillsModalBtn: document.getElementById('closeSkillsModalBtn'),
-        cancelSkillsBtn: document.getElementById('cancelSkillsBtn'),
         saveSkillsBtn: document.getElementById('saveSkillsBtn'),
         refreshSkillsBtn: document.getElementById('refreshSkillsBtn'),
         skillsSearch: document.getElementById('skillsSearch'),
@@ -495,6 +511,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     scheduleDeferredDashboardBootstrap();
 
+    const initialSettingsRoute = parseSettingsRoute();
+    if (initialSettingsRoute) {
+        enterSettingsMode(initialSettingsRoute, { fromHash: true });
+    }
+
     // Auto-refresh chats when returning to the tab
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible' && state.hermesStatus?.enabled && state.hermesStatus?.connected) {
@@ -523,7 +544,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
         if (elements.settingsWorkspacesBtn) {
             elements.settingsWorkspacesBtn.addEventListener('click', () => {
-                closeSettingsModal();
+                exitSettingsMode();
                 openWorkspaceFileBrowser();
             });
         }
@@ -540,16 +561,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             elements.workspaceInlinePreviewCloseBtn.addEventListener('click', closeVaultPreview);
         }
         if (elements.skillsBtn) {
-            elements.skillsBtn.addEventListener('click', () => openSkillsModal());
-        }
-        if (elements.closeSkillsModalBtn) {
-            elements.closeSkillsModalBtn.addEventListener('click', () => closeSkillsModal());
+            elements.skillsBtn.addEventListener('click', () => enterSettingsMode('skills'));
         }
         if (elements.reloadSkillsBtn) {
             elements.reloadSkillsBtn.addEventListener('click', () => reloadHermesSkillsFromHud());
-        }
-        if (elements.cancelSkillsBtn) {
-            elements.cancelSkillsBtn.addEventListener('click', () => closeSkillsModal());
         }
         if (elements.archivesSearchInput) {
             let archivesSearchTimer = null;
@@ -600,11 +615,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (elements.skillsEditor) {
             elements.skillsEditor.addEventListener('input', () => updateSkillsSaveState());
         }
-        if (elements.skillsModal) {
-            elements.skillsModal.addEventListener('click', (e) => {
-                if (e.target === elements.skillsModal) closeSkillsModal();
-            });
-        }
         if (elements.dashboardSplash) {
             elements.dashboardSplash.addEventListener('click', () => bootstrapHermesDashboard());
         }
@@ -648,24 +658,23 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
         
         // Settings triggers
-        elements.settingsBtn.addEventListener('click', openSettingsModal);
+        elements.settingsBtn.addEventListener('click', () => enterSettingsMode());
         if (elements.settingsPillBtn) {
-            elements.settingsPillBtn.addEventListener('click', openSettingsModal);
+            elements.settingsPillBtn.addEventListener('click', () => enterSettingsMode());
         }
-        elements.closeSettingsBtn.addEventListener('click', closeSettingsModal);
+        elements.closeSettingsBtn.addEventListener('click', () => exitSettingsMode());
         elements.saveSettingsBtn.addEventListener('click', saveSettings);
-        elements.settingsModal.addEventListener('click', (e) => {
-            if (e.target === elements.settingsModal) closeSettingsModal();
-        });
+        if (elements.settingsChangeModelBtn) {
+            elements.settingsChangeModelBtn.addEventListener('click', () => openModelPicker());
+        }
 
-        document.querySelectorAll('[data-settings-tab]').forEach((tab) => {
-            tab.addEventListener('click', () => {
-                activateSettingsTab(tab.dataset.settingsTab);
-                if (tab.dataset.settingsTab === 'context') loadContextPanel();
-                if (tab.dataset.settingsTab === 'config') loadConfigPanel();
-                if (tab.dataset.settingsTab === 'jobs') loadJobsPanel();
+        document.querySelectorAll('[data-settings-section]').forEach((item) => {
+            item.addEventListener('click', () => {
+                activateSettingsSection(item.dataset.settingsSection);
             });
         });
+
+        window.addEventListener('hashchange', handleSettingsHashChange);
 
         document.querySelectorAll('[data-chat-history-tab]').forEach((tab) => {
             tab.addEventListener('click', () => activateChatHistoryTab(tab.dataset.chatHistoryTab));
@@ -696,9 +705,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             const typingInKanban = !!activeEl?.closest?.('.aether-kanban, .kanban-drawer-root, .ak-inline-create');
             const typingInFormField = ['input', 'textarea', 'select'].includes(activeTag)
                 || !!activeEl?.isContentEditable
-                || !!activeEl?.closest?.('.model-picker-modal, .settings-modal, .ak-inline-create');
+                || !!activeEl?.closest?.('.model-picker-modal, .settings-page, .ak-inline-create');
 
-            if (state.kanbanMode || typingInKanban) {
+            if (state.kanbanMode || state.settingsMode || typingInKanban) {
                 return;
             }
 
@@ -741,9 +750,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
 
         document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape' && elements.skillsModal?.classList.contains('open')) {
+            if (e.key === 'Escape' && state.settingsMode) {
+                const activeEl = document.activeElement;
+                const activeTag = activeEl?.tagName?.toLowerCase() || '';
+                if (['input', 'textarea', 'select'].includes(activeTag)) return;
+                if (elements.modelPickerModal?.classList.contains('open')) return;
                 e.preventDefault();
-                closeSkillsModal();
+                exitSettingsMode();
             }
         });
 
@@ -1361,9 +1374,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
 
-    function openSkillsModal() {
-        elements.skillsModal?.classList.add('open');
-        elements.skillsBtn?.classList.add('active');
+    function prepareSkillsPanel() {
         if (elements.skillsSearch) elements.skillsSearch.value = '';
         state.skillsFilter = 'all';
         document.querySelectorAll('[data-skills-filter]').forEach((el) => {
@@ -1372,12 +1383,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             el.setAttribute('aria-selected', active ? 'true' : 'false');
         });
         refreshHermesSkills();
-    }
-
-    function closeSkillsModal() {
-        elements.skillsModal?.classList.remove('open');
-        elements.skillsBtn?.classList.remove('active');
-        setSkillsStatus('');
     }
 
     function setKanbanStageStatus(message, isError = false) {
@@ -1541,6 +1546,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     async function enterKanbanMode(options = {}) {
         const { restoreOnFailure = false } = options;
+        if (state.settingsMode) {
+            exitSettingsMode({ fromHash: true });
+        }
         let kanbanReady = false;
         let kanbanHint = 'Run `hermes kanban init` once, then try again.';
 
@@ -3711,6 +3719,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
         updateModelPickerCurrentLine();
         updateModelButton();
+        updateSettingsAgentModelDisplay();
     }
 
     function updateModelButton() {
@@ -3719,6 +3728,24 @@ document.addEventListener('DOMContentLoaded', async () => {
         elements.modelBtnLabel.textContent = truncateModelLabel(model);
         if (elements.modelBtn) {
             elements.modelBtn.title = `Switch model (Hermes) — ${model}`;
+        }
+    }
+
+    function updateSettingsAgentModelDisplay() {
+        if (!elements.settingsAgentModelDisplay) return;
+        const { model, provider } = getResolvedHermesModel();
+        elements.settingsAgentModelDisplay.textContent = provider ? `${model} (${provider})` : model;
+    }
+
+    function updateSettingsHermesBadge(status) {
+        if (!elements.settingsHermesBadge) return;
+        const resolved = status || state.hermesStatus;
+        if (resolved?.enabled && resolved.connected) {
+            elements.settingsHermesBadge.innerHTML = '<span class="pulse-dot"></span> HERMES';
+        } else if (resolved?.enabled) {
+            elements.settingsHermesBadge.innerHTML = '<span class="pulse-dot"></span> HERMES OFFLINE';
+        } else {
+            elements.settingsHermesBadge.innerHTML = '<span class="pulse-dot"></span> CONNECTED';
         }
     }
 
@@ -4051,6 +4078,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         updateModelButton();
+        updateSettingsHermesBadge(status);
     }
 
     async function populateHermesProfilesList() {
@@ -4431,23 +4459,71 @@ document.addEventListener('DOMContentLoaded', async () => {
         elements.omnivoiceInstructGroup.hidden = provider !== 'omnivoice';
     }
 
-    function activateSettingsTab(tabId) {
-        const targetTab = tabId || 'appearance';
-        document.querySelectorAll('[data-settings-tab]').forEach((tab) => {
-            const active = tab.dataset.settingsTab === targetTab;
-            tab.classList.toggle('active', active);
-            tab.setAttribute('aria-selected', active ? 'true' : 'false');
-            tab.tabIndex = active ? 0 : -1;
+    function normalizeSettingsSection(section) {
+        const id = String(section || '').trim().toLowerCase();
+        return SETTINGS_SECTIONS.has(id) ? id : 'appearance';
+    }
+
+    function parseSettingsRoute() {
+        const hash = window.location.hash || '';
+        const match = hash.match(/^#\/settings(?:\/([a-z]+))?$/i);
+        if (!match) return null;
+        return normalizeSettingsSection(match[1]);
+    }
+
+    function syncSettingsRoute(section, { replace = false } = {}) {
+        const target = `#/settings/${normalizeSettingsSection(section)}`;
+        if (window.location.hash === target) return;
+        if (replace) {
+            history.replaceState(null, '', target);
+        } else {
+            window.location.hash = target;
+        }
+    }
+
+    function clearSettingsRoute({ replace = true } = {}) {
+        if (!window.location.hash.startsWith('#/settings')) return;
+        const base = window.location.pathname + window.location.search;
+        if (replace) {
+            history.replaceState(null, '', base);
+        } else {
+            history.pushState(null, '', base);
+        }
+    }
+
+    function loadSettingsSectionData(section) {
+        const target = normalizeSettingsSection(section);
+        if (target === 'context') loadContextPanel();
+        if (target === 'config') loadConfigPanel();
+        if (target === 'jobs') loadJobsPanel();
+        if (target === 'skills') prepareSkillsPanel();
+    }
+
+    function activateSettingsSection(section, { fromHash = false } = {}) {
+        const targetSection = normalizeSettingsSection(section);
+        state.settingsSection = targetSection;
+        AetherUserData.setItem('aether_settings_section', targetSection);
+
+        document.querySelectorAll('[data-settings-section]').forEach((item) => {
+            const active = item.dataset.settingsSection === targetSection;
+            item.classList.toggle('active', active);
+            item.setAttribute('aria-current', active ? 'page' : 'false');
         });
 
         document.querySelectorAll('[data-settings-panel]').forEach((panel) => {
-            const active = panel.dataset.settingsPanel === targetTab;
+            const active = panel.dataset.settingsPanel === targetSection;
             panel.classList.toggle('active', active);
             panel.hidden = !active;
         });
+
+        loadSettingsSectionData(targetSection);
+
+        if (!fromHash && state.settingsMode) {
+            syncSettingsRoute(targetSection, { replace: true });
+        }
     }
 
-    function openSettingsModal() {
+    function hydrateSettingsForm() {
         if (elements.ttsProvider) {
             elements.ttsProvider.value = getTtsProvider();
         }
@@ -4466,10 +4542,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         elements.synthSpeed.value = AetherUserData.getItem('aether_voice_speed') || '1.0';
         elements.synthSpeedVal.textContent = elements.synthSpeed.value + 'x';
-        
+
         const delayVal = AetherUserData.getItem('aether_stream_delay') || '5';
         elements.simulationSpeed.value = delayVal;
-        
+
         const vals = ['Snail', 'Slow', 'Normal', 'Fast', 'Instant'];
         elements.simulationSpeedVal.textContent = vals[Math.min(4, Math.floor((delayVal - 1) / 2))];
 
@@ -4491,16 +4567,82 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         refreshHermesIntegration();
-
         populateVoicesList();
-        activateSettingsTab('appearance');
-        lucide.createIcons();
-
-        elements.settingsModal.classList.add('open');
+        updateSettingsAgentModelDisplay();
+        updateSettingsHermesBadge();
     }
 
-    function closeSettingsModal() {
-        elements.settingsModal.classList.remove('open');
+    function enterSettingsMode(section, { fromHash = false } = {}) {
+        if (state.kanbanMode) {
+            exitKanbanMode();
+        }
+
+        const targetSection = normalizeSettingsSection(
+            section || AetherUserData.getItem('aether_settings_section') || 'appearance',
+        );
+
+        if (state.settingsMode) {
+            activateSettingsSection(targetSection, { fromHash });
+            return;
+        }
+
+        if (state.chatCollapsedBeforeSettings === null) {
+            state.chatCollapsedBeforeSettings =
+                elements.hudShell?.classList.contains('chat-collapsed') ?? true;
+        }
+        collapseChatColumn();
+
+        state.settingsMode = true;
+        elements.hudShell?.classList.add('settings-mode');
+        elements.settingsBtn?.classList.add('active');
+        elements.settingsPillBtn?.classList.add('active');
+        if (elements.settingsPage) {
+            elements.settingsPage.hidden = false;
+        }
+
+        hydrateSettingsForm();
+        activateSettingsSection(targetSection, { fromHash: true });
+        lucide.createIcons();
+
+        if (!fromHash) {
+            syncSettingsRoute(targetSection);
+        }
+    }
+
+    function exitSettingsMode({ fromHash = false } = {}) {
+        if (!state.settingsMode) return;
+
+        state.settingsMode = false;
+        elements.hudShell?.classList.remove('settings-mode');
+        elements.settingsBtn?.classList.remove('active');
+        elements.settingsPillBtn?.classList.remove('active');
+        if (elements.settingsPage) {
+            elements.settingsPage.hidden = true;
+        }
+        setSkillsStatus('');
+
+        const restoreCollapsed = state.chatCollapsedBeforeSettings;
+        state.chatCollapsedBeforeSettings = null;
+        if (restoreCollapsed === false) {
+            expandChatColumn(false);
+        } else {
+            collapseChatColumn();
+        }
+
+        if (!fromHash) {
+            clearSettingsRoute();
+        }
+    }
+
+    function handleSettingsHashChange() {
+        const section = parseSettingsRoute();
+        if (section) {
+            enterSettingsMode(section, { fromHash: true });
+            return;
+        }
+        if (state.settingsMode) {
+            exitSettingsMode({ fromHash: true });
+        }
     }
 
     function saveSettings() {
@@ -4567,7 +4709,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             updateHermesProfileBadge();
         }
 
-        closeSettingsModal();
         updateMicButtonTitle();
 
         speech.loadVoices();
