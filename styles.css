@@ -391,13 +391,19 @@
     padding: 0;
 }
 
+html {
+    overflow-x: clip;
+    max-width: 100%;
+}
+
 body {
     background-color: var(--bg-base);
     color: var(--text-primary);
     font-family: var(--font-ui);
     overflow: hidden;
     height: 100vh;
-    width: 100vw;
+    width: 100%;
+    max-width: 100%;
     display: flex;
     position: relative;
     user-select: none;
@@ -424,6 +430,7 @@ body {
     right: -10%;
     width: 40vw;
     height: 40vw;
+    max-width: 100%;
     background: radial-gradient(circle, var(--ambient-secondary) 0%, transparent 60%);
     z-index: 0;
     pointer-events: none;
@@ -5075,16 +5082,6 @@ body {
     word-break: break-word;
 }
 
-@media (max-width: 900px) {
-    .hud-shell:not(.chat-collapsed) {
-        --hud-shell-chat-inset: 12px;
-    }
-
-    .chat-column {
-        --chat-column-width: min(467.5px, 57.75vw);
-    }
-}
-
 .chat-composer-actions {
     display: flex;
     align-items: center;
@@ -6831,4 +6828,425 @@ body {
 
 .hud-shell.kanban-mode .console-sink {
     display: none;
+}
+
+/* ==========================================================================
+   Compact viewport (mobile / narrow screens)
+   ========================================================================== */
+
+.hud-scrim {
+    position: fixed;
+    inset: 0;
+    border: none;
+    padding: 0;
+    margin: 0;
+    background: rgba(0, 0, 0, 0.48);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+    -webkit-tap-highlight-color: transparent;
+    cursor: default;
+}
+
+.hud-scrim.is-visible {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.drawer-scrim {
+    z-index: 998;
+}
+
+.chat-scrim {
+    z-index: 1099;
+}
+
+.hud-pill-settings-btn {
+    display: none;
+}
+
+@media (max-width: 900px) {
+    body {
+        height: 100dvh;
+        overflow-x: clip;
+    }
+
+    .ambient-glow-1,
+    .ambient-glow-2,
+    .grid-overlay {
+        max-width: 100%;
+        overflow: hidden;
+    }
+
+    .ambient-glow-2 {
+        right: -5%;
+        bottom: -5%;
+        width: min(40vw, 280px);
+        height: min(40vw, 280px);
+    }
+
+    .hud-shell {
+        height: 100dvh;
+        width: 100%;
+        max-width: 100%;
+        padding:
+            0
+            max(8px, env(safe-area-inset-right))
+            max(8px, env(safe-area-inset-bottom))
+            max(8px, env(safe-area-inset-left));
+        overflow-x: clip;
+    }
+
+    .hud-shell.chat-collapsed,
+    .hud-shell:not(.chat-collapsed) {
+        padding-left: 0;
+        padding-top: 0;
+    }
+
+    .hud-shell:not(.chat-collapsed) {
+        flex-direction: column;
+        padding: 0;
+        height: 100dvh;
+    }
+
+    .hud-shell:not(.chat-collapsed) .hud-container.hud-main {
+        display: contents;
+    }
+
+    .hud-shell:not(.chat-collapsed) .hud-header {
+        order: 0;
+        flex-shrink: 0;
+        width: 100%;
+        box-sizing: border-box;
+        justify-content: center;
+        padding:
+            max(12px, env(safe-area-inset-top))
+            max(14px, env(safe-area-inset-right))
+            0
+            max(14px, env(safe-area-inset-left));
+    }
+
+    .hud-shell:not(.chat-collapsed) .hud-core-visualizer {
+        order: 1;
+        position: relative;
+        flex: 0 0 clamp(160px, 28dvh, 260px);
+        height: clamp(160px, 28dvh, 260px);
+        width: 100%;
+        min-height: 0;
+        pointer-events: auto;
+    }
+
+    .hud-shell:not(.chat-collapsed) .chat-column {
+        order: 2;
+        position: relative;
+        flex: 1 1 auto;
+        --chat-column-width: 100%;
+        width: 100% !important;
+        min-width: 0 !important;
+        min-height: 0;
+        flex-basis: auto !important;
+        max-width: 100% !important;
+        height: auto;
+        z-index: 5;
+        margin: 0 0 10px;
+        align-self: stretch;
+        border-radius: 0;
+        border-left: none;
+        border-right: none;
+        padding-bottom: 0;
+        box-sizing: border-box;
+    }
+
+    .hud-shell:not(.chat-collapsed) .hud-bottom-area {
+        order: 3;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        flex-shrink: 0;
+        width: 100%;
+        box-sizing: border-box;
+        gap: 6px;
+        padding:
+            0
+            max(14px, env(safe-area-inset-right))
+            max(8px, env(safe-area-inset-bottom))
+            max(14px, env(safe-area-inset-left));
+    }
+
+    .hud-shell:not(.chat-collapsed) .hud-orb-label {
+        display: none;
+    }
+
+    .hud-container,
+    .hud-container.hud-main {
+        padding:
+            max(12px, env(safe-area-inset-top))
+            max(14px, env(safe-area-inset-right))
+            max(12px, env(safe-area-inset-bottom))
+            max(14px, env(safe-area-inset-left));
+        align-items: center;
+    }
+
+    .hud-header {
+        gap: 8px;
+        justify-content: center;
+        flex-wrap: wrap;
+        text-align: center;
+    }
+
+    .hud-brand {
+        justify-content: center;
+    }
+
+    .hud-status-area {
+        gap: 8px;
+        min-width: 0;
+        justify-content: center;
+        flex-wrap: wrap;
+    }
+
+    #settingsBtn {
+        display: none;
+    }
+
+    .hud-pill-settings-btn {
+        display: flex;
+    }
+
+    .hud-core-visualizer {
+        align-items: center;
+        justify-content: center;
+    }
+
+    .brand-name {
+        letter-spacing: 0.12em;
+        font-size: 0.88rem;
+    }
+
+    .badge-telemetry {
+        display: none;
+    }
+
+    .badge-model {
+        max-width: 120px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .hud-orb-label {
+        font-size: 0.72rem;
+        letter-spacing: 0.1em;
+        align-self: center;
+        text-align: center;
+    }
+
+    .hud-bottom-area {
+        padding-bottom: env(safe-area-inset-bottom);
+        width: 100%;
+        max-width: 100%;
+        overflow: hidden;
+        box-sizing: border-box;
+        align-items: center;
+    }
+
+    .hud-controls-pill {
+        width: 100%;
+        max-width: 100%;
+        margin: 0 auto;
+        overflow-x: auto;
+        overflow-y: hidden;
+        -webkit-overflow-scrolling: touch;
+        scroll-snap-type: x proximity;
+        scrollbar-width: none;
+        padding: 10px 14px;
+        gap: 8px;
+        justify-content: flex-start;
+        box-sizing: border-box;
+    }
+
+    .hud-controls-pill::-webkit-scrollbar {
+        display: none;
+    }
+
+    .hud-circle-btn {
+        scroll-snap-align: center;
+        flex-shrink: 0;
+        width: 44px;
+        height: 44px;
+    }
+
+    .hud-model-btn {
+        max-width: 120px;
+        flex-shrink: 0;
+    }
+
+    .sidebar-drawer,
+    .workspaces-drawer {
+        left: max(8px, env(safe-area-inset-left));
+        width: min(340px, calc(100vw - 56px - env(safe-area-inset-left) - env(safe-area-inset-right)));
+        right: auto;
+        top: max(8px, env(safe-area-inset-top));
+        height: calc(100dvh - max(8px, env(safe-area-inset-top)) - max(8px, env(safe-area-inset-bottom)) - 16px);
+    }
+
+    .sidebar-drawer.open + .workspaces-drawer.open {
+        top: max(8px, env(safe-area-inset-top));
+        height: calc(100dvh - max(8px, env(safe-area-inset-top)) - max(8px, env(safe-area-inset-bottom)) - 16px);
+    }
+
+    .workspaces-drawer .drawer-scroll {
+        min-height: 0;
+    }
+
+    .chat-column-header {
+        display: grid;
+        grid-template-columns: 1fr auto 1fr;
+        align-items: center;
+        gap: 8px;
+        justify-content: unset;
+        text-align: center;
+        padding:
+            16px
+            max(12px, env(safe-area-inset-right))
+            12px
+            max(12px, env(safe-area-inset-left));
+    }
+
+    .chat-column-title {
+        grid-column: 2;
+        justify-self: center;
+        flex: unset;
+    }
+
+    .workspace-pin-badge {
+        grid-column: 2;
+        justify-self: center;
+        margin-inline: 0;
+    }
+
+    .chat-column-header-actions {
+        grid-column: 3;
+        justify-self: end;
+        position: static;
+        transform: none;
+    }
+
+    .chat-messages,
+    .deck-chat-scroller {
+        padding-inline:
+            max(12px, env(safe-area-inset-left))
+            max(12px, env(safe-area-inset-right));
+    }
+
+    .chat-composer,
+    .deck-input-area {
+        padding-inline:
+            max(12px, env(safe-area-inset-left))
+            max(12px, env(safe-area-inset-right));
+        padding-bottom: max(12px, env(safe-area-inset-bottom));
+    }
+
+    .chat-composer {
+        align-items: stretch;
+    }
+
+    .chat-composer-box {
+        width: 100%;
+        box-sizing: border-box;
+    }
+
+    .chat-composer-actions {
+        justify-content: flex-end;
+    }
+
+    .chat-column-header-actions .settings-gear-btn,
+    .chat-column-close {
+        width: 44px;
+        height: 44px;
+    }
+
+    .composer-attach-btn,
+    .composer-refresh-btn {
+        width: 44px;
+        height: 44px;
+    }
+
+    .deck-send-btn {
+        width: 44px;
+        height: 44px;
+    }
+
+    .chat-composer-hint {
+        display: none;
+    }
+
+    .chat-bubble code,
+    .bubble-text,
+    .chat-bubble .bubble-content {
+        overflow-wrap: anywhere;
+        word-break: break-word;
+    }
+
+    .chat-bubble pre,
+    .chat-bubble pre code {
+        max-width: 100%;
+        overflow-x: auto;
+        white-space: pre-wrap;
+        word-break: break-word;
+    }
+
+    .chat-bubble code:not(pre code) {
+        word-break: break-all;
+    }
+
+    .ambient-glow-1,
+    .ambient-glow-2 {
+        max-width: 100%;
+    }
+
+    .toast-stack {
+        top: calc(12px + env(safe-area-inset-top));
+        left: max(12px, env(safe-area-inset-left));
+        right: max(12px, env(safe-area-inset-right));
+        width: auto;
+    }
+
+    .hud-shell.kanban-mode .hud-core-visualizer {
+        width: clamp(120px, 28vw, 180px);
+        height: clamp(120px, 28vw, 180px);
+        left: max(12px, env(safe-area-inset-left));
+        bottom: calc(96px + env(safe-area-inset-bottom));
+    }
+
+    .kanban-stage .ak-column {
+        flex: 0 0 min(260px, 78vw);
+    }
+
+    .kanban-drawer-root {
+        width: 100%;
+        left: 0;
+        right: 0;
+        border-radius: 16px 16px 0 0;
+    }
+}
+
+@media (max-width: 480px) {
+    .hud-pill-divider {
+        display: none;
+    }
+
+    .hud-model-btn {
+        max-width: 96px;
+    }
+
+    .badge-model {
+        max-width: 88px;
+    }
+}
+
+@media (max-height: 620px) and (max-width: 900px) {
+    .hud-orb-label {
+        display: none;
+    }
 }

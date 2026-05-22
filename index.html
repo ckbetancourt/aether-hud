@@ -207,10 +207,17 @@
             <button class="hud-circle-btn" id="workspacesDrawerToggle" title="Toggle Hermes Kanban board">
                 <i data-lucide="columns-3" style="width: 18px; height: 18px;"></i>
             </button>
+
+            <!-- Settings (mobile pill) -->
+            <button class="hud-circle-btn hud-pill-settings-btn" id="settingsPillBtn" type="button" title="Launch Configurations">
+                <i data-lucide="settings" style="width: 18px; height: 18px;"></i>
+            </button>
             </footer>
         </div>
 
     </div>
+
+    <button type="button" class="hud-scrim drawer-scrim" id="drawerScrim" hidden aria-label="Close drawer"></button>
 
     <!-- RIGHT CHAT COLUMN (layout column; collapses in-place, not overlay) -->
     <aside class="chat-column glass-panel" id="chatColumn" aria-label="Chat">
@@ -330,6 +337,8 @@
                 </div>
             </div>
         </aside>
+
+    <button type="button" class="hud-scrim chat-scrim" id="chatScrim" hidden aria-label="Close chat"></button>
 
     </div>
 

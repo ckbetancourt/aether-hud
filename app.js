@@ -223,6 +223,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         
         // Buttons
         settingsBtn: document.getElementById('settingsBtn'),
+        settingsPillBtn: document.getElementById('settingsPillBtn'),
         closeSettingsBtn: document.getElementById('closeSettingsBtn'),
         saveSettingsBtn: document.getElementById('saveSettingsBtn'),
         settingsModal: document.getElementById('settingsModal'),
@@ -336,7 +337,42 @@ document.addEventListener('DOMContentLoaded', async () => {
         avatarFormRow: document.getElementById('avatarFormRow'),
         displayNameInput: document.getElementById('displayNameInput'),
         toastStack: document.getElementById('toastStack'),
+        drawerScrim: document.getElementById('drawerScrim'),
+        chatScrim: document.getElementById('chatScrim'),
     };
+
+    const COMPACT_MEDIA = window.matchMedia('(max-width: 900px)');
+
+    function isCompactViewport() {
+        return COMPACT_MEDIA.matches;
+    }
+
+    function updateOverlayScrims() {
+        const compact = isCompactViewport();
+        const drawerOpen =
+            !!elements.sidebarDrawer?.classList.contains('open') ||
+            !!elements.workspacesDrawer?.classList.contains('open');
+        if (elements.drawerScrim) {
+            const showDrawer = compact && drawerOpen;
+            elements.drawerScrim.hidden = !showDrawer;
+            elements.drawerScrim.classList.toggle('is-visible', showDrawer);
+        }
+        if (elements.chatScrim) {
+            // Compact uses split creature + chat layout; no fullscreen scrim.
+            elements.chatScrim.hidden = true;
+            elements.chatScrim.classList.remove('is-visible');
+        }
+    }
+
+    function syncViewportMode() {
+        document.documentElement.dataset.viewport = isCompactViewport() ? 'compact' : 'wide';
+        updateOverlayScrims();
+        if (typeof visualizer !== 'undefined' && visualizer && typeof visualizer.resize === 'function') {
+            visualizer.resize();
+        }
+    }
+
+    syncViewportMode();
 
     // Initialize speech mute UI button state
     if (!state.speechEnabled) {
@@ -415,10 +451,20 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Process icons
     lucide.createIcons();
 
-    const chatCollapsed =
-        AetherUserData.getItem('aether_chat_column_collapsed') === 'true' ||
-        (AetherUserData.getItem('aether_chat_column_collapsed') === null &&
-            AetherUserData.getItem('aether_chat_column_open') === 'false');
+    const collapsedPref = AetherUserData.getItem('aether_chat_column_collapsed');
+    const openPref = AetherUserData.getItem('aether_chat_column_open');
+    let chatCollapsed;
+    if (collapsedPref === 'true') {
+        chatCollapsed = true;
+    } else if (collapsedPref === 'false') {
+        chatCollapsed = false;
+    } else if (openPref === 'false') {
+        chatCollapsed = true;
+    } else if (openPref === 'true') {
+        chatCollapsed = false;
+    } else {
+        chatCollapsed = isCompactViewport();
+    }
     if (chatCollapsed) {
         collapseChatColumn();
     } else {
@@ -444,6 +490,14 @@ document.addEventListener('DOMContentLoaded', async () => {
        A. HUD Control Event Listeners
        ========================================================================== */
     function setupEventListeners() {
+        COMPACT_MEDIA.addEventListener('change', syncViewportMode);
+        if (elements.drawerScrim) {
+            elements.drawerScrim.addEventListener('click', closeAllDrawers);
+        }
+        if (elements.chatScrim) {
+            elements.chatScrim.addEventListener('click', () => collapseChatColumn());
+        }
+
         // Toggle slide-in Sidebar Drawer
         elements.historyDrawerToggle.addEventListener('click', () => toggleSidebarDrawer());
         elements.historyDrawerCloseBtn.addEventListener('click', () => toggleSidebarDrawer(false));
@@ -551,6 +605,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         
         // Settings triggers
         elements.settingsBtn.addEventListener('click', openSettingsModal);
+        if (elements.settingsPillBtn) {
+            elements.settingsPillBtn.addEventListener('click', openSettingsModal);
+        }
         elements.closeSettingsBtn.addEventListener('click', closeSettingsModal);
         elements.saveSettingsBtn.addEventListener('click', saveSettings);
         elements.settingsModal.addEventListener('click', (e) => {
@@ -751,6 +808,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     /* ==========================================================================
        B. Typewriter Command Console Orchestrator
        ========================================================================== */
+    function closeAllDrawers() {
+        if (elements.sidebarDrawer?.classList.contains('open')) {
+            toggleSidebarDrawer(false);
+        }
+        if (elements.workspacesDrawer?.classList.contains('open')) {
+            toggleWorkspacesDrawer(false);
+        }
+    }
+
     function toggleSidebarDrawer(forceOpen) {
         const shouldOpen = forceOpen === undefined
             ? !elements.sidebarDrawer.classList.contains('open')
@@ -765,6 +831,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 toggleWorkspacesDrawer(false);
             }
         }
+        updateOverlayScrims();
     }
 
     function toggleWorkspacesDrawer(forceOpen) {
@@ -780,6 +847,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
             refreshVault({ ingest: true });
         }
+        updateOverlayScrims();
     }
 
     function setActiveWorkspacePath(pathValue) {
@@ -1534,6 +1602,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             elements.deckChatInputField.focus();
         }
         updateMicButtonTitle();
+        updateOverlayScrims();
         runTransitionResizeLoop();
     }
 
@@ -1542,6 +1611,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         elements.chatDeckToggle.classList.remove('active');
         AetherUserData.setItem('aether_chat_column_collapsed', 'true');
         updateMicButtonTitle();
+        updateOverlayScrims();
         runTransitionResizeLoop();
     }
 
