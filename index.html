@@ -450,6 +450,22 @@
 
             <div class="vault-page-toolbar">
                 <input type="search" class="form-select vault-search" id="vaultSearchInput" placeholder="Search files and paths…" autocomplete="off" />
+                <div class="vault-view-mode" id="vaultViewMode" role="tablist" aria-label="Vault view">
+                    <button type="button" class="vault-view-btn active" data-vault-view="recent" role="tab" aria-selected="true">Recent</button>
+                    <button type="button" class="vault-view-btn" data-vault-view="folder" role="tab" aria-selected="false">Folder</button>
+                    <button type="button" class="vault-view-btn" data-vault-view="session" role="tab" aria-selected="false">Session</button>
+                </div>
+                <div class="vault-toolbar-row">
+                    <label class="vault-session-toggle">
+                        <input type="checkbox" id="vaultCurrentSessionOnly" />
+                        <span>This session only</span>
+                    </label>
+                    <select class="vault-sort-select" id="vaultSortSelect" aria-label="Sort files">
+                        <option value="date">Date</option>
+                        <option value="name">Name</option>
+                        <option value="size">Size</option>
+                    </select>
+                </div>
                 <div class="vault-filter-row" role="tablist" aria-label="Vault filters">
                     <button class="vault-filter-btn active" type="button" role="tab" data-vault-filter="all" aria-selected="true">All</button>
                     <button class="vault-filter-btn" type="button" role="tab" data-vault-filter="text" aria-selected="false">Docs</button>
@@ -461,6 +477,7 @@
             <div class="vault-page-body" id="vaultPageBody">
                 <aside class="vault-list-panel" aria-label="Indexed files">
                     <div class="vault-list-status form-hint" id="vaultFilesStatus">Open the vault to load indexed files.</div>
+                    <div class="vault-breadcrumbs workspace-breadcrumbs" id="vaultBreadcrumbs" hidden></div>
                     <div class="vault-file-list" id="vaultFileList" role="listbox" aria-label="Vault files">
                         <div class="vault-empty-hint">Scan Hermes sessions to discover files.</div>
                     </div>

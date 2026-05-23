@@ -632,6 +632,9 @@ const {
 const {
   ingestFromSessions,
   listVaultFiles,
+  listVaultSessions,
+  purgeMissingVaultFiles,
+  revealVaultFile,
   readVaultFileContent,
   resolveVaultRawPath,
   VAULT_NOTE,
@@ -1701,6 +1704,31 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (req.method === 'POST' && pathname === '/api/aether/vault/reveal') {
+    try {
+      const body = await readBody(req);
+      const id = body?.id || '';
+      const result = revealVaultFile(id);
+      sendJson(res, 200, { available: true, ...result });
+    } catch (e) {
+      const status = e.statusCode || 502;
+      console.error('[api/aether/vault/reveal]', e.message || e);
+      sendJson(res, status, { available: false, error: e.message || 'Reveal failed' });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/api/aether/vault/purge-missing') {
+    try {
+      const result = purgeMissingVaultFiles();
+      sendJson(res, 200, { available: true, ...result });
+    } catch (e) {
+      console.error('[api/aether/vault/purge-missing]', e.message || e);
+      sendJson(res, 500, { available: false, error: e.message || 'Purge failed' });
+    }
+    return;
+  }
+
   const kanbanSwitchMatch = pathname.match(/^\/api\/hermes\/kanban\/boards\/([^/]+)\/switch$/);
   if (req.method === 'POST' && kanbanSwitchMatch) {
     const slug = decodeURIComponent(kanbanSwitchMatch[1]);
@@ -2183,12 +2211,24 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/aether/vault/files') {
       const limit = Math.min(500, Math.max(1, parseInt(u.searchParams.get('limit') || '200', 10) || 200));
       const sessionId = u.searchParams.get('session_id') || u.searchParams.get('sessionId') || '';
+      const query = u.searchParams.get('q') || u.searchParams.get('query') || '';
       try {
-        const result = listVaultFiles(limit, sessionId || null);
+        const result = listVaultFiles(limit, sessionId || null, query || null);
         sendJson(res, 200, result);
       } catch (e) {
         console.error('[api/aether/vault/files]', e.message || e);
         sendJson(res, 502, { available: false, files: [], error: e.message || 'Vault unavailable' });
+      }
+      return;
+    }
+
+    if (pathname === '/api/aether/vault/sessions') {
+      try {
+        const result = listVaultSessions();
+        sendJson(res, 200, result);
+      } catch (e) {
+        console.error('[api/aether/vault/sessions]', e.message || e);
+        sendJson(res, 502, { available: false, sessions: [], error: e.message || 'Vault unavailable' });
       }
       return;
     }

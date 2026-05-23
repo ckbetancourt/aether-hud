@@ -589,13 +589,51 @@ class AIEngine {
         return data;
     }
 
-    async getVaultFiles(sessionId) {
+    async getVaultFiles(sessionId, query) {
         const baseUrl = this.resolveLlmBackendBaseUrl();
         if (!baseUrl) return { available: false, files: [] };
         const params = new URLSearchParams();
         if (sessionId) params.set('session_id', String(sessionId));
+        if (query) params.set('q', String(query));
         const qs = params.toString();
         const response = await fetch(`${baseUrl}/api/aether/vault/files${qs ? `?${qs}` : ''}`);
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(data.error || data.message || `HTTP ${response.status}`);
+        }
+        return data;
+    }
+
+    async getVaultSessions() {
+        const baseUrl = this.resolveLlmBackendBaseUrl();
+        if (!baseUrl) return { available: false, sessions: [] };
+        const response = await fetch(`${baseUrl}/api/aether/vault/sessions`);
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(data.error || data.message || `HTTP ${response.status}`);
+        }
+        return data;
+    }
+
+    async revealVaultFile(id) {
+        const baseUrl = this.resolveLlmBackendBaseUrl();
+        if (!baseUrl || !id) throw new Error('Vault file id is required.');
+        const response = await fetch(`${baseUrl}/api/aether/vault/reveal`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: String(id) }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(data.error || data.message || `HTTP ${response.status}`);
+        }
+        return data;
+    }
+
+    async purgeMissingVaultFiles() {
+        const baseUrl = this.resolveLlmBackendBaseUrl();
+        if (!baseUrl) return { available: false, removed: 0 };
+        const response = await fetch(`${baseUrl}/api/aether/vault/purge-missing`, { method: 'POST' });
         const data = await response.json().catch(() => ({}));
         if (!response.ok) {
             throw new Error(data.error || data.message || `HTTP ${response.status}`);

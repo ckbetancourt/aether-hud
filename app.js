@@ -166,8 +166,15 @@ document.addEventListener('DOMContentLoaded', async () => {
         settingsSection: 'appearance',
         chatCollapsedBeforeSettings: null,
         vaultMode: false,
-        vaultSearchQuery: '',
+        vaultSearchQuery: AetherUserData.getItem('aether_vault_search') || '',
         vaultFilter: 'all',
+        vaultViewMode: AetherUserData.getItem('aether_vault_view_mode') || 'recent',
+        vaultCurrentSessionOnly: JSON.parse(AetherUserData.getItem('aether_vault_session_only') ?? 'false'),
+        vaultSortBy: AetherUserData.getItem('aether_vault_sort') || 'date',
+        vaultExpandedFolders: new Set(JSON.parse(AetherUserData.getItem('aether_vault_expanded_folders') || '[]')),
+        vaultExpandedSessions: new Set(JSON.parse(AetherUserData.getItem('aether_vault_expanded_sessions') || '[]')),
+        vaultFolderPath: '',
+        vaultSessionsMeta: [],
         chatCollapsedBeforeVault: null,
         chatCollapsedBeforeKanban: null,
         workspaceFiles: [],
@@ -286,6 +293,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         vaultScanBtn: document.getElementById('vaultScanBtn'),
         vaultCountBadge: document.getElementById('vaultCountBadge'),
         vaultSearchInput: document.getElementById('vaultSearchInput'),
+        vaultViewMode: document.getElementById('vaultViewMode'),
+        vaultCurrentSessionOnly: document.getElementById('vaultCurrentSessionOnly'),
+        vaultSortSelect: document.getElementById('vaultSortSelect'),
+        vaultBreadcrumbs: document.getElementById('vaultBreadcrumbs'),
         vaultFilesStatus: document.getElementById('vaultFilesStatus'),
         vaultFileList: document.getElementById('vaultFileList'),
         vaultPageBody: document.getElementById('vaultPageBody'),
@@ -569,13 +580,39 @@ document.addEventListener('DOMContentLoaded', async () => {
             elements.vaultScanBtn.addEventListener('click', () => refreshVault({ ingest: true }));
         }
         if (elements.vaultSearchInput) {
+            elements.vaultSearchInput.value = state.vaultSearchQuery;
             let vaultSearchTimer = null;
             elements.vaultSearchInput.addEventListener('input', () => {
                 clearTimeout(vaultSearchTimer);
                 vaultSearchTimer = setTimeout(() => {
-                    state.vaultSearchQuery = elements.vaultSearchInput.value || '';
+                    state.vaultSearchQuery = elements.vaultSearchInput.value.trim();
+                    AetherUserData.setItem('aether_vault_search', state.vaultSearchQuery);
                     renderVaultFileList();
-                }, 180);
+                }, 200);
+            });
+        }
+        if (elements.vaultViewMode) {
+            elements.vaultViewMode.querySelectorAll('[data-vault-view]').forEach((btn) => {
+                btn.addEventListener('click', () => {
+                    setVaultViewMode(btn.getAttribute('data-vault-view') || 'recent');
+                });
+            });
+            updateVaultViewModeUi();
+        }
+        if (elements.vaultCurrentSessionOnly) {
+            elements.vaultCurrentSessionOnly.checked = state.vaultCurrentSessionOnly;
+            elements.vaultCurrentSessionOnly.addEventListener('change', () => {
+                state.vaultCurrentSessionOnly = elements.vaultCurrentSessionOnly.checked;
+                AetherUserData.setItem('aether_vault_session_only', JSON.stringify(state.vaultCurrentSessionOnly));
+                refreshVault({ ingest: false });
+            });
+        }
+        if (elements.vaultSortSelect) {
+            elements.vaultSortSelect.value = state.vaultSortBy;
+            elements.vaultSortSelect.addEventListener('change', () => {
+                state.vaultSortBy = elements.vaultSortSelect.value || 'date';
+                AetherUserData.setItem('aether_vault_sort', state.vaultSortBy);
+                renderVaultFileList();
             });
         }
         document.querySelectorAll('[data-vault-filter]').forEach((btn) => {
@@ -935,20 +972,76 @@ document.addEventListener('DOMContentLoaded', async () => {
         return state.vaultFiles.find((f) => f.id === state.vaultPreviewId) || null;
     }
 
-    function getFilteredVaultFiles() {
-        let files = state.vaultFiles.filter((f) => f.id);
-        const query = state.vaultSearchQuery.trim().toLowerCase();
-        if (query) {
-            files = files.filter((file) => {
-                const haystack = [
-                    file.title,
-                    file.originalDisplayPath,
-                    file.originalPath,
-                    file.sessionId,
-                ].filter(Boolean).join(' ').toLowerCase();
-                return haystack.includes(query);
-            });
+    function setVaultViewMode(mode) {
+        const allowed = new Set(['recent', 'folder', 'session']);
+        state.vaultViewMode = allowed.has(mode) ? mode : 'recent';
+        AetherUserData.setItem('aether_vault_view_mode', state.vaultViewMode);
+        if (state.vaultViewMode !== 'folder') {
+            state.vaultFolderPath = '';
         }
+        updateVaultViewModeUi();
+        renderVaultBreadcrumbs();
+        renderVaultFileList();
+    }
+
+    function updateVaultViewModeUi() {
+        if (!elements.vaultViewMode) return;
+        elements.vaultViewMode.querySelectorAll('[data-vault-view]').forEach((btn) => {
+            const active = btn.getAttribute('data-vault-view') === state.vaultViewMode;
+            btn.classList.toggle('active', active);
+            btn.setAttribute('aria-selected', active ? 'true' : 'false');
+        });
+        if (elements.vaultBreadcrumbs) {
+            elements.vaultBreadcrumbs.hidden = state.vaultViewMode !== 'folder';
+        }
+    }
+
+    function persistVaultExpandedFolders() {
+        AetherUserData.setItem('aether_vault_expanded_folders', JSON.stringify([...state.vaultExpandedFolders]));
+    }
+
+    function persistVaultExpandedSessions() {
+        AetherUserData.setItem('aether_vault_expanded_sessions', JSON.stringify([...state.vaultExpandedSessions]));
+    }
+
+    function formatRelativeTime(iso) {
+        if (!iso) return '';
+        const diff = Date.now() - new Date(iso).getTime();
+        if (!Number.isFinite(diff)) return '';
+        const mins = Math.floor(diff / 60000);
+        if (mins < 1) return 'just now';
+        if (mins < 60) return `${mins}m ago`;
+        const hrs = Math.floor(mins / 60);
+        if (hrs < 24) return `${hrs}h ago`;
+        const days = Math.floor(hrs / 24);
+        if (days < 7) return `${days}d ago`;
+        return new Date(iso).toLocaleDateString();
+    }
+
+    function filterVaultFiles(files) {
+        const q = state.vaultSearchQuery.trim().toLowerCase();
+        if (!q) return files;
+        return files.filter((file) => {
+            const title = String(file.title || '').toLowerCase();
+            const path = String(file.originalDisplayPath || file.originalPath || '').toLowerCase();
+            const sessionId = String(file.sessionId || '').toLowerCase();
+            return title.includes(q) || path.includes(q) || sessionId.includes(q);
+        });
+    }
+
+    function sortVaultFiles(files) {
+        const sorted = [...files];
+        if (state.vaultSortBy === 'name') {
+            return sorted.sort((a, b) => String(a.title || '').localeCompare(String(b.title || '')));
+        }
+        if (state.vaultSortBy === 'size') {
+            return sorted.sort((a, b) => (Number(b.size) || 0) - (Number(a.size) || 0));
+        }
+        return sorted.sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0));
+    }
+
+    function getFilteredVaultFiles() {
+        let files = sortVaultFiles(filterVaultFiles(state.vaultFiles.filter((f) => f.id)));
 
         if (state.vaultFilter === 'missing') {
             files = files.filter((file) => file.originalExists === false);
@@ -959,6 +1052,344 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         return files;
+    }
+
+    function vaultSessionTitle(sessionId) {
+        if (!sessionId || sessionId === '__unknown__') return 'Unknown session';
+        const session = state.sessions.find((s) => s.id === sessionId);
+        if (session?.title) return session.title;
+        return `Session ${String(sessionId).slice(0, 8)}`;
+    }
+
+    function pathDirname(absPath) {
+        const value = String(absPath || '');
+        const idx = value.lastIndexOf('/');
+        return idx > 0 ? value.slice(0, idx) : '';
+    }
+
+    function pathParts(dirPath) {
+        if (!dirPath) return [];
+        return dirPath.replace(/\/+$/, '').split('/').filter(Boolean);
+    }
+
+    function detectCommonPathPrefix(files) {
+        const dirs = files.map((f) => pathDirname(f.originalPath)).filter(Boolean);
+        if (!dirs.length) return '';
+        const splitDirs = dirs.map((dir) => pathParts(dir));
+        const minLen = Math.min(...splitDirs.map((parts) => parts.length));
+        const common = [];
+        for (let i = 0; i < minLen; i += 1) {
+            const seg = splitDirs[0][i];
+            if (splitDirs.every((parts) => parts[i] === seg)) common.push(seg);
+            else break;
+        }
+        if (!common.length) return '';
+        return `/${common.join('/')}`;
+    }
+
+    function buildVaultFolderTree(files) {
+        const root = { name: '', path: '', children: new Map(), files: [] };
+        for (const file of files) {
+            const abs = file.originalPath || '';
+            const dir = pathDirname(abs);
+            if (!dir) {
+                root.files.push(file);
+                continue;
+            }
+            const parts = pathParts(dir);
+            let node = root;
+            let currentPath = '';
+            for (const part of parts) {
+                currentPath = currentPath ? `${currentPath}/${part}` : `/${part}`;
+                if (!node.children.has(part)) {
+                    node.children.set(part, { name: part, path: currentPath, children: new Map(), files: [] });
+                }
+                node = node.children.get(part);
+            }
+            node.files.push(file);
+        }
+        return root;
+    }
+
+    function buildVaultSessionGroups(files) {
+        const groups = new Map();
+        for (const file of files) {
+            const sessionId = file.sessionId || '__unknown__';
+            if (!groups.has(sessionId)) groups.set(sessionId, []);
+            groups.get(sessionId).push(file);
+        }
+        return [...groups.entries()]
+            .map(([sessionId, groupFiles]) => ({
+                sessionId,
+                files: sortVaultFiles(groupFiles),
+                latestUpdated: groupFiles.reduce((latest, file) => {
+                    const ts = new Date(file.updatedAt || 0).getTime();
+                    return Number.isFinite(ts) && ts > latest ? ts : latest;
+                }, 0),
+            }))
+            .sort((a, b) => b.latestUpdated - a.latestUpdated);
+    }
+
+    function renderVaultFileSubline(file, includePath = true) {
+        const sub = document.createElement('span');
+        sub.className = 'vault-file-sub';
+        const parts = [];
+        if (file.size != null) parts.push(formatWorkspaceFileSize(file.size));
+        if (includePath && file.originalDisplayPath) parts.push(file.originalDisplayPath);
+        const relative = formatRelativeTime(file.updatedAt);
+        if (relative) parts.push(relative);
+        sub.textContent = parts.join(' · ');
+        if (!file.originalExists) {
+            sub.appendChild(document.createTextNode(' · '));
+            const missing = document.createElement('span');
+            missing.className = 'vault-original-missing';
+            missing.textContent = 'original missing';
+            sub.appendChild(missing);
+        }
+        return sub;
+    }
+
+    function createVaultFileRow(file, depth = 0) {
+        const row = document.createElement('button');
+        row.type = 'button';
+        row.className = `vault-file-row${state.vaultPreviewId === file.id ? ' active' : ''}`;
+        if (depth > 0) row.dataset.depth = String(depth);
+        row.title = file.originalDisplayPath || file.originalPath || file.title;
+        row.setAttribute('role', 'option');
+        row.setAttribute('aria-selected', state.vaultPreviewId === file.id ? 'true' : 'false');
+
+        const icon = document.createElement('span');
+        icon.className = 'vault-file-icon';
+        icon.innerHTML = `<i data-lucide="${workspaceFileIconName(file)}"></i>`;
+
+        const meta = document.createElement('span');
+        meta.className = 'vault-file-meta';
+        const label = document.createElement('span');
+        label.className = 'vault-file-name';
+        label.textContent = file.title || file.originalDisplayPath || 'File';
+        meta.appendChild(label);
+        meta.appendChild(renderVaultFileSubline(file, state.vaultViewMode === 'recent'));
+        row.appendChild(icon);
+        row.appendChild(meta);
+        row.addEventListener('click', () => openVaultPreview(file.id));
+        return row;
+    }
+
+    function renderVaultBreadcrumbs() {
+        const container = elements.vaultBreadcrumbs;
+        if (!container) return;
+        container.replaceChildren();
+        if (state.vaultViewMode !== 'folder') {
+            container.hidden = true;
+            return;
+        }
+        container.hidden = false;
+        const files = getFilteredVaultFiles();
+        const prefix = detectCommonPathPrefix(files);
+        const rootBtn = document.createElement('button');
+        rootBtn.type = 'button';
+        rootBtn.className = `workspace-breadcrumb-btn${state.vaultFolderPath ? '' : ' is-current'}`;
+        rootBtn.textContent = prefix ? `${prefix.replace(/^\/Users\/[^/]+/, '~')}/` : 'All files';
+        rootBtn.addEventListener('click', () => {
+            state.vaultFolderPath = '';
+            renderVaultBreadcrumbs();
+            renderVaultFileList();
+        });
+        container.appendChild(rootBtn);
+        if (!state.vaultFolderPath) return;
+
+        const relativePath = prefix && state.vaultFolderPath.startsWith(prefix)
+            ? state.vaultFolderPath.slice(prefix.length)
+            : state.vaultFolderPath;
+        const segments = pathParts(relativePath);
+        let built = prefix;
+        segments.forEach((segment, index) => {
+            const sep = document.createElement('span');
+            sep.className = 'workspace-breadcrumb-sep';
+            sep.textContent = '/';
+            container.appendChild(sep);
+            built = built ? `${built}/${segment}` : `/${segment}`;
+            const folderPath = built;
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = `workspace-breadcrumb-btn${index === segments.length - 1 ? ' is-current' : ''}`;
+            btn.textContent = segment;
+            btn.addEventListener('click', () => {
+                state.vaultFolderPath = folderPath;
+                state.vaultExpandedFolders.add(folderPath);
+                persistVaultExpandedFolders();
+                renderVaultBreadcrumbs();
+                renderVaultFileList();
+            });
+            container.appendChild(btn);
+        });
+    }
+
+    function findVaultFolderNode(root, folderPath) {
+        if (!folderPath) return root;
+        const parts = pathParts(folderPath);
+        let node = root;
+        for (const part of parts) {
+            if (!node.children.has(part)) return null;
+            node = node.children.get(part);
+        }
+        return node;
+    }
+
+    function countVaultFolderFiles(node) {
+        let count = node.files.length;
+        for (const child of node.children.values()) {
+            count += countVaultFolderFiles(child);
+        }
+        return count;
+    }
+
+    function createVaultFolderRow(folder, depth, isExpanded, onClick) {
+        const row = document.createElement('button');
+        row.type = 'button';
+        row.className = `vault-file-row is-dir vault-folder-row${isExpanded ? ' is-expanded' : ''}`;
+        if (depth > 0) row.dataset.depth = String(depth);
+        const icon = document.createElement('span');
+        icon.className = 'vault-file-icon';
+        icon.innerHTML = '<i data-lucide="folder"></i>';
+        const meta = document.createElement('span');
+        meta.className = 'vault-file-meta';
+        const label = document.createElement('span');
+        label.className = 'vault-file-name';
+        const chevron = document.createElement('span');
+        chevron.className = 'vault-folder-chevron';
+        chevron.textContent = '▸';
+        label.appendChild(chevron);
+        label.appendChild(document.createTextNode(folder.name));
+        const sub = document.createElement('span');
+        sub.className = 'vault-file-sub';
+        const fileCount = countVaultFolderFiles(folder);
+        sub.textContent = `${fileCount} file${fileCount === 1 ? '' : 's'}`;
+        meta.appendChild(label);
+        meta.appendChild(sub);
+        row.appendChild(icon);
+        row.appendChild(meta);
+        row.addEventListener('click', onClick);
+        return row;
+    }
+
+    function renderVaultFolderTree(node, depth, fragment) {
+        const childEntries = [...node.children.values()].sort((a, b) => a.name.localeCompare(b.name));
+        for (const child of childEntries) {
+            const isExpanded = state.vaultExpandedFolders.has(child.path);
+            fragment.appendChild(createVaultFolderRow(child, depth, isExpanded, () => {
+                if (isExpanded) state.vaultExpandedFolders.delete(child.path);
+                else state.vaultExpandedFolders.add(child.path);
+                persistVaultExpandedFolders();
+                renderVaultFileList();
+            }));
+            if (isExpanded) {
+                renderVaultFolderTree(child, depth + 1, fragment);
+                for (const file of sortVaultFiles(child.files)) {
+                    fragment.appendChild(createVaultFileRow(file, depth + 1));
+                }
+            }
+        }
+        for (const file of sortVaultFiles(node.files)) {
+            fragment.appendChild(createVaultFileRow(file, depth));
+        }
+    }
+
+    function renderVaultFolderContents(node, depth, fragment) {
+        const childEntries = [...node.children.values()].sort((a, b) => a.name.localeCompare(b.name));
+        for (const child of childEntries) {
+            fragment.appendChild(createVaultFolderRow(child, depth, false, () => {
+                state.vaultFolderPath = child.path;
+                state.vaultExpandedFolders.add(child.path);
+                persistVaultExpandedFolders();
+                renderVaultBreadcrumbs();
+                renderVaultFileList();
+            }));
+        }
+        for (const file of sortVaultFiles(node.files)) {
+            fragment.appendChild(createVaultFileRow(file, depth));
+        }
+    }
+
+    function renderVaultRecentList(files, fragment) {
+        for (const file of files) {
+            fragment.appendChild(createVaultFileRow(file, 0));
+        }
+    }
+
+    function renderVaultFolderList(files, fragment) {
+        const tree = buildVaultFolderTree(files);
+        if (state.vaultFolderPath) {
+            const node = findVaultFolderNode(tree, state.vaultFolderPath);
+            if (node) {
+                renderVaultFolderContents(node, 0, fragment);
+                return;
+            }
+            state.vaultFolderPath = '';
+            renderVaultBreadcrumbs();
+        }
+        renderVaultFolderTree(tree, 0, fragment);
+    }
+
+    function renderVaultSessionList(files, fragment) {
+        const groups = buildVaultSessionGroups(files);
+        for (const group of groups) {
+            const sessionId = group.sessionId;
+            const isExpanded = state.vaultExpandedSessions.has(sessionId);
+            const row = document.createElement('div');
+            row.className = `vault-file-row is-dir vault-session-row${isExpanded ? ' is-expanded' : ''}`;
+
+            const toggle = document.createElement('button');
+            toggle.type = 'button';
+            toggle.className = 'vault-session-toggle-btn';
+            const icon = document.createElement('span');
+            icon.className = 'vault-file-icon';
+            icon.innerHTML = '<i data-lucide="messages-square"></i>';
+            const meta = document.createElement('span');
+            meta.className = 'vault-file-meta';
+            const label = document.createElement('span');
+            label.className = 'vault-file-name';
+            const chevron = document.createElement('span');
+            chevron.className = 'vault-folder-chevron';
+            chevron.textContent = '▸';
+            label.appendChild(chevron);
+            label.appendChild(document.createTextNode(vaultSessionTitle(sessionId)));
+            const sub = document.createElement('span');
+            sub.className = 'vault-file-sub';
+            sub.textContent = `${group.files.length} file${group.files.length === 1 ? '' : 's'}`;
+            meta.appendChild(label);
+            meta.appendChild(sub);
+            toggle.appendChild(icon);
+            toggle.appendChild(meta);
+            toggle.addEventListener('click', () => {
+                if (state.vaultExpandedSessions.has(sessionId)) {
+                    state.vaultExpandedSessions.delete(sessionId);
+                } else {
+                    state.vaultExpandedSessions.add(sessionId);
+                }
+                persistVaultExpandedSessions();
+                renderVaultFileList();
+            });
+            row.appendChild(toggle);
+
+            if (sessionId !== '__unknown__') {
+                const loadBtn = document.createElement('button');
+                loadBtn.type = 'button';
+                loadBtn.className = 'vault-session-load-btn';
+                loadBtn.textContent = 'Open chat';
+                loadBtn.title = 'Load this session';
+                loadBtn.addEventListener('click', () => {
+                    loadSession(sessionId);
+                });
+                row.appendChild(loadBtn);
+            }
+            fragment.appendChild(row);
+            if (isExpanded) {
+                for (const file of group.files) {
+                    fragment.appendChild(createVaultFileRow(file, 1));
+                }
+            }
+        }
     }
 
     function updateVaultCountBadge(count = state.vaultFiles.length) {
@@ -991,19 +1422,50 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         }
         try {
-            const result = await ai.getVaultFiles();
+            const sessionId = state.vaultCurrentSessionOnly ? state.activeSessionId : null;
+            const result = await ai.getVaultFiles(sessionId || undefined);
             state.vaultFiles = result.files || [];
+            try {
+                const sessionsResult = await ai.getVaultSessions();
+                state.vaultSessionsMeta = sessionsResult.sessions || [];
+            } catch (_err) {
+                state.vaultSessionsMeta = [];
+            }
             updateVaultCountBadge(state.vaultFiles.length);
             if (statusEl) {
                 const count = state.vaultFiles.length;
+                const missingCount = state.vaultFiles.filter((f) => !f.originalExists).length;
+                let statusText = '';
                 if (ingestNote) {
-                    statusEl.textContent = `${ingestNote}${count ? ` · ${count} indexed` : ''}`;
+                    statusText = `${ingestNote}${count ? ` · ${count} indexed` : ''}`;
                 } else {
-                    statusEl.textContent = count
+                    statusText = count
                         ? `${count} indexed file${count === 1 ? '' : 's'}`
                         : 'Vault empty — ask Hermes to create a file, then scan.';
                 }
+                if (missingCount > 0) {
+                    statusText += ` · ${missingCount} missing`;
+                }
+                statusEl.textContent = statusText;
+                if (missingCount > 0 && !statusEl.querySelector('.vault-cleanup-link')) {
+                    const link = document.createElement('button');
+                    link.type = 'button';
+                    link.className = 'vault-cleanup-link';
+                    link.textContent = ' Clean up';
+                    link.title = 'Remove entries for deleted files';
+                    link.addEventListener('click', async () => {
+                        try {
+                            const purgeResult = await ai.purgeMissingVaultFiles();
+                            appendSystemConsoleLine(`[VAULT] Removed ${purgeResult.removed || 0} missing entries`);
+                            refreshVault({ ingest: false });
+                        } catch (err) {
+                            appendSystemConsoleLine(`[VAULT] Cleanup: ${err.message || 'Failed'}`);
+                        }
+                    });
+                    statusEl.appendChild(link);
+                }
             }
+            renderVaultBreadcrumbs();
             renderVaultFileList();
             if (state.vaultPreviewId && !state.vaultFiles.some((f) => f.id === state.vaultPreviewId)) {
                 closeVaultPreview();
@@ -1025,46 +1487,19 @@ document.addEventListener('DOMContentLoaded', async () => {
             const empty = document.createElement('div');
             empty.className = 'vault-empty-hint';
             empty.textContent = state.vaultFiles.length
-                ? 'No files match the current search or filter.'
+                ? (state.vaultSearchQuery ? 'No files match your search.' : 'No files match the current filter.')
                 : 'No indexed files yet. Scan Hermes sessions to discover artifacts.';
             list.appendChild(empty);
             return;
         }
 
         const fragment = document.createDocumentFragment();
-        for (const file of files) {
-            const row = document.createElement('button');
-            row.type = 'button';
-            row.className = `vault-file-row${state.vaultPreviewId === file.id ? ' active' : ''}`;
-            row.title = file.originalDisplayPath || file.originalPath || file.title;
-            row.setAttribute('role', 'option');
-            row.setAttribute('aria-selected', state.vaultPreviewId === file.id ? 'true' : 'false');
-
-            const icon = document.createElement('span');
-            icon.className = 'vault-file-icon';
-            icon.innerHTML = `<i data-lucide="${workspaceFileIconName(file)}"></i>`;
-
-            const meta = document.createElement('span');
-            meta.className = 'vault-file-meta';
-
-            const label = document.createElement('span');
-            label.className = 'vault-file-name';
-            label.textContent = file.title || file.originalDisplayPath || 'File';
-
-            const sub = document.createElement('span');
-            sub.className = 'vault-file-sub';
-            const parts = [];
-            if (file.size != null) parts.push(formatWorkspaceFileSize(file.size));
-            if (file.originalDisplayPath) parts.push(file.originalDisplayPath);
-            if (!file.originalExists) parts.push('missing on disk');
-            sub.textContent = parts.join(' · ');
-
-            meta.appendChild(label);
-            meta.appendChild(sub);
-            row.appendChild(icon);
-            row.appendChild(meta);
-            row.addEventListener('click', () => openVaultPreview(file.id));
-            fragment.appendChild(row);
+        if (state.vaultViewMode === 'folder') {
+            renderVaultFolderList(files, fragment);
+        } else if (state.vaultViewMode === 'session') {
+            renderVaultSessionList(files, fragment);
+        } else {
+            renderVaultRecentList(files, fragment);
         }
         list.appendChild(fragment);
         refreshBubbleIcons(list);
@@ -1156,9 +1591,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     async function revealSelectedVaultFile() {
         const file = getSelectedVaultFile();
-        if (!file?.originalPath) return;
+        if (!file?.id) return;
         try {
-            await ai.revealKanbanPath(file.originalPath, state.activeKanbanBoard);
+            await ai.revealVaultFile(file.id);
         } catch (err) {
             showToast('Open failed', err.message || 'Could not reveal file.', { variant: 'error' });
         }

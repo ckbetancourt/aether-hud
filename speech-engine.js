@@ -12,6 +12,7 @@ class SpeechEngine {
     this.currentAudio = null;
     this.currentAudioUrl = null;
     this._replayRegisterInFlight = false;
+    this._ttsAbortController = null;
 
     this.audioContext = null;
     this.analyser = null;
@@ -328,7 +329,21 @@ class SpeechEngine {
     this._teardownAnalyserSource();
   }
 
+  _beginTtsFetch() {
+    this._abortTtsFetch();
+    this._ttsAbortController = new AbortController();
+    return this._ttsAbortController;
+  }
+
+  _abortTtsFetch() {
+    if (this._ttsAbortController) {
+      this._ttsAbortController.abort();
+      this._ttsAbortController = null;
+    }
+  }
+
   stopSpeaking() {
+    this._abortTtsFetch();
     if (this.synth) {
       this.synth.cancel();
     }
@@ -436,7 +451,8 @@ class SpeechEngine {
   }
 
   async speakWithOmniVoice(cleanText, sample, instruct, speed, onEnd, options = {}) {
-    const { onReplayId } = options;
+    const { onReplayId, forcePlay } = options;
+    const controller = this._beginTtsFetch();
     try {
       const resolvedSample = (sample || this.getOmniVoiceSample() || '').trim();
       const resolvedInstruct = String(instruct ?? this.getOmniVoiceInstruct() ?? '').trim();
@@ -448,7 +464,13 @@ class SpeechEngine {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
+        signal: controller.signal,
       });
+
+      if (!this.speechEnabled && !forcePlay) {
+        if (onEnd) onEnd();
+        return;
+      }
 
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
@@ -457,15 +479,30 @@ class SpeechEngine {
 
       const replayId = res.headers.get('X-Aether-Replay-Id');
       const blob = await res.blob();
+
+      if (!this.speechEnabled && !forcePlay) {
+        if (onEnd) onEnd();
+        return;
+      }
+
       await this._playAudioBlob(blob, onEnd, onReplayId, replayId);
     } catch (e) {
+      if (e.name === 'AbortError') {
+        if (onEnd) onEnd();
+        return;
+      }
       console.warn('OmniVoice TTS failed, falling back to browser:', e.message || e);
+      if (!this.speechEnabled && !forcePlay) {
+        if (onEnd) onEnd();
+        return;
+      }
       this.speakWithBrowser(cleanText, null, onEnd, options);
     }
   }
 
   async speakWithElevenLabs(cleanText, voiceId, speed, onEnd, options = {}) {
-    const { onReplayId } = options;
+    const { onReplayId, forcePlay } = options;
+    const controller = this._beginTtsFetch();
     try {
       const res = await fetch('/api/tts/elevenlabs/speak', {
         method: 'POST',
@@ -475,7 +512,13 @@ class SpeechEngine {
           voiceId: voiceId || this.getElevenLabsVoiceId(),
           speed,
         }),
+        signal: controller.signal,
       });
+
+      if (!this.speechEnabled && !forcePlay) {
+        if (onEnd) onEnd();
+        return;
+      }
 
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
@@ -484,9 +527,23 @@ class SpeechEngine {
 
       const replayId = res.headers.get('X-Aether-Replay-Id');
       const blob = await res.blob();
+
+      if (!this.speechEnabled && !forcePlay) {
+        if (onEnd) onEnd();
+        return;
+      }
+
       await this._playAudioBlob(blob, onEnd, onReplayId, replayId);
     } catch (e) {
+      if (e.name === 'AbortError') {
+        if (onEnd) onEnd();
+        return;
+      }
       console.warn('ElevenLabs TTS failed, falling back to browser:', e.message || e);
+      if (!this.speechEnabled && !forcePlay) {
+        if (onEnd) onEnd();
+        return;
+      }
       this.speakWithBrowser(cleanText, null, onEnd, options);
     }
   }
@@ -512,6 +569,7 @@ class SpeechEngine {
     const speakOpts = {
       onReplayId: opts.onReplayId,
       skipReplayCache,
+      forcePlay: Boolean(opts.forcePlay),
     };
 
     if (this.getTtsProvider() === 'elevenlabs') {
@@ -541,6 +599,11 @@ class SpeechEngine {
   }
 
   async replayById(replayId, fallbackText, onEnd) {
+    if (!this.speechEnabled) {
+      if (onEnd) onEnd();
+      return;
+    }
+
     if (!replayId) {
       if (fallbackText) {
         this.speak(fallbackText, null, null, onEnd, { forcePlay: true, skipReplayCache: true });
