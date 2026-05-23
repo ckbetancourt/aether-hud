@@ -653,6 +653,21 @@ class AIEngine {
         return data;
     }
 
+    async saveVaultFile(id, content) {
+        const baseUrl = this.resolveLlmBackendBaseUrl();
+        if (!baseUrl || !id) throw new Error('Vault file id is required.');
+        const response = await fetch(`${baseUrl}/api/aether/vault/file`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: String(id), content: String(content ?? '') }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(data.error || data.message || `HTTP ${response.status}`);
+        }
+        return data;
+    }
+
     vaultFileUrl(id) {
         const baseUrl = this.resolveLlmBackendBaseUrl();
         if (!baseUrl || !id) return '';

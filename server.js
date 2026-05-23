@@ -636,6 +636,7 @@ const {
   purgeMissingVaultFiles,
   revealVaultFile,
   readVaultFileContent,
+  writeVaultFileContent,
   resolveVaultRawPath,
   VAULT_NOTE,
   mimeFromExt: vaultMimeFromExt,
@@ -1725,6 +1726,29 @@ const server = http.createServer(async (req, res) => {
     } catch (e) {
       console.error('[api/aether/vault/purge-missing]', e.message || e);
       sendJson(res, 500, { available: false, error: e.message || 'Purge failed' });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/api/aether/vault/file') {
+    try {
+      const body = await readBody(req);
+      const id = body?.id || '';
+      const content = body?.content;
+      if (!id) {
+        sendJson(res, 400, { available: false, error: 'Vault file id is required' });
+        return;
+      }
+      if (typeof content !== 'string') {
+        sendJson(res, 400, { available: false, error: 'File content is required' });
+        return;
+      }
+      const result = writeVaultFileContent(id, content);
+      sendJson(res, 200, { available: true, ...result });
+    } catch (e) {
+      const status = e.statusCode || 502;
+      console.error('[api/aether/vault/file]', e.message || e);
+      sendJson(res, status, { available: false, error: e.message || 'Save failed' });
     }
     return;
   }

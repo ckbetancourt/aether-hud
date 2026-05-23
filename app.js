@@ -181,6 +181,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         workspaceViewerPath: '',
         vaultFiles: [],
         vaultPreviewId: '',
+        vaultPreviewDirty: false,
+        vaultPreviewEditable: false,
+        vaultPreviewSavedContent: '',
+        vaultPreviewSaving: false,
         skillsItems: [],
         skillsSelectedName: '',
         skillsEditorBaseline: '',
@@ -307,6 +311,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         vaultPreviewTitle: document.getElementById('vaultPreviewTitle'),
         vaultPreviewPath: document.getElementById('vaultPreviewPath'),
         vaultPreviewBody: document.getElementById('vaultPreviewBody'),
+        vaultPreviewSaveBtn: document.getElementById('vaultPreviewSaveBtn'),
         vaultPreviewFinderBtn: document.getElementById('vaultPreviewFinderBtn'),
         vaultPreviewPinBtn: document.getElementById('vaultPreviewPinBtn'),
         vaultPreviewCopyPathBtn: document.getElementById('vaultPreviewCopyPathBtn'),
@@ -629,6 +634,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (elements.vaultPreviewBackBtn) {
             elements.vaultPreviewBackBtn.addEventListener('click', () => closeVaultPreviewMobile());
         }
+        if (elements.vaultPreviewSaveBtn) {
+            elements.vaultPreviewSaveBtn.addEventListener('click', () => saveVaultPreview());
+        }
         if (elements.vaultPreviewFinderBtn) {
             elements.vaultPreviewFinderBtn.addEventListener('click', () => revealSelectedVaultFile());
         }
@@ -802,17 +810,24 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
 
         document.addEventListener('keydown', (e) => {
+            if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's' && state.vaultMode && state.vaultPreviewEditable) {
+                e.preventDefault();
+                saveVaultPreview();
+            }
+        });
+
+        document.addEventListener('keydown', async (e) => {
             if (e.key === 'Escape' && state.vaultMode) {
                 const activeEl = document.activeElement;
                 const activeTag = activeEl?.tagName?.toLowerCase() || '';
                 if (['input', 'textarea', 'select'].includes(activeTag)) return;
                 if (elements.vaultPageBody?.classList.contains('show-preview') && isCompactViewport()) {
                     e.preventDefault();
-                    closeVaultPreviewMobile();
+                    await closeVaultPreviewMobile();
                     return;
                 }
                 e.preventDefault();
-                exitVaultMode();
+                await exitVaultMode();
             }
         });
 
@@ -1505,30 +1520,83 @@ document.addEventListener('DOMContentLoaded', async () => {
         refreshBubbleIcons(list);
     }
 
-    function closeVaultPreview() {
+    function resetVaultPreviewEditorState() {
+        state.vaultPreviewDirty = false;
+        state.vaultPreviewEditable = false;
+        state.vaultPreviewSavedContent = '';
+        state.vaultPreviewSaving = false;
+        updateVaultPreviewSaveButton();
+    }
+
+    function getVaultPreviewEditor() {
+        return elements.vaultPreviewBody?.querySelector('.vault-preview-editor') || null;
+    }
+
+    function updateVaultPreviewSaveButton() {
+        const btn = elements.vaultPreviewSaveBtn;
+        if (!btn) return;
+        const show = state.vaultPreviewEditable;
+        btn.hidden = !show;
+        btn.disabled = state.vaultPreviewSaving || !state.vaultPreviewDirty;
+        btn.classList.toggle('is-dirty', state.vaultPreviewDirty);
+        btn.title = state.vaultPreviewDirty ? 'Save changes' : 'Saved';
+    }
+
+    function markVaultPreviewDirty() {
+        const editor = getVaultPreviewEditor();
+        if (!editor || !state.vaultPreviewEditable) return;
+        state.vaultPreviewDirty = editor.value !== state.vaultPreviewSavedContent;
+        updateVaultPreviewSaveButton();
+    }
+
+    async function confirmDiscardVaultPreviewChanges() {
+        if (!state.vaultPreviewDirty) return true;
+        return window.confirm('You have unsaved changes. Discard them?');
+    }
+
+    function setVaultPreviewFocus(active) {
+        elements.vaultPage?.classList.toggle('show-preview', active);
+        elements.vaultPageBody?.classList.toggle('show-preview', active);
+    }
+
+    async function closeVaultPreview({ skipConfirm = false } = {}) {
+        if (!skipConfirm && !(await confirmDiscardVaultPreviewChanges())) return false;
         state.vaultPreviewId = '';
-        elements.vaultPageBody?.classList.remove('show-preview');
+        resetVaultPreviewEditorState();
+        setVaultPreviewFocus(false);
         if (elements.vaultPreviewEmpty) elements.vaultPreviewEmpty.hidden = false;
         if (elements.vaultPreviewContent) elements.vaultPreviewContent.hidden = true;
-        if (elements.vaultPreviewBody) elements.vaultPreviewBody.replaceChildren();
+        if (elements.vaultPreviewBody) {
+            elements.vaultPreviewBody.replaceChildren();
+            elements.vaultPreviewBody.classList.remove('has-editor');
+        }
         if (elements.vaultPreviewPath) elements.vaultPreviewPath.textContent = '';
         renderVaultFileList();
         if (state.vaultMode && !parseVaultRoute()?.fileId) {
             syncVaultRoute(null, { replace: true });
         }
+        return true;
     }
 
-    function closeVaultPreviewMobile() {
-        closeVaultPreview();
+    async function closeVaultPreviewMobile() {
+        await closeVaultPreview();
     }
 
     async function openVaultPreview(fileId) {
         if (!fileId) return;
+        if (state.vaultPreviewId && state.vaultPreviewId !== fileId && state.vaultPreviewDirty) {
+            const proceed = await confirmDiscardVaultPreviewChanges();
+            if (!proceed) return;
+        }
+        resetVaultPreviewEditorState();
         state.vaultPreviewId = fileId;
         const file = state.vaultFiles.find((f) => f.id === fileId);
-        elements.vaultPageBody?.classList.add('show-preview');
+        setVaultPreviewFocus(true);
         if (elements.vaultPreviewEmpty) elements.vaultPreviewEmpty.hidden = true;
         if (elements.vaultPreviewContent) elements.vaultPreviewContent.hidden = false;
+        if (typeof lucide !== 'undefined' && elements.vaultPreviewContent) {
+            lucide.createIcons({ root: elements.vaultPreviewContent });
+        }
         if (elements.vaultPreviewTitle) {
             elements.vaultPreviewTitle.textContent = file?.title || 'File';
         }
@@ -1556,6 +1624,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             const result = await ai.readVaultFile(fileId);
             renderVaultPreviewContent(result, fileId);
         } catch (err) {
+            resetVaultPreviewEditorState();
             body.replaceChildren();
             const error = document.createElement('div');
             error.className = 'vault-preview-error';
@@ -1568,6 +1637,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const body = elements.vaultPreviewBody;
         if (!body) return;
         body.replaceChildren();
+        resetVaultPreviewEditorState();
         if (result.kind === 'image') {
             const img = document.createElement('img');
             img.className = 'vault-preview-image';
@@ -1577,16 +1647,57 @@ document.addEventListener('DOMContentLoaded', async () => {
             return;
         }
         if (result.kind === 'text') {
-            const pre = document.createElement('pre');
-            pre.className = 'vault-preview-text';
-            pre.textContent = result.content || '';
-            body.appendChild(pre);
+            body.classList.add('has-editor');
+            const editor = document.createElement('textarea');
+            editor.className = 'vault-preview-editor';
+            editor.spellcheck = false;
+            editor.value = result.content || '';
+            editor.readOnly = !result.editable;
+            editor.setAttribute('aria-label', result.name || 'File editor');
+            editor.addEventListener('input', () => markVaultPreviewDirty());
+            body.appendChild(editor);
+            if (result.editable) {
+                state.vaultPreviewEditable = true;
+                state.vaultPreviewSavedContent = editor.value;
+                updateVaultPreviewSaveButton();
+                if (typeof lucide !== 'undefined' && elements.vaultPreviewContent) {
+                    lucide.createIcons({ root: elements.vaultPreviewContent });
+                }
+            }
             return;
         }
         const notice = document.createElement('div');
         notice.className = 'vault-preview-binary';
         notice.textContent = 'Binary file — use Open in Finder to view it locally.';
         body.appendChild(notice);
+    }
+
+    async function saveVaultPreview() {
+        const fileId = state.vaultPreviewId;
+        const editor = getVaultPreviewEditor();
+        if (!fileId || !editor || !state.vaultPreviewEditable || state.vaultPreviewSaving) return;
+        if (!state.vaultPreviewDirty) return;
+
+        state.vaultPreviewSaving = true;
+        updateVaultPreviewSaveButton();
+        try {
+            const result = await ai.saveVaultFile(fileId, editor.value);
+            state.vaultPreviewSavedContent = editor.value;
+            state.vaultPreviewDirty = false;
+            if (result.vault) {
+                const index = state.vaultFiles.findIndex((f) => f.id === fileId);
+                if (index >= 0) {
+                    state.vaultFiles[index] = { ...state.vaultFiles[index], ...result.vault };
+                }
+            }
+            renderVaultFileList();
+            showToast('Saved', result.name || 'File updated', { durationMs: 2200 });
+        } catch (err) {
+            showToast('Save failed', err.message || 'Could not save file.', { variant: 'error' });
+        } finally {
+            state.vaultPreviewSaving = false;
+            updateVaultPreviewSaveButton();
+        }
     }
 
     async function revealSelectedVaultFile() {
@@ -1695,8 +1806,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         lucide.createIcons();
     }
 
-    function exitVaultMode({ fromHash = false } = {}) {
+    async function exitVaultMode({ fromHash = false } = {}) {
         if (!state.vaultMode) return;
+        if (!(await confirmDiscardVaultPreviewChanges())) return;
 
         state.vaultMode = false;
         elements.hudShell?.classList.remove('vault-mode');
@@ -1704,7 +1816,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (elements.vaultPage) {
             elements.vaultPage.hidden = true;
         }
-        closeVaultPreview();
+        await closeVaultPreview({ skipConfirm: true });
 
         const restoreCollapsed = state.chatCollapsedBeforeVault;
         state.chatCollapsedBeforeVault = null;

@@ -4998,6 +4998,10 @@ body {
     text-align: center;
 }
 
+.vault-preview-empty[hidden] {
+    display: none !important;
+}
+
 .vault-preview-content {
     flex: 1 1 auto;
     min-height: 0;
@@ -5006,12 +5010,26 @@ body {
     overflow: hidden;
 }
 
+.vault-preview-content[hidden] {
+    display: none !important;
+}
+
+.vault-page.show-preview .vault-page-header,
+.vault-page.show-preview .vault-page-toolbar {
+    display: none;
+}
+
+.vault-page.show-preview .vault-page-body {
+    grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+}
+
 .vault-preview-header {
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     gap: 10px;
-    padding: 16px 20px 10px;
+    padding: 10px 16px;
     border-bottom: 1px solid color-mix(in srgb, var(--accent-primary) 8%, var(--glass-card-border));
+    flex-shrink: 0;
 }
 
 .vault-preview-back {
@@ -5028,48 +5046,113 @@ body {
 }
 
 .vault-preview-heading {
+    flex: 1 1 auto;
     min-width: 0;
 }
 
 .vault-preview-heading h3 {
-    margin: 0 0 4px;
+    margin: 0 0 2px;
     font-family: var(--font-heading);
-    font-size: 0.95rem;
-    letter-spacing: 0.05em;
+    font-size: 0.82rem;
+    letter-spacing: 0.04em;
     text-transform: uppercase;
     word-break: break-word;
+    line-height: 1.25;
 }
 
 .vault-preview-path {
     margin: 0;
     color: var(--text-muted);
     font-family: var(--font-mono, ui-monospace, monospace);
-    font-size: 0.68rem;
-    line-height: 1.4;
+    font-size: 0.62rem;
+    line-height: 1.35;
     word-break: break-all;
+    display: -webkit-box;
+    -webkit-line-clamp: 1;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
 }
 
 .vault-preview-actions {
     display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    padding: 0 20px 12px;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.vault-preview-action-btn {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border-radius: 8px;
+    border: 1px solid color-mix(in srgb, var(--accent-primary) 18%, var(--glass-card-border));
+    background: rgba(255, 255, 255, 0.03);
+    color: var(--text-muted);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+
+.vault-preview-action-btn:hover {
+    border-color: color-mix(in srgb, var(--accent-primary) 36%, var(--glass-card-border));
+    color: var(--text-primary);
+    background: color-mix(in srgb, var(--accent-primary) 10%, transparent);
 }
 
 .vault-preview-body {
     flex: 1 1 auto;
     min-height: 0;
     overflow: auto;
-    padding: 0 20px 20px;
+    padding: 12px 16px 16px;
 }
 
-.vault-preview-text {
+.vault-preview-text,
+.vault-preview-editor {
     margin: 0;
     white-space: pre-wrap;
     word-break: break-word;
     font-family: var(--font-mono, ui-monospace, monospace);
     font-size: 0.78rem;
     line-height: 1.45;
+}
+
+.vault-preview-editor {
+    display: block;
+    width: 100%;
+    min-height: 100%;
+    box-sizing: border-box;
+    padding: 0;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    color: inherit;
+    resize: none;
+    outline: none;
+}
+
+.vault-preview-editor:focus {
+    outline: none;
+}
+
+.vault-preview-editor:read-only {
+    cursor: default;
+}
+
+.vault-preview-body.has-editor {
+    padding: 12px 16px 16px;
+}
+
+.vault-preview-action-btn.is-dirty {
+    color: var(--accent-primary);
+    border-color: color-mix(in srgb, var(--accent-primary) 42%, var(--glass-card-border));
+    background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
+}
+
+.vault-preview-action-btn:disabled {
+    opacity: 0.45;
+    cursor: default;
 }
 
 .vault-preview-image {
@@ -5118,16 +5201,17 @@ body {
         grid-template-columns: 1fr;
     }
 
+    .vault-page.show-preview .vault-page-body,
+    .vault-page-body.show-preview {
+        grid-template-columns: 1fr;
+    }
+
     .vault-page-body.show-preview .vault-list-panel {
         display: none;
     }
 
     .vault-preview-back {
         display: inline-flex;
-    }
-
-    .vault-preview-actions .action-btn {
-        flex: 1 1 calc(50% - 4px);
     }
 }
 

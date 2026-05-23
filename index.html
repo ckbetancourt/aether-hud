@@ -499,11 +499,20 @@
                                 <h3 id="vaultPreviewTitle">File</h3>
                                 <p class="vault-preview-path" id="vaultPreviewPath"></p>
                             </div>
-                        </div>
-                        <div class="vault-preview-actions">
-                            <button class="action-btn btn-secondary" type="button" id="vaultPreviewFinderBtn">Open in Finder</button>
-                            <button class="action-btn btn-secondary" type="button" id="vaultPreviewPinBtn">Pin folder</button>
-                            <button class="action-btn btn-secondary" type="button" id="vaultPreviewCopyPathBtn">Copy path</button>
+                            <div class="vault-preview-actions">
+                                <button type="button" class="vault-preview-action-btn" id="vaultPreviewSaveBtn" title="Save file" aria-label="Save file" hidden>
+                                    <i data-lucide="save" style="width:14px; height:14px;"></i>
+                                </button>
+                                <button type="button" class="vault-preview-action-btn" id="vaultPreviewFinderBtn" title="Show in Finder" aria-label="Show in Finder">
+                                    <i data-lucide="folder-open" style="width:14px; height:14px;"></i>
+                                </button>
+                                <button type="button" class="vault-preview-action-btn" id="vaultPreviewPinBtn" title="Pin folder" aria-label="Pin folder">
+                                    <i data-lucide="pin" style="width:14px; height:14px;"></i>
+                                </button>
+                                <button type="button" class="vault-preview-action-btn" id="vaultPreviewCopyPathBtn" title="Copy path" aria-label="Copy path">
+                                    <i data-lucide="copy" style="width:14px; height:14px;"></i>
+                                </button>
+                            </div>
                         </div>
                         <div class="vault-preview-body" id="vaultPreviewBody"></div>
                     </div>
