@@ -245,6 +245,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         archivesSearchQuery: '',
         contextSelectedFileId: null,
         chatInFlight: false,
+        chatInterruptedByBackground: false,
+        chatStopRequested: false,
         _displayedSessionCount: SESSIONS_PAGE_SIZE,
     };
     let pageHiddenAt = 0;
@@ -592,22 +594,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     async function handlePageReturn() {
-        const hiddenForMs = pageHiddenAt ? Date.now() - pageHiddenAt : 0;
         pageHiddenAt = 0;
-
-        if (state.chatInFlight && hiddenForMs >= 1500) {
-            try {
-                await ai.stopActiveChat();
-            } catch {
-                ai.activeAbortController?.abort();
-                ai.activeAbortController = null;
-                ai.activeRunId = null;
-            }
-            setChatInFlight(false);
-            visualizer.setState('idle');
-            visualizer.clearThinkingCaption();
-        }
-
         pageReturnRefreshPromise = refreshHermesIntegration({ silent: true });
         try {
             await pageReturnRefreshPromise;
@@ -620,6 +607,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'hidden') {
             pageHiddenAt = Date.now();
+            if (state.chatInFlight) {
+                state.chatInterruptedByBackground = true;
+            }
             return;
         }
         handlePageReturn();
@@ -3074,6 +3064,31 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
 
         } catch (err) {
+            const backgroundInterrupted = state.chatInterruptedByBackground;
+            state.chatInterruptedByBackground = false;
+
+            if (AIEngine.isAbortError(err)) {
+                if (state.chatStopRequested) {
+                    state.chatStopRequested = false;
+                    consoleLogNode.innerHTML = '<span style="color:var(--muted);">[AETHER] Stopped.</span>';
+                    const stoppedContent = ensureAssistantBubbleStructure(bubbleNode);
+                    if (stoppedContent) stoppedContent.textContent = '[Stopped]';
+                    clearAssistantBubbleToolPreview(bubbleNode);
+                    return;
+                }
+                if (backgroundInterrupted || document.hidden) {
+                    console.warn('[AETHER] Chat request interrupted (tab backgrounded).', err);
+                    consoleLogNode.innerHTML = '<span style="color:var(--muted);">[AETHER] Request interrupted — tab was in background.</span>';
+                    const interruptedContent = ensureAssistantBubbleStructure(bubbleNode);
+                    if (interruptedContent) {
+                        interruptedContent.textContent =
+                            'Response interrupted while this tab was in the background. Hermes may still have finished — check session history or resend.';
+                    }
+                    clearAssistantBubbleToolPreview(bubbleNode);
+                    return;
+                }
+            }
+
             console.error("Aether telemetry failure: ", err);
             const errMsg = `[AETHER ERROR] Telemetry routing failed. Error: ${err.message}`;
             consoleLogNode.innerHTML = `<span style="color:var(--error);">${errMsg}</span>`;
@@ -4278,12 +4293,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     async function stopActiveChatTurn() {
+        state.chatStopRequested = true;
         try {
             await ai.stopActiveChat();
             showToast('Stopped', 'Agent run cancelled.');
         } catch (err) {
             showToast('Stop failed', err.message || 'Could not stop run', { variant: 'error' });
         } finally {
+            state.chatStopRequested = false;
             setChatInFlight(false);
             visualizer.setState('idle');
             visualizer.clearThinkingCaption();

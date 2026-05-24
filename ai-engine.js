@@ -101,6 +101,13 @@ class AIEngine {
         return /load failed|failed to fetch|networkerror|network request failed|net::err/i.test(msg);
     }
 
+    static isAbortError(err) {
+        if (!err) return false;
+        if (err.name === 'AbortError') return true;
+        const msg = String(err.message || err || '');
+        return /fetch is aborted|aborted a request|operation was aborted|The user aborted/i.test(msg);
+    }
+
     static humanizeFetchError(err, baseUrl) {
         if (AIEngine.isTransientNetworkError(err)) {
             const target = baseUrl || 'http://localhost:8787';
@@ -230,6 +237,7 @@ class AIEngine {
                 signal: fetchSignal,
             }, { retry: true, baseUrl });
         } catch (err) {
+            if (AIEngine.isAbortError(err)) throw err;
             throw AIEngine.humanizeFetchError(err, baseUrl);
         }
 
@@ -297,7 +305,7 @@ class AIEngine {
                 }
             }
         } catch (err) {
-            if (err?.name === 'AbortError') throw err;
+            if (AIEngine.isAbortError(err)) throw err;
             throw AIEngine.humanizeFetchError(err, baseUrl);
         }
 
