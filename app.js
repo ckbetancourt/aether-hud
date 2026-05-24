@@ -595,7 +595,23 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     async function handlePageReturn() {
         pageHiddenAt = 0;
-        pageReturnRefreshPromise = refreshHermesIntegration({ silent: true });
+
+        // Drop stale client-side transport from a backgrounded SSE/fetch.
+        ai.activeAbortController = null;
+        ai.activeRunId = null;
+        state.chatInterruptedByBackground = false;
+        if (state.chatInFlight) {
+            setChatInFlight(false);
+            visualizer.setState('idle');
+            visualizer.clearThinkingCaption();
+        }
+
+        pageReturnRefreshPromise = (async () => {
+            await refreshHermesIntegration({ silent: true });
+            if (state.activeSessionId) {
+                await loadSession(state.activeSessionId, { silent: true });
+            }
+        })();
         try {
             await pageReturnRefreshPromise;
         } finally {
@@ -3076,17 +3092,20 @@ document.addEventListener('DOMContentLoaded', async () => {
                     clearAssistantBubbleToolPreview(bubbleNode);
                     return;
                 }
-                if (backgroundInterrupted || document.hidden) {
-                    console.warn('[AETHER] Chat request interrupted (tab backgrounded).', err);
-                    consoleLogNode.innerHTML = '<span style="color:var(--muted);">[AETHER] Request interrupted — tab was in background.</span>';
-                    const interruptedContent = ensureAssistantBubbleStructure(bubbleNode);
-                    if (interruptedContent) {
-                        interruptedContent.textContent =
-                            'Response interrupted while this tab was in the background. Hermes may still have finished — check session history or resend.';
-                    }
-                    clearAssistantBubbleToolPreview(bubbleNode);
-                    return;
+            }
+
+            const backgroundNetworkFailure = backgroundInterrupted
+                && (AIEngine.isAbortError(err) || AIEngine.isTransientNetworkError(err));
+            if (backgroundNetworkFailure || (AIEngine.isAbortError(err) && document.hidden)) {
+                console.warn('[AETHER] Chat request interrupted (tab backgrounded).', err);
+                consoleLogNode.innerHTML = '<span style="color:var(--muted);">[AETHER] Request interrupted — tab was in background.</span>';
+                const interruptedContent = ensureAssistantBubbleStructure(bubbleNode);
+                if (interruptedContent) {
+                    interruptedContent.textContent =
+                        'Response interrupted while this tab was in the background. Hermes may still have finished — check session history or resend.';
                 }
+                clearAssistantBubbleToolPreview(bubbleNode);
+                return;
             }
 
             console.error("Aether telemetry failure: ", err);
@@ -3936,7 +3955,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         scheduleRenderHistorySessions();
     }
 
-    async function loadSession(sessionId) {
+    async function loadSession(sessionId, { silent = false } = {}) {
         clearEphemeralSession();
         const isHermesId = (id) => id && !String(id).startsWith('sess_');
 
@@ -4014,10 +4033,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         // Load logs
-        elements.consoleScroller.innerHTML = `<div class="console-log-line system-line">[SYSTEM] Historical session re-loaded.</div>`;
-        
+        if (silent) {
+            elements.consoleScroller.innerHTML = '';
+        } else {
+            elements.consoleScroller.innerHTML = `<div class="console-log-line system-line">[SYSTEM] Historical session re-loaded.</div>`;
+        }
+
         if (session.messages.length === 0) {
-            elements.consoleScroller.innerHTML += `<div class="console-log-line">Active session log empty. Awaiting inputs...</div>`;
+            if (!silent) {
+                elements.consoleScroller.innerHTML += `<div class="console-log-line">Active session log empty. Awaiting inputs...</div>`;
+            }
         } else {
             session.messages.forEach(msg => {
                 if (msg.role === 'user') {
