@@ -650,6 +650,7 @@ const {
 } = require('./lib/hermes-skills.js');
 
 const { assertBrowseAllowed, browseDirectory, listWorkspaceFiles, readWorkspaceFile, mimeFromExt } = require('./lib/workspace-sandbox.js');
+const { resolveMediaFilePath } = require('./lib/aether-media.js');
 
 function combinedBrowseRoots(boardSlug) {
   const kanban = getKanbanBrowseRoots(boardSlug).roots;
@@ -1009,6 +1010,7 @@ function hermesSystemPrompt(body) {
     'You are operating through Hermes Agent as the runtime behind the Aether voice HUD.',
     'Use Hermes tools, APIs, memory, sessions, and profile context when the runtime provides them.',
     'Keep responses voice-first and report tool or agent state in concise spoken language.',
+    'The HUD renders local images inline when you include MEDIA:/absolute/path/to/image in your reply.',
   ].join('\n');
 }
 
@@ -2267,6 +2269,26 @@ const server = http.createServer(async (req, res) => {
         const status = e.statusCode || 502;
         console.error('[api/aether/vault/file]', e.message || e);
         sendJson(res, status, { available: false, error: e.message || 'Read failed' });
+      }
+      return;
+    }
+
+    const mediaRawMatch = pathname === '/api/aether/media/raw';
+    if (mediaRawMatch) {
+      const mediaPath = u.searchParams.get('path') || '';
+      try {
+        const result = resolveMediaFilePath(mediaPath);
+        res.writeHead(200, {
+          'Content-Type': result.mime,
+          'Content-Length': result.size,
+          'Cache-Control': 'no-store',
+          ...corsHeaders(),
+        });
+        fs.createReadStream(result.path).pipe(res);
+      } catch (e) {
+        const status = e.statusCode || 502;
+        console.error('[api/aether/media/raw]', e.message || e);
+        sendJson(res, status, { available: false, error: e.message || 'File unavailable' });
       }
       return;
     }

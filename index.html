@@ -667,7 +667,7 @@
 
             <div class="chat-history-tabs settings-tabs" role="tablist" aria-label="Chat categories">
                 <button class="settings-tab active" type="button" role="tab" id="chatHistoryTabAether" aria-selected="true" aria-controls="chatHistoryList" data-chat-history-tab="aether">Aether</button>
-                <button class="settings-tab" type="button" role="tab" id="chatHistoryTabHermes" aria-selected="false" aria-controls="chatHistoryList" data-chat-history-tab="hermes">Hermes</button>
+                <button class="settings-tab" type="button" role="tab" id="chatHistoryTabAll" aria-selected="false" aria-controls="chatHistoryList" data-chat-history-tab="all">All sessions</button>
             </div>
             
             <div class="drawer-scroll">
@@ -731,6 +731,17 @@
     </div>
 
     <div class="toast-stack" id="toastStack" aria-live="polite" aria-atomic="false"></div>
+
+    <!-- ==========================================
+         MEDIA LIGHTBOX
+         ========================================== -->
+    <div class="modal-overlay media-lightbox" id="mediaLightbox" aria-hidden="true">
+        <div class="media-lightbox-content" role="dialog" aria-modal="true" aria-label="Expanded image">
+            <button class="modal-close media-lightbox-close" id="closeMediaLightboxBtn" type="button" aria-label="Close expanded image">&times;</button>
+            <img class="media-lightbox-image" id="mediaLightboxImage" alt="">
+            <div class="media-lightbox-caption" id="mediaLightboxCaption"></div>
+        </div>
+    </div>
 
     <!-- Script References -->
     <script src="user-data.js"></script>

@@ -27,27 +27,62 @@ document.addEventListener('DOMContentLoaded', async () => {
     let pendingAttachments = [];
     let chatDropDepth = 0;
     let attachmentUiVerified = false;
+    let ephemeralSession = null;
+    let aetherSessionsMigrationNeeded = false;
 
-    function loadSavedSessions() {
-        try {
-            return JSON.parse(AetherUserData.getItem('aether_sessions') || '[]').map(normalizeSession);
-        } catch {
-            return [];
-        }
+    function normalizeChatHistoryTab(tabId) {
+        if (tabId === 'core') return 'aether';
+        if (tabId === 'hermes') return 'all';
+        if (tabId === 'all') return 'all';
+        return 'aether';
     }
 
-    function normalizeSession(session) {
+    function normalizeAetherSession(session) {
         const savedHermesProfile = AetherUserData.getItem('aether_hermes_profile') || null;
+        const id = session.id || `sess_${Date.now()}`;
+        const isSess = String(id).startsWith('sess_');
+        let hermesSessionId = session.hermesSessionId || null;
+        if (!hermesSessionId && !isSess) {
+            hermesSessionId = id;
+        }
+
         return {
-            id: session.id || `sess_${Date.now()}`,
+            id,
             title: session.title || 'Untitled session',
             profile: session.profile || session.model || '',
-            source: session.source || (session.id && !session.id.startsWith('sess_') ? 'hermes' : 'local'),
+            source: session.source || (isSess ? 'local' : 'hermes'),
             hermesProfile: session.hermesProfile || savedHermesProfile,
+            hermesSessionId,
             hermesUpdatedAt: session.hermesUpdatedAt || null,
             startedAt: session.startedAt || session.hermesUpdatedAt || null,
             messages: Array.isArray(session.messages) ? session.messages : [],
         };
+    }
+
+    function isAetherHudSession(session) {
+        return String(session?.id || '').startsWith('sess_');
+    }
+
+    function shouldKeepInAetherArchive(raw) {
+        return String(raw.id || '').startsWith('sess_');
+    }
+
+    function migrateAetherSessions(rawSessions) {
+        if (!Array.isArray(rawSessions)) return [];
+        return rawSessions.filter(shouldKeepInAetherArchive);
+    }
+
+    function loadSavedSessions() {
+        try {
+            const raw = JSON.parse(AetherUserData.getItem('aether_sessions') || '[]');
+            const migrated = migrateAetherSessions(raw);
+            if (migrated.length !== raw.length) {
+                aetherSessionsMigrationNeeded = true;
+            }
+            return migrated.map(normalizeAetherSession);
+        } catch {
+            return [];
+        }
     }
 
     function loadProfileAccents() {
@@ -148,7 +183,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // 1. Core State Definition
     const state = {
-        sessions: loadSavedSessions(),
+        aetherSessions: loadSavedSessions(),
+        hermesSessions: [],
         activeSessionId: AetherUserData.getItem('aether_active_session_id') || null,
         lastHermesSessionId: AetherUserData.getItem('aether_last_hermes_session_id') || null,
         activeHermesProfile: AetherUserData.getItem('aether_hermes_profile') || '',
@@ -284,6 +320,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         modelPickerError: document.getElementById('modelPickerError'),
         modelPickerProviders: document.getElementById('modelPickerProviders'),
         modelPickerModels: document.getElementById('modelPickerModels'),
+        mediaLightbox: document.getElementById('mediaLightbox'),
+        mediaLightboxImage: document.getElementById('mediaLightboxImage'),
+        mediaLightboxCaption: document.getElementById('mediaLightboxCaption'),
+        closeMediaLightboxBtn: document.getElementById('closeMediaLightboxBtn'),
         speechSynthesisToggle: document.getElementById('speechSynthesisToggle'),
         voiceRepliesToggle: document.getElementById('voiceRepliesToggle'),
         voiceRepliesHint: document.getElementById('voiceRepliesHint'),
@@ -424,6 +464,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     function syncViewportMode() {
         document.documentElement.dataset.viewport = isCompactViewport() ? 'compact' : 'wide';
         updateOverlayScrims();
+        resizeChatComposerInput();
         if (typeof visualizer !== 'undefined' && visualizer && typeof visualizer.resize === 'function') {
             visualizer.resize();
         }
@@ -495,11 +536,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     await refreshHermesIntegration();
     setBootStatus('Loading session archive…');
 
-    // Load active session or spawn new (after Hermes sync so archives are current)
-    if (!state.activeSessionId) {
-        startNewSession();
-    } else {
-        loadSession(state.activeSessionId);
+    // Fresh session on every load/reload; saved history stays in the sidebar.
+    startNewSession({ ephemeral: true, silent: true });
+    if (aetherSessionsMigrationNeeded) {
+        schedulePersistSessions();
     }
     
     // Process icons
@@ -849,6 +889,25 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         });
 
+        elements.closeMediaLightboxBtn?.addEventListener('click', closeMediaLightbox);
+        elements.mediaLightbox?.addEventListener('click', (e) => {
+            if (e.target === elements.mediaLightbox) closeMediaLightbox();
+        });
+        elements.deckChatScroller?.addEventListener('click', handleMediaImageActivate);
+        elements.consoleScroller?.addEventListener('click', handleMediaImageActivate);
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && elements.mediaLightbox?.classList.contains('open')) {
+                e.preventDefault();
+                closeMediaLightbox();
+                return;
+            }
+            if (e.key !== 'Enter' && e.key !== ' ') return;
+            const img = e.target?.closest?.('.bubble-media-image');
+            if (!img) return;
+            e.preventDefault();
+            openMediaLightbox(img.currentSrc || img.src, img.alt);
+        });
+
         // Voice mic recognition triggers
         elements.voiceRecognitionBtn.addEventListener('click', toggleVoiceMode);
         elements.speechSynthesisToggle.addEventListener('click', toggleSpeechOutput);
@@ -858,7 +917,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             });
         }
         elements.newChatBtn.addEventListener('click', () => {
-            startNewSession();
+            startNewSession({ ephemeral: true });
             toggleSidebarDrawer();
         });
 
@@ -1071,7 +1130,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     function vaultSessionTitle(sessionId) {
         if (!sessionId || sessionId === '__unknown__') return 'Unknown session';
-        const session = state.sessions.find((s) => s.id === sessionId);
+        const session = findAetherSession(sessionId) || findHermesSession(sessionId);
         if (session?.title) return session.title;
         return `Session ${String(sessionId).slice(0, 8)}`;
     }
@@ -2415,6 +2474,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (visualizer && typeof visualizer.resize === 'function') {
                 visualizer.resize();
             }
+            resizeChatComposerInput();
             elapsed += 16;
             if (elapsed >= 400) {
                 clearInterval(resizeLoopInterval);
@@ -2433,6 +2493,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         updateMicButtonTitle();
         updateOverlayScrims();
         runTransitionResizeLoop();
+        requestAnimationFrame(resizeChatComposerInput);
     }
 
     function collapseChatColumn() {
@@ -2888,12 +2949,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         setChatInFlight(true);
         try {
-            const activeSession = state.sessions.find(s => s.id === state.activeSessionId);
+            const activeSession = getActiveSession();
             const history = activeSession ? activeSession.messages : [];
             if (state.hermesStatus?.enabled) {
                 appendSystemConsoleLine(
                     state.hermesStatus.connected
-                        ? `[AGENT] Routing command through Hermes${activeSession?.id && !activeSession.id.startsWith('sess_') ? ` session ${String(activeSession.id).slice(0, 18)}` : ''}.`
+                        ? `[AGENT] Routing command through Hermes${getHermesBridgeSessionId(activeSession) ? ` session ${String(getHermesBridgeSessionId(activeSession)).slice(0, 18)}` : ''}.`
                         : '[AGENT] Hermes mode is enabled, but the bridge is offline. Attempting request for latest status.'
                 );
             }
@@ -2912,7 +2973,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     appendSystemConsoleLine(`[MEMORY BANK] Recorded ${k}: ${v}`);
                 },
                 {
-                    sessionId: activeSession?.id,
+                    sessionId: getHermesBridgeSessionId(activeSession) || activeSession?.id,
                     hermesProfile: activeSession?.hermesProfile || state.activeHermesProfile,
                     attachments: outgoingAttachments,
                     onToolProgress: (toolInfo) => {
@@ -2955,11 +3016,11 @@ document.addEventListener('DOMContentLoaded', async () => {
                 audioReplayId: replayState.id,
             });
 
-            const activeIdx = state.sessions.findIndex((s) => s.id === state.activeSessionId);
-            if (activeIdx !== -1) {
+            const sessionForReplay = getActiveSession();
+            if (sessionForReplay?.messages?.length) {
                 tagAssistantBubbleMessageIndex(
                     bubbleNode,
-                    state.sessions[activeIdx].messages.length - 1
+                    sessionForReplay.messages.length - 1
                 );
             }
             syncReplayButtonsForSession();
@@ -3064,29 +3125,44 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     function persistHermesSessionMetadata(hermes) {
-        const sessionIndex = state.sessions.findIndex(s => s.id === state.activeSessionId);
-        if (sessionIndex === -1 || !hermes) return;
-        
+        if (!hermes) return;
+
         const hermesSessionId = hermes.sessionId || hermes.conversationId || null;
+        let sessionIndex = state.aetherSessions.findIndex((s) => s.id === state.activeSessionId);
+        if (sessionIndex === -1) {
+            sessionIndex = archiveEphemeralSession();
+        }
+
+        if (sessionIndex === -1) {
+            const hermesSession = findHermesSession(state.activeSessionId);
+            if (!hermesSession) return;
+            if (hermesSessionId) {
+                hermesSession.hermesSessionId = hermesSessionId;
+                state.lastHermesSessionId = hermesSessionId;
+                AetherUserData.setItem('aether_last_hermes_session_id', hermesSessionId);
+            }
+            hermesSession.source = 'hermes';
+            hermesSession.hermesProfile = hermes.profile || state.activeHermesProfile || null;
+            hermesSession.hermesUpdatedAt = new Date().toISOString();
+            if (!hermesSession.startedAt) {
+                hermesSession.startedAt = hermesSession.hermesUpdatedAt;
+            }
+            scheduleRenderHistorySessions();
+            return;
+        }
+
         if (hermesSessionId) {
+            state.aetherSessions[sessionIndex].hermesSessionId = hermesSessionId;
             state.lastHermesSessionId = hermesSessionId;
             AetherUserData.setItem('aether_last_hermes_session_id', hermesSessionId);
         }
-        
-        // If we got a Hermes session ID and the current session has a sess_ prefix,
-        // replace the session ID with the canonical Hermes ID
-        if (hermesSessionId && state.sessions[sessionIndex].id.startsWith('sess_')) {
-            const oldId = state.sessions[sessionIndex].id;
-            state.sessions[sessionIndex].id = hermesSessionId;
-            if (state.activeSessionId === oldId) {
-                state.activeSessionId = hermesSessionId;
-                AetherUserData.setItem('aether_active_session_id', hermesSessionId);
-            }
+
+        state.aetherSessions[sessionIndex].source = state.aetherSessions[sessionIndex].source || 'local';
+        state.aetherSessions[sessionIndex].hermesProfile = hermes.profile || state.activeHermesProfile || null;
+        state.aetherSessions[sessionIndex].hermesUpdatedAt = new Date().toISOString();
+        if (!state.aetherSessions[sessionIndex].startedAt) {
+            state.aetherSessions[sessionIndex].startedAt = state.aetherSessions[sessionIndex].hermesUpdatedAt;
         }
-        
-        state.sessions[sessionIndex].source = 'hermes';
-        state.sessions[sessionIndex].hermesProfile = hermes.profile || state.activeHermesProfile || null;
-        state.sessions[sessionIndex].hermesUpdatedAt = new Date().toISOString();
         schedulePersistSessions();
         scheduleRenderHistorySessions();
     }
@@ -3118,7 +3194,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     function syncReplayButtonsForSession() {
-        const session = state.sessions.find((s) => s.id === state.activeSessionId);
+        const session = getActiveSession();
         if (!session || !elements.deckChatScroller) return;
 
         const limit = getTtsReplayCacheLimit();
@@ -3285,6 +3361,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         return String(text || '')
             .replace(/```[\s\S]*?```/g, 'I have included a code block in the chat.')
             .replace(/\[(AGENT|SYSTEM|TASK TELEMETRY|MEMORY BANK)\][^\n]*/g, '')
+            .replace(/(?:\*\*|`)??MEDIA:\s*(?:https?:\/\/\S+|~\/\S+|\/\S+|[A-Za-z]:[/\\]\S+)(?:\*\*|`)??/gi, '')
             .trim();
     }
 
@@ -3693,9 +3770,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     function flushPersistSessions() {
         persistSessionsTimer = null;
         const run = () => {
-            state.sessions = pruneSessions(state.sessions);
+            state.aetherSessions = pruneSessions(
+                state.aetherSessions.filter(isAetherHudSession)
+            );
             try {
-                AetherUserData.setItem('aether_sessions', JSON.stringify(state.sessions));
+                AetherUserData.setItem('aether_sessions', JSON.stringify(state.aetherSessions));
             } catch (err) {
                 console.error('Failed to persist sessions:', err);
             }
@@ -3727,7 +3806,33 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
 
-    function startNewSession() {
+    function getActiveSession() {
+        const aether = findAetherSession(state.activeSessionId);
+        if (aether) return aether;
+        const hermes = findHermesSession(state.activeSessionId);
+        if (hermes) return hermes;
+        if (ephemeralSession && ephemeralSession.id === state.activeSessionId) return ephemeralSession;
+        return null;
+    }
+
+    function clearEphemeralSession() {
+        ephemeralSession = null;
+    }
+
+    function archiveEphemeralSession() {
+        if (!ephemeralSession || ephemeralSession.id !== state.activeSessionId) return -1;
+        const existingIndex = state.aetherSessions.findIndex((s) => s.id === ephemeralSession.id);
+        if (existingIndex >= 0) {
+            ephemeralSession = null;
+            return existingIndex;
+        }
+        state.aetherSessions.unshift(ephemeralSession);
+        ephemeralSession = null;
+        return 0;
+    }
+
+    function startNewSession({ ephemeral = false, silent = false } = {}) {
+        clearEphemeralSession();
         const id = 'sess_' + Date.now();
         const newSession = {
             id: id,
@@ -3736,80 +3841,108 @@ document.addEventListener('DOMContentLoaded', async () => {
             source: state.hermesStatus?.connected ? 'hermes' : 'local',
             hermesProfile: state.activeHermesProfile || state.hermesStatus?.profile || null,
             hermesUpdatedAt: null,
-            messages: []
+            startedAt: new Date().toISOString(),
+            messages: [],
         };
 
-        state.sessions.unshift(newSession);
         state.activeSessionId = id;
-        
+        state.lastHermesSessionId = null;
+
         AetherUserData.setItem('aether_active_session_id', id);
-        schedulePersistSessions();
+        AetherUserData.removeItem('aether_last_hermes_session_id');
+
+        if (ephemeral) {
+            ephemeralSession = newSession;
+        } else {
+            state.aetherSessions.unshift(newSession);
+            schedulePersistSessions();
+        }
 
         // Wipe logs
         elements.consoleScroller.innerHTML = `<div class="console-log-line system-line">[SYSTEM] Client connection active. Telemetries initialized.</div>
         <div class="console-log-line">${getWelcomeConsoleMessage()}</div>`;
 
         elements.deckChatScroller.innerHTML = '';
-        appendAssistantChatBubble('New session started. Awaiting inputs…');
+        if (!silent) {
+            appendAssistantChatBubble('New session started. Awaiting inputs…');
+        }
 
         activateChatHistoryTab('aether');
         speech.stopSpeaking();
         setVoiceOutputSpeaking(false);
+        scheduleRenderHistorySessions();
     }
 
     async function loadSession(sessionId) {
+        clearEphemeralSession();
         const isHermesId = (id) => id && !String(id).startsWith('sess_');
 
-        let session = state.sessions.find(s => s.id === sessionId);
+        let session = findAetherSession(sessionId) || findHermesSession(sessionId);
 
-        // If not found locally but it's a Hermes ID, try fetching from API and injecting into state
+        // Hermes-only: fetch from state.db into in-memory cache, not SQL archive
         if (!session && isHermesId(sessionId) && ai) {
-            console.warn(`[loadSession] Session "${sessionId}" not in local state, attempting to fetch from Hermes state.db...`);
+            console.warn(`[loadSession] Session "${sessionId}" not cached, fetching from Hermes state.db...`);
             try {
                 const msgs = await ai.getHermesSessionMessages(sessionId);
                 const freshMessages = (msgs.available && Array.isArray(msgs.messages))
                     ? normalizeHermesMessages(msgs.messages) : [];
 
-                const newSession = normalizeSession({
+                session = normalizeHermesSession({
                     id: sessionId,
                     title: `Session ${sessionId.slice(0, 8)}`,
-                    source: 'hermes',
-                    startedAt: null,
-                    hermesProfile: state.activeHermesProfile || state.hermesStatus?.profile || null,
-                    hermesUpdatedAt: null,
                     messages: freshMessages,
                 });
-                state.sessions.unshift(newSession);
-                session = newSession;
-                console.log(`[loadSession] Injected Hermes session "${sessionId}" with ${freshMessages.length} messages`);
+                const existingIdx = state.hermesSessions.findIndex((s) => s.id === sessionId);
+                if (existingIdx >= 0) {
+                    state.hermesSessions[existingIdx] = {
+                        ...state.hermesSessions[existingIdx],
+                        ...session,
+                        messages: freshMessages,
+                    };
+                    session = state.hermesSessions[existingIdx];
+                } else {
+                    state.hermesSessions.unshift(session);
+                }
+                console.log(`[loadSession] Cached Hermes session "${sessionId}" with ${freshMessages.length} messages`);
             } catch (e) {
                 console.warn('[loadSession] Failed to fetch session from state.db:', e);
-                startNewSession();
+                startNewSession({ ephemeral: true });
                 return;
             }
         }
 
         if (!session) {
-            console.warn(`[loadSession] Session not found: "${sessionId}" — available IDs:`, state.sessions.map(s => s.id).slice(0, 10), state.sessions.length > 10 ? `... (${state.sessions.length} total)` : '');
-            startNewSession();
+            console.warn(
+                `[loadSession] Session not found: "${sessionId}" — aether:`,
+                state.aetherSessions.map((s) => s.id).slice(0, 5),
+                'hermes:',
+                state.hermesSessions.map((s) => s.id).slice(0, 5)
+            );
+            startNewSession({ ephemeral: true });
             return;
         }
 
-        state.activeSessionId = sessionId;
-        AetherUserData.setItem('aether_active_session_id', sessionId);
+        const loadId = session.aetherArchiveId || session.id;
+        state.activeSessionId = loadId;
+        AetherUserData.setItem('aether_active_session_id', loadId);
         updateHermesProfileBadge();
 
-        // For Hermes sessions, always fetch latest messages from state.db
-        if (isHermesId(session.id) && ai) {
+        const inAetherArchive = !!findAetherSession(loadId);
+
+        // For Hermes-linked sessions, fetch latest messages from state.db
+        const hermesFetchId = getHermesBridgeSessionId(session);
+        if (hermesFetchId && ai) {
             try {
-                console.log(`[loadSession] Fetching latest messages for Hermes session: ${session.id}`);
-                const msgs = await ai.getHermesSessionMessages(session.id);
+                console.log(`[loadSession] Fetching latest messages for Hermes session: ${hermesFetchId}`);
+                const msgs = await ai.getHermesSessionMessages(hermesFetchId);
                 if (msgs.available && Array.isArray(msgs.messages) && msgs.messages.length > 0) {
                     const freshMessages = normalizeHermesMessages(msgs.messages);
                     if (freshMessages.length > 0) {
                         session.messages = freshMessages;
                         session.source = 'hermes';
-                        schedulePersistSessions();
+                        if (inAetherArchive) {
+                            schedulePersistSessions();
+                        }
                     }
                 }
             } catch (e) {
@@ -3857,8 +3990,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     function saveMessageToSession(role, content, meta = {}) {
-        const sessionIndex = state.sessions.findIndex(s => s.id === state.activeSessionId);
-        if (sessionIndex === -1) return;
+        let sessionIndex = state.aetherSessions.findIndex((s) => s.id === state.activeSessionId);
+        let hermesSession = null;
+
+        if (sessionIndex === -1) {
+            sessionIndex = archiveEphemeralSession();
+        }
+        if (sessionIndex === -1) {
+            hermesSession = findHermesSession(state.activeSessionId);
+            if (!hermesSession) return;
+        }
 
         const message = { role, content };
         if (Array.isArray(meta.attachments) && meta.attachments.length) {
@@ -3866,49 +4007,119 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
         if (meta.backend) message.backend = meta.backend;
         if (meta.audioReplayId) message.audioReplayId = meta.audioReplayId;
-        state.sessions[sessionIndex].messages.push(message);
-        
+
+        const target = hermesSession || state.aetherSessions[sessionIndex];
+        target.messages.push(message);
+
         // Title update
-        if (state.sessions[sessionIndex].messages.length === 2) {
-            const firstUserMessage = state.sessions[sessionIndex].messages.find(m => m.role === 'user');
+        if (target.messages.length === 2) {
+            const firstUserMessage = target.messages.find(m => m.role === 'user');
             if (firstUserMessage) {
                 const titleSeed = firstUserMessage.content
                     || firstUserMessage.attachments?.[0]?.name
                     || 'Attachment';
                 const words = titleSeed.split(' ');
-                state.sessions[sessionIndex].title = words.slice(0, 3).join(' ') + (words.length > 3 ? '...' : '');
+                target.title = words.slice(0, 3).join(' ') + (words.length > 3 ? '...' : '');
             }
+        }
+
+        if (hermesSession) {
+            scheduleRenderHistorySessions();
+            return;
         }
 
         schedulePersistSessions();
         scheduleRenderHistorySessions();
     }
 
-    function normalizeChatHistoryTab(tabId) {
-        if (tabId === 'core') return 'aether';
-        return tabId === 'hermes' ? 'hermes' : 'aether';
+    function findAetherSession(id) {
+        if (!id) return null;
+        return state.aetherSessions.find((s) => s.id === id || s.hermesSessionId === id) || null;
     }
 
-    function isAetherSession(session) {
-        return String(session?.id || '').startsWith('sess_');
+    function findHermesSession(id) {
+        if (!id) return null;
+        return state.hermesSessions.find((s) => s.id === id) || null;
     }
 
-    function isHermesSession(session) {
-        return !isAetherSession(session);
+    function findSessionByHermesId(hermesSessionId) {
+        if (!hermesSessionId) return null;
+        return findAetherSession(hermesSessionId) || findHermesSession(hermesSessionId);
     }
 
-    function filterSessionsForHistoryTab(sessions, tabId) {
-        const tab = normalizeChatHistoryTab(tabId || state.chatHistoryTab);
-        if (tab === 'hermes') {
-            return sessions.filter(isHermesSession);
+    function getHermesBridgeSessionId(session) {
+        if (!session) return null;
+        if (session.hermesSessionId) return session.hermesSessionId;
+        if (!String(session.id || '').startsWith('sess_')) return session.id;
+        return null;
+    }
+
+    function sessionHasHistory(session) {
+        return (session?.messages?.length || 0) > 0 || (session?.messageCount || 0) > 0;
+    }
+
+    function isSessionActive(session) {
+        const activeId = state.activeSessionId;
+        if (!activeId || !session) return false;
+        return session.id === activeId
+            || session.aetherArchiveId === activeId
+            || session.hermesSessionId === activeId;
+    }
+
+    function getSessionLoadId(session) {
+        if (session.aetherArchiveId) return session.aetherArchiveId;
+        return session.id;
+    }
+
+    function buildAllSessionsList() {
+        const map = new Map();
+
+        for (const h of state.hermesSessions) {
+            map.set(h.id, {
+                ...h,
+                hermesSessionId: h.id,
+                listSource: 'hermes',
+            });
         }
-        return sessions.filter(isAetherSession);
+
+        for (const a of state.aetherSessions) {
+            if (!isAetherHudSession(a)) continue;
+            const linkKey = a.hermesSessionId;
+            if (linkKey && map.has(linkKey)) {
+                const existing = map.get(linkKey);
+                map.set(linkKey, {
+                    ...existing,
+                    ...a,
+                    id: linkKey,
+                    aetherArchiveId: a.id,
+                    messages: a.messages?.length ? a.messages : existing.messages,
+                    title: a.title || existing.title,
+                    listSource: 'merged',
+                });
+            } else if ((a.messages?.length || 0) > 0) {
+                map.set(a.id, {
+                    ...a,
+                    listSource: 'aether',
+                });
+            }
+        }
+
+        return [...map.values()].filter(sessionHasHistory);
+    }
+
+    function getSessionsForHistoryTab(tabId) {
+        if (normalizeChatHistoryTab(tabId) === 'aether') {
+            return state.aetherSessions.filter(
+                (s) => isAetherHudSession(s) && (s.messages?.length || 0) > 0
+            );
+        }
+        return buildAllSessionsList();
     }
 
     function getChatHistoryTabForSession(sessionId) {
-        const session = state.sessions.find((s) => s.id === sessionId);
-        if (!session) return normalizeChatHistoryTab(state.chatHistoryTab);
-        return isHermesSession(session) ? 'hermes' : 'aether';
+        const aether = findAetherSession(sessionId);
+        if (aether && isAetherHudSession(aether)) return 'aether';
+        return 'all';
     }
 
     function activateChatHistoryTab(tabId) {
@@ -3941,17 +4152,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             const result = await ai.searchHermesSessions(query);
             if (!result.available || !Array.isArray(result.items)) return;
             for (const item of result.items) {
-                if (state.sessions.some((s) => s.id === item.id)) continue;
-                state.sessions.push(normalizeSession({
-                    id: item.id,
-                    title: item.title,
-                    source: 'hermes',
-                    startedAt: item.startedAt,
-                    hermesProfile: state.activeHermesProfile || null,
-                    messages: [],
-                }));
+                if (findHermesSession(item.id) || findAetherSession(item.id)) continue;
+                state.hermesSessions.push(normalizeHermesSession(item));
             }
-            schedulePersistSessions();
             scheduleRenderHistorySessions();
         } catch (err) {
             console.warn('[archives search]', err.message);
@@ -3963,32 +4166,58 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (next == null || !String(next).trim()) return;
         const title = String(next).trim();
         session.title = title;
-        if (isHermesSession(session)) {
+
+        const aetherId = session.aetherArchiveId
+            || (String(session.id).startsWith('sess_') ? session.id : findAetherSession(session.id)?.id);
+        if (aetherId) {
+            const aether = findAetherSession(aetherId);
+            if (aether) aether.title = title;
+        }
+
+        const hermesId = getHermesBridgeSessionId(session);
+        if (hermesId) {
+            const hermes = findHermesSession(hermesId);
+            if (hermes) hermes.title = title;
             try {
-                await ai.updateHermesSessionTitle(session.id, title);
+                await ai.updateHermesSessionTitle(hermesId, title);
             } catch (err) {
                 showToast('Rename failed', err.message, { durationMs: 4000 });
             }
         }
-        schedulePersistSessions();
+
+        if (aetherId) schedulePersistSessions();
         scheduleRenderHistorySessions();
     }
 
     async function deleteSessionFromArchives(session) {
         if (!window.confirm(`Delete "${session.title}"?`)) return;
-        if (isHermesSession(session)) {
+        const hermesId = getHermesBridgeSessionId(session);
+        const aetherId = session.aetherArchiveId
+            || (String(session.id).startsWith('sess_') ? session.id : findAetherSession(session.id)?.id);
+
+        if (hermesId) {
             try {
-                await ai.deleteHermesSession(session.id);
+                await ai.deleteHermesSession(hermesId);
             } catch (err) {
                 showToast('Delete failed', err.message, { durationMs: 4000 });
                 return;
             }
         }
-        state.sessions = state.sessions.filter((s) => s.id !== session.id);
-        if (state.activeSessionId === session.id) {
-            startNewSession();
+
+        if (aetherId) {
+            state.aetherSessions = state.aetherSessions.filter((s) => s.id !== aetherId);
+        }
+        if (hermesId) {
+            state.hermesSessions = state.hermesSessions.filter((s) => s.id !== hermesId);
+        } else if (!aetherId) {
+            state.hermesSessions = state.hermesSessions.filter((s) => s.id !== session.id);
+        }
+
+        const activeIds = [session.id, session.aetherArchiveId, session.hermesSessionId].filter(Boolean);
+        if (activeIds.includes(state.activeSessionId)) {
+            startNewSession({ ephemeral: true });
         } else {
-            schedulePersistSessions();
+            if (aetherId) schedulePersistSessions();
             scheduleRenderHistorySessions();
         }
     }
@@ -4192,7 +4421,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const list = elements.chatHistoryList;
         list.innerHTML = '';
 
-        const filtered = filterSessionsForHistoryTab(state.sessions, state.chatHistoryTab)
+        const filtered = getSessionsForHistoryTab(state.chatHistoryTab)
             .filter((s) => {
                 const q = state.archivesSearchQuery.trim().toLowerCase();
                 if (!q) return true;
@@ -4201,9 +4430,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             });
 
         if (filtered.length === 0) {
-            const emptyMessage = state.chatHistoryTab === 'hermes'
-                ? 'No Hermes chats yet. Use refresh to sync from the agent.'
-                : 'No Aether sessions yet. Start one below.';
+            const emptyMessage = state.chatHistoryTab === 'all'
+                ? 'No saved sessions yet.'
+                : 'No Aether sessions yet.';
             list.innerHTML = `<div style="font-size:0.65rem; color:var(--text-dim); text-align:center; padding:10px;">${emptyMessage}</div>`;
             return;
         }
@@ -4225,14 +4454,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         for (let i = 0; i < showCount; i++) {
             const s = sorted[i];
             const row = document.createElement('div');
-            row.className = `history-item ${s.id === state.activeSessionId ? 'active' : ''}`;
+            row.className = `history-item ${isSessionActive(s) ? 'active' : ''}`;
 
             const mainBtn = document.createElement('button');
             mainBtn.type = 'button';
             mainBtn.className = 'history-item-main';
             
             const icon = document.createElement('i');
-            icon.setAttribute('data-lucide', isHermesSession(s) ? 'radio-tower' : 'database');
+            const isAetherTab = state.chatHistoryTab === 'aether';
+            const showDatabaseIcon = isAetherTab || s.aetherArchiveId || String(s.id).startsWith('sess_');
+            icon.setAttribute('data-lucide', showDatabaseIcon ? 'database' : 'radio-tower');
             icon.className = 'history-icon';
             icon.style.width = '12px';
             icon.style.height = '12px';
@@ -4243,14 +4474,14 @@ document.addEventListener('DOMContentLoaded', async () => {
             titleSpan.style.whiteSpace = 'nowrap';
             titleSpan.textContent = s.title;
 
-            if (s.source === 'hermes') {
+            if (s.source === 'hermes' || s.listSource === 'hermes' || s.listSource === 'merged') {
                 row.title = `Hermes profile: ${s.hermesProfile || 'default'}`;
             }
 
             mainBtn.appendChild(icon);
             mainBtn.appendChild(titleSpan);
             mainBtn.addEventListener('click', () => {
-                loadSession(s.id);
+                loadSession(getSessionLoadId(s));
                 toggleSidebarDrawer();
             });
 
@@ -4422,7 +4653,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (btn) btn.classList.add('refreshing');
         if (composerBtn) composerBtn.classList.add('refreshing');
         try {
-            // Re-fetch Hermes sessions from state.db and merge into existing sessions
             const result = await ai.getHermesSessions();
             if (!result.available || !Array.isArray(result.items)) {
                 appendSystemConsoleLine(`[AGENT] Chat refresh: no sessions available from state.db.`);
@@ -4437,24 +4667,19 @@ document.addEventListener('DOMContentLoaded', async () => {
                 if (!hermesSessionId) continue;
 
                 const title = item.title || `Session ${hermesSessionId.slice(0, 8)}`;
-                const existing = state.sessions.find((s) => s.id === hermesSessionId);
+                const existing = findHermesSession(hermesSessionId);
 
                 if (existing) {
                     existing.title = title;
                     existing.source = 'hermes';
-                    existing.model = item.model || existing.model || '';
+                    existing.profile = item.model || existing.profile || '';
                     if (item.startedAt) existing.startedAt = item.startedAt;
+                    if (item.messageCount != null) existing.messageCount = item.messageCount;
                     refreshed++;
                 } else {
-                    state.sessions.push(normalizeSession({
-                        id: hermesSessionId,
+                    state.hermesSessions.push(normalizeHermesSession({
+                        ...item,
                         title,
-                        profile: item.model || '',
-                        source: 'hermes',
-                        startedAt: item.startedAt || null,
-                        hermesProfile: state.activeHermesProfile || state.hermesStatus?.profile || null,
-                        hermesUpdatedAt: null,
-                        messages: [],
                     }));
                     imported++;
                 }
@@ -4462,7 +4687,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             if (imported > 0 || refreshed > 0) {
                 state._displayedSessionCount = SESSIONS_PAGE_SIZE;
-                schedulePersistSessions();
                 scheduleRenderHistorySessions();
                 appendSystemConsoleLine(`[AGENT] Chats refreshed: ${imported} new, ${refreshed} updated.`);
             } else {
@@ -4488,6 +4712,22 @@ document.addEventListener('DOMContentLoaded', async () => {
             .filter((msg) => msg.content.trim().length > 0);
     }
 
+    function normalizeHermesSession(item) {
+        const id = String(item.id || item.sessionId || item.session_id || '');
+        return {
+            id,
+            title: item.title || `Session ${id.slice(0, 8)}`,
+            profile: item.model || item.profile || '',
+            source: 'hermes',
+            hermesSessionId: id,
+            hermesProfile: state.activeHermesProfile || state.hermesStatus?.profile || null,
+            hermesUpdatedAt: null,
+            startedAt: item.startedAt || null,
+            messageCount: item.messageCount ?? item.message_count ?? 0,
+            messages: Array.isArray(item.messages) ? normalizeHermesMessages(item.messages) : [],
+        };
+    }
+
     async function syncHermesSessions() {
         if (!state.hermesStatus?.capabilities?.sessions) {
             if (state.hermesStatus?.enabled && state.hermesStatus?.connected && state.hermesStatus?.sessionsProbe?.hint) {
@@ -4506,20 +4746,20 @@ document.addEventListener('DOMContentLoaded', async () => {
             for (const item of result.items) {
                 const hermesSessionId = String(item.id || item.sessionId || item.session_id || '');
                 if (!hermesSessionId) continue;
-                
-                // Use the Hermes session ID as the canonical ID — no more two-ID system
-                const title = item.title || `Session ${hermesSessionId.slice(0, 8)}`;
 
-                const existing = state.sessions.find((s) => s.id === hermesSessionId);
+                const title = item.title || `Session ${hermesSessionId.slice(0, 8)}`;
+                const aetherLinked = findAetherSession(hermesSessionId);
+                let existing = findHermesSession(hermesSessionId);
                 const shouldHydrate =
-                    !existing ||
-                    !existing.messages?.length;
+                    !aetherLinked?.messages?.length &&
+                    (!existing || !existing.messages?.length);
 
                 if (existing) {
                     existing.title = title;
                     existing.source = 'hermes';
-                    existing.model = item.model || existing.model || '';
+                    existing.profile = item.model || existing.profile || '';
                     if (item.startedAt) existing.startedAt = item.startedAt;
+                    if (item.messageCount != null) existing.messageCount = item.messageCount;
 
                     if (shouldHydrate) {
                         try {
@@ -4527,7 +4767,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                             if (msgs.available && Array.isArray(msgs.messages) && msgs.messages.length > 0) {
                                 existing.messages = normalizeHermesMessages(msgs.messages);
                                 refreshed++;
-                                if (existing.id === state.activeSessionId) {
+                                if (existing.id === state.activeSessionId || aetherLinked?.id === state.activeSessionId) {
                                     activeSessionUpdated = true;
                                 }
                             }
@@ -4538,11 +4778,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                     continue;
                 }
 
-                // Import new session
                 let messages = [];
                 if (Array.isArray(item.messages) && item.messages.length > 0) {
                     messages = normalizeHermesMessages(item.messages);
-                } else {
+                } else if (shouldHydrate) {
                     try {
                         const msgs = await ai.getHermesSessionMessages(hermesSessionId);
                         if (msgs.available && Array.isArray(msgs.messages)) {
@@ -4553,23 +4792,16 @@ document.addEventListener('DOMContentLoaded', async () => {
                     }
                 }
 
-                state.sessions.unshift(normalizeSession({
-                    id: hermesSessionId,
+                state.hermesSessions.unshift(normalizeHermesSession({
+                    ...item,
                     title,
-                    profile: item.model || '',
-                    source: 'hermes',
-                    startedAt: item.startedAt || null,
-                    hermesProfile: state.activeHermesProfile || state.hermesStatus?.profile || null,
-                    hermesUpdatedAt: null,
                     messages,
                 }));
                 imported++;
             }
 
             if (imported > 0 || refreshed > 0) {
-                // Reset pagination so fresh imports appear
                 state._displayedSessionCount = SESSIONS_PAGE_SIZE;
-                schedulePersistSessions();
                 scheduleRenderHistorySessions();
             }
             if (imported > 0) {
@@ -5307,15 +5539,43 @@ document.addEventListener('DOMContentLoaded', async () => {
         await submitDirectTextCommand(text, attachments);
     }
 
+    function getChatComposerSingleLineHeight(field) {
+        const style = window.getComputedStyle(field);
+        const fontSize = parseFloat(style.fontSize) || 16;
+        const lineHeight = Number.isFinite(parseFloat(style.lineHeight))
+            ? parseFloat(style.lineHeight)
+            : fontSize * 1.45;
+        const padding = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
+        const border = parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth);
+        return Math.ceil(lineHeight + padding + border);
+    }
+
     function resizeChatComposerInput() {
         const field = elements.deckChatInputField;
         if (!field) return;
 
-        const maxHeight = 120;
-        field.style.height = 'auto';
-        const nextHeight = Math.max(24, Math.min(field.scrollHeight, maxHeight));
+        const compact = isCompactViewport();
+        const maxHeight = compact
+            ? Math.min(Math.round(window.innerHeight * 0.28), 120)
+            : 120;
+        const singleLineHeight = getChatComposerSingleLineHeight(field);
+        const value = field.value || '';
+
+        if (!value.trim()) {
+            field.style.height = `${singleLineHeight}px`;
+            field.style.overflowY = 'hidden';
+            return;
+        }
+
+        const previousMaxHeight = field.style.maxHeight;
+        field.style.maxHeight = 'none';
+        field.style.height = '0px';
+        const measuredHeight = field.scrollHeight;
+        field.style.maxHeight = previousMaxHeight;
+
+        const nextHeight = Math.max(singleLineHeight, Math.min(measuredHeight, maxHeight));
         field.style.height = `${nextHeight}px`;
-        field.style.overflowY = field.scrollHeight > maxHeight ? 'auto' : 'hidden';
+        field.style.overflowY = measuredHeight > maxHeight ? 'auto' : 'hidden';
     }
 
     function getTtsProvider() {
@@ -5589,9 +5849,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             } else {
                 AetherUserData.removeItem('aether_hermes_profile');
             }
-            const sessionIndex = state.sessions.findIndex(s => s.id === state.activeSessionId);
+            const sessionIndex = state.aetherSessions.findIndex(s => s.id === state.activeSessionId);
             if (sessionIndex !== -1) {
-                state.sessions[sessionIndex].hermesProfile = state.activeHermesProfile || null;
+                state.aetherSessions[sessionIndex].hermesProfile = state.activeHermesProfile || null;
                 schedulePersistSessions();
             }
             updateHermesProfileBadge();
@@ -5779,25 +6039,129 @@ document.addEventListener('DOMContentLoaded', async () => {
     /* ==========================================================================
        H. Console Markdown Parser
        ========================================================================== */
-    function parseConsoleMarkdown(md) {
-        if (!md) return '';
-        let html = md;
+    const MEDIA_IMAGE_EXTENSIONS = new Set([
+        '.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp', '.avif', '.ico',
+    ]);
 
-        // Escaping HTML to prevent code issues
-        html = html
+    function escapeHtmlText(value) {
+        return String(value || '')
             .replace(/&/g, '&amp;')
             .replace(/</g, '&lt;')
             .replace(/>/g, '&gt;');
+    }
 
-        // Fenced Code Blocks (```javascript ... ```)
+    function escapeHtmlAttr(value) {
+        return escapeHtmlText(value).replace(/"/g, '&quot;');
+    }
+
+    function cleanMediaTokenPath(raw) {
+        let candidate = String(raw || '').trim();
+        if (!candidate) return '';
+        candidate = candidate.replace(/^[`"'*]+/, '').replace(/[`"'*,.;:)}]+$/, '');
+        return candidate;
+    }
+
+    function isImageMediaPath(mediaPath) {
+        const cleaned = cleanMediaTokenPath(mediaPath).split('?')[0].split('#')[0];
+        if (/^https?:\/\//i.test(cleaned)) {
+            const dot = cleaned.lastIndexOf('.');
+            if (dot < 0) return true;
+            return MEDIA_IMAGE_EXTENSIONS.has(cleaned.slice(dot).toLowerCase());
+        }
+        const dot = cleaned.lastIndexOf('.');
+        if (dot < 0) return false;
+        return MEDIA_IMAGE_EXTENSIONS.has(cleaned.slice(dot).toLowerCase());
+    }
+
+    function mediaPathBasename(mediaPath) {
+        const cleaned = cleanMediaTokenPath(mediaPath);
+        if (!cleaned) return 'Image';
+        const withoutQuery = cleaned.split('?')[0].split('#')[0];
+        const parts = withoutQuery.replace(/\\/g, '/').split('/');
+        return parts[parts.length - 1] || 'Image';
+    }
+
+    function buildMediaImageHtml(mediaPath) {
+        const cleaned = cleanMediaTokenPath(mediaPath);
+        if (!cleaned || !isImageMediaPath(cleaned)) {
+            return escapeHtmlText(`MEDIA:${mediaPath}`);
+        }
+        const alt = escapeHtmlAttr(mediaPathBasename(cleaned));
+        const src = /^https?:\/\//i.test(cleaned)
+            ? escapeHtmlAttr(cleaned)
+            : escapeHtmlAttr(ai.mediaUrl(cleaned));
+        if (!src) return escapeHtmlText(`MEDIA:${mediaPath}`);
+        return `<img class="bubble-media-image" src="${src}" alt="${alt}" loading="lazy" tabindex="0" role="button" title="Click to expand">`;
+    }
+
+    function openMediaLightbox(src, alt) {
+        if (!elements.mediaLightbox || !elements.mediaLightboxImage || !src) return;
+        elements.mediaLightboxImage.src = src;
+        elements.mediaLightboxImage.alt = alt || 'Expanded image';
+        if (elements.mediaLightboxCaption) {
+            elements.mediaLightboxCaption.textContent = alt || '';
+            elements.mediaLightboxCaption.hidden = !alt;
+        }
+        elements.mediaLightbox.classList.add('open');
+        elements.mediaLightbox.setAttribute('aria-hidden', 'false');
+    }
+
+    function closeMediaLightbox() {
+        if (!elements.mediaLightbox) return;
+        elements.mediaLightbox.classList.remove('open');
+        elements.mediaLightbox.setAttribute('aria-hidden', 'true');
+        if (elements.mediaLightboxImage) {
+            elements.mediaLightboxImage.removeAttribute('src');
+        }
+    }
+
+    function handleMediaImageActivate(e) {
+        const img = e.target?.closest?.('.bubble-media-image');
+        if (!img?.src) return;
+        e.preventDefault();
+        openMediaLightbox(img.currentSrc || img.src, img.alt);
+    }
+
+    function parseConsoleMarkdown(md) {
+        if (!md) return '';
+        let html = md;
+        const codeStash = [];
+        const mediaStash = [];
+
         html = html.replace(/```([a-z0-9\-]*)\n([\s\S]*?)\n```/gi, (match, lang, code) => {
-            const cleanLang = lang || 'code';
-            const cleanCode = code.trim();
+            const id = codeStash.length;
+            codeStash.push({ lang: lang || 'code', code: code.trim(), kind: 'block' });
+            return `\x00CODE${id}\x00`;
+        });
+
+        html = html.replace(/`([^`\n]+)`/g, (match, code) => {
+            const id = codeStash.length;
+            codeStash.push({ lang: null, code, kind: 'inline' });
+            return `\x00CODE${id}\x00`;
+        });
+
+        const MEDIA_TOKEN_RE = /(?:\*\*|`)??MEDIA:\s*((?:https?:\/\/[^\s`"'<>]+)|(?:~\/[^\s`"'<>]+)|(?:\/[^\s`"'<>]+)|(?:[A-Za-z]:[/\\][^\s`"'<>]+))(?:\*\*|`)??/gi;
+        html = html.replace(MEDIA_TOKEN_RE, (match, rawPath) => {
+            const id = mediaStash.length;
+            mediaStash.push(rawPath);
+            return `\x00MEDIA${id}\x00`;
+        });
+
+        html = escapeHtmlText(html);
+
+        html = html.replace(/\x00CODE(\d+)\x00/g, (match, idStr) => {
+            const entry = codeStash[Number(idStr)];
+            if (!entry) return match;
+            if (entry.kind === 'inline') {
+                return `<code>${escapeHtmlText(entry.code)}</code>`;
+            }
+
+            const cleanLang = entry.lang || 'code';
+            const cleanCode = escapeHtmlText(entry.code);
             const copyId = 'copy_' + Math.random().toString(36).substr(2, 9);
-            
-            // Inline Clipboard copies
+
             window[copyId] = () => {
-                navigator.clipboard.writeText(cleanCode);
+                navigator.clipboard.writeText(entry.code);
                 const btn = document.getElementById(copyId);
                 if (btn) {
                     btn.innerHTML = `<i data-lucide="check" style="width:10px; height:10px;"></i> Copied`;
@@ -5812,21 +6176,17 @@ document.addEventListener('DOMContentLoaded', async () => {
             return `<pre><div class="code-header">${cleanLang.toUpperCase()}<button type="button" class="copy-btn" id="${copyId}" onclick="window['${copyId}']()"><i data-lucide="copy" style="width:10px; height:10px;"></i> Copy</button></div><code>${cleanCode}</code></pre>`;
         });
 
-        // Inline Code ticks (`code`)
-        html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-
-        // Simple Markdown Tables
         const lines = html.split('\n');
         let inTable = false;
         let tableHTML = '';
-        
+
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i].trim();
             if (line.startsWith('|') && line.endsWith('|')) {
                 if (line.includes('---')) continue;
-                
+
                 const cells = line.split('|').map(c => c.trim()).filter((c, idx, arr) => idx > 0 && idx < arr.length - 1);
-                
+
                 if (!inTable) {
                     inTable = true;
                     tableHTML = '<table class="glass-table"><thead><tr>';
@@ -5852,19 +6212,21 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
         html = lines.filter(l => l !== '').join('\n');
 
-        // Bold (**text**) & Italic (*text*)
         html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
         html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
 
-        // Headings (### Title)
         html = html.replace(/^###\s+(.*?)$/gm, '<div style="color:var(--accent-primary); font-weight:bold; margin-top:8px;">$1</div>');
         html = html.replace(/^####\s+(.*?)$/gm, '<div style="color:#ffffff; font-weight:bold; margin-top:6px;">$1</div>');
 
-        // Lists (- bullet)
         html = html.replace(/^\s*-\s+(.*?)$/gm, '&bull; $1');
 
-        // Line breaks
         html = html.replace(/\n/g, '<br>');
+
+        html = html.replace(/\x00MEDIA(\d+)\x00/g, (match, idStr) => {
+            const rawPath = mediaStash[Number(idStr)];
+            if (!rawPath) return match;
+            return buildMediaImageHtml(rawPath);
+        });
 
         return html;
     }

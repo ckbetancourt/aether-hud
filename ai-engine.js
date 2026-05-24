@@ -706,6 +706,13 @@ class AIEngine {
         return `${baseUrl}/api/hermes/agent/file/raw?${params}`;
     }
 
+    mediaUrl(absPath) {
+        const baseUrl = this.resolveLlmBackendBaseUrl();
+        if (!baseUrl || !absPath) return '';
+        const params = new URLSearchParams({ path: String(absPath) });
+        return `${baseUrl}/api/aether/media/raw?${params}`;
+    }
+
     async favoriteAgentWorkspace(pathValue) {
         const baseUrl = this.resolveLlmBackendBaseUrl();
         if (!baseUrl || !pathValue) throw new Error('Path is required.');
