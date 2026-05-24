@@ -655,6 +655,7 @@
         priority,
         triage: status === 'triage',
       };
+      if (status === 'blocked') body.initial_status = 'blocked';
       if (parent) body.parents = [parent];
       if (skillList.length) body.skills = skillList;
       if (workspaceKind && workspaceKind !== 'scratch') body.workspace_kind = workspaceKind;

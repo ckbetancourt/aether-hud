@@ -23,6 +23,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         '.go', '.rs', '.sql', '.toml', '.env', '.ini', '.cfg', '.conf', '.vue', '.svelte',
     ]);
     const DEFAULT_DISPLAY_NAME = AETHER_PERSONALITY.displayName;
+    const DEFAULT_CHAT_COLUMN_WIDTH_PX = 825;
+    const CHAT_COLUMN_WIDTH_MIN = 400;
+    const CHAT_COLUMN_WIDTH_MAX = 1200;
 
     let pendingAttachments = [];
     let chatDropDepth = 0;
@@ -304,6 +307,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Buttons
         settingsBtn: document.getElementById('settingsBtn'),
         settingsPillBtn: document.getElementById('settingsPillBtn'),
+        homeBtn: document.getElementById('homeBtn'),
         closeSettingsBtn: document.getElementById('closeSettingsBtn'),
         saveSettingsBtn: document.getElementById('saveSettingsBtn'),
         settingsPage: document.getElementById('settingsPage'),
@@ -439,6 +443,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         composerRefreshBtn: document.getElementById('composerRefreshBtn'),
         avatarFormRow: document.getElementById('avatarFormRow'),
         displayNameInput: document.getElementById('displayNameInput'),
+        chatColumnWidth: document.getElementById('chatColumnWidth'),
+        chatColumnWidthVal: document.getElementById('chatColumnWidthVal'),
         toastStack: document.getElementById('toastStack'),
         drawerScrim: document.getElementById('drawerScrim'),
         chatScrim: document.getElementById('chatScrim'),
@@ -448,6 +454,20 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     function isCompactViewport() {
         return COMPACT_MEDIA.matches;
+    }
+
+    function getChatColumnWidthPx() {
+        const stored = parseInt(AetherUserData.getItem('aether_chat_column_width') || '', 10);
+        if (Number.isFinite(stored)) {
+            return Math.min(CHAT_COLUMN_WIDTH_MAX, Math.max(CHAT_COLUMN_WIDTH_MIN, stored));
+        }
+        return DEFAULT_CHAT_COLUMN_WIDTH_PX;
+    }
+
+    function applyChatColumnWidth(px) {
+        if (isCompactViewport()) return;
+        const clamped = Math.min(CHAT_COLUMN_WIDTH_MAX, Math.max(CHAT_COLUMN_WIDTH_MIN, px));
+        document.documentElement.style.setProperty('--chat-column-width-px', String(clamped));
     }
 
     function updateOverlayScrims() {
@@ -468,6 +488,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     function syncViewportMode() {
         document.documentElement.dataset.viewport = isCompactViewport() ? 'compact' : 'wide';
         updateOverlayScrims();
+        applyChatColumnWidth(getChatColumnWidthPx());
         resizeChatComposerInput();
         if (typeof visualizer !== 'undefined' && visualizer && typeof visualizer.resize === 'function') {
             visualizer.resize();
@@ -529,6 +550,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     buildColorModePicker();
     applyColorMode(state.globalColorMode);
     updateColorModePickerUi(state.globalColorMode);
+    applyChatColumnWidth(getChatColumnWidthPx());
     setupEventListeners();
     applyAccentTheme(state.globalAccentTheme);
     applyDisplayName();
@@ -650,6 +672,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             elements.chatScrim.addEventListener('click', () => collapseChatColumn());
         }
 
+        if (elements.homeBtn) {
+            elements.homeBtn.addEventListener('click', () => goHome());
+        }
+
         // Toggle slide-in Sidebar Drawer
         elements.historyDrawerToggle.addEventListener('click', () => toggleSidebarDrawer());
         elements.historyDrawerCloseBtn.addEventListener('click', () => toggleSidebarDrawer(false));
@@ -720,7 +746,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             });
         });
         if (elements.vaultPreviewBackBtn) {
-            elements.vaultPreviewBackBtn.addEventListener('click', () => closeVaultPreviewMobile());
+            elements.vaultPreviewBackBtn.addEventListener('click', () => closeVaultPreview());
         }
         if (elements.vaultPreviewSaveBtn) {
             elements.vaultPreviewSaveBtn.addEventListener('click', () => saveVaultPreview());
@@ -801,13 +827,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
         if (elements.hudCoreVisualizer) {
             elements.hudCoreVisualizer.addEventListener('click', () => {
-                if (state.kanbanMode) exitKanbanMode();
+                if (state.kanbanMode) activateKanbanCompanion();
             });
             elements.hudCoreVisualizer.addEventListener('keydown', (e) => {
                 if (!state.kanbanMode) return;
                 if (e.key === 'Enter' || e.key === ' ') {
                     e.preventDefault();
-                    exitKanbanMode();
+                    activateKanbanCompanion();
                 }
             });
         }
@@ -909,9 +935,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const activeEl = document.activeElement;
                 const activeTag = activeEl?.tagName?.toLowerCase() || '';
                 if (['input', 'textarea', 'select'].includes(activeTag)) return;
-                if (elements.vaultPageBody?.classList.contains('show-preview') && isCompactViewport()) {
+                if (elements.vaultPageBody?.classList.contains('show-preview')) {
                     e.preventDefault();
-                    await closeVaultPreviewMobile();
+                    await closeVaultPreview();
                     return;
                 }
                 e.preventDefault();
@@ -1015,6 +1041,15 @@ document.addEventListener('DOMContentLoaded', async () => {
             });
         }
 
+        if (elements.chatColumnWidth) {
+            elements.chatColumnWidth.addEventListener('input', () => {
+                if (elements.chatColumnWidthVal) {
+                    elements.chatColumnWidthVal.textContent = elements.chatColumnWidth.value + 'px';
+                }
+                applyChatColumnWidth(parseInt(elements.chatColumnWidth.value, 10));
+            });
+        }
+
         // Hermes profile selector
         if (elements.hermesProfileSelect) {
             elements.hermesProfileSelect.addEventListener('change', () => {
@@ -1068,6 +1103,43 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (elements.sidebarDrawer?.classList.contains('open')) {
             toggleSidebarDrawer(false);
         }
+    }
+
+    async function goHome() {
+        closeModelPicker();
+        closeAllDrawers();
+
+        state.chatCollapsedBeforeSettings = true;
+        state.chatCollapsedBeforeVault = true;
+        state.chatCollapsedBeforeKanban = true;
+
+        if (state.kanbanMode) {
+            exitKanbanMode();
+        }
+        if (state.settingsMode) {
+            exitSettingsMode({ fromHash: true });
+        }
+        if (state.vaultMode) {
+            await exitVaultMode({ fromHash: true });
+        }
+
+        state.chatCollapsedBeforeSettings = null;
+        state.chatCollapsedBeforeVault = null;
+        state.chatCollapsedBeforeKanban = null;
+
+        collapseChatColumn();
+
+        const hash = window.location.hash || '';
+        if (hash.startsWith('#/settings') || hash.startsWith('#/vault')) {
+            const base = window.location.pathname + window.location.search;
+            history.replaceState(null, '', base);
+        }
+
+        if (typeof visualizer.setPresentationMode === 'function' && !state.kanbanMode) {
+            visualizer.setPresentationMode('default');
+        }
+
+        runTransitionResizeLoop();
     }
 
     function toggleSidebarDrawer(forceOpen) {
@@ -1685,10 +1757,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         return true;
     }
 
-    async function closeVaultPreviewMobile() {
-        await closeVaultPreview();
-    }
-
     async function openVaultPreview(fileId) {
         if (!fileId) return;
         if (state.vaultPreviewId && state.vaultPreviewId !== fileId && state.vaultPreviewDirty) {
@@ -2290,13 +2358,34 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (active) {
             el.setAttribute('role', 'button');
             el.setAttribute('tabindex', '0');
-            el.setAttribute('aria-label', 'Return to chat mode');
-            el.title = 'Return to chat';
+            el.setAttribute('aria-label', 'Talk to Aether');
+            el.title = 'Open chat';
         } else {
             el.removeAttribute('role');
             el.removeAttribute('tabindex');
             el.removeAttribute('aria-label');
             el.removeAttribute('title');
+        }
+    }
+
+    function activateKanbanCompanion() {
+        if (!state.kanbanMode) return;
+
+        const chatCollapsed = elements.hudShell?.classList.contains('chat-collapsed');
+        if (chatCollapsed) {
+            elements.hudShell?.classList.add('kanban-chat-peek');
+            expandChatColumn(true);
+        }
+
+        if (state.speechEnabled) {
+            setSpeechEnabled(true, { announce: false });
+            if (!state.isVoiceActive && !state.isVoiceConnecting) {
+                startVoiceMode();
+            }
+        }
+
+        if (!chatCollapsed) {
+            runTransitionResizeLoop();
         }
     }
 
@@ -2456,6 +2545,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (state.chatCollapsedBeforeKanban === null) {
             state.chatCollapsedBeforeKanban = elements.hudShell?.classList.contains('chat-collapsed') ?? true;
         }
+        elements.hudShell?.classList.remove('kanban-chat-peek');
         collapseChatColumn();
 
         state.kanbanMode = true;
@@ -2492,6 +2582,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         setKanbanStageLoading(false);
         unmountNativeKanbanBoard();
         updateKanbanCompanionAffordance(false);
+        elements.hudShell?.classList.remove('kanban-chat-peek');
 
         const restoreCollapsed = state.chatCollapsedBeforeKanban;
         state.chatCollapsedBeforeKanban = null;
@@ -2545,6 +2636,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     function collapseChatColumn() {
+        if (state.kanbanMode) {
+            elements.hudShell?.classList.remove('kanban-chat-peek');
+        }
         elements.hudShell?.classList.add('chat-collapsed');
         elements.chatDeckToggle.classList.remove('active');
         AetherUserData.setItem('aether_chat_column_collapsed', 'true');
@@ -5808,6 +5902,14 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         }
 
+        if (elements.chatColumnWidth) {
+            const chatWidth = String(getChatColumnWidthPx());
+            elements.chatColumnWidth.value = chatWidth;
+            if (elements.chatColumnWidthVal) {
+                elements.chatColumnWidthVal.textContent = chatWidth + 'px';
+            }
+        }
+
         if (elements.voiceInputBehavior) {
             elements.voiceInputBehavior.value = AetherUserData.getItem('aether_voice_input_behavior') || 'auto';
         }
@@ -5875,6 +5977,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
         setSkillsStatus('');
 
+        applyChatColumnWidth(getChatColumnWidthPx());
+
         const restoreCollapsed = state.chatCollapsedBeforeSettings;
         state.chatCollapsedBeforeSettings = null;
         if (restoreCollapsed === false) {
@@ -5901,6 +6005,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (elements.ttsReplayCacheSize) {
             AetherUserData.setItem('aether_tts_replay_cache_size', elements.ttsReplayCacheSize.value);
             syncReplayButtonsForSession();
+        }
+
+        if (elements.chatColumnWidth) {
+            AetherUserData.setItem('aether_chat_column_width', elements.chatColumnWidth.value);
+            applyChatColumnWidth(parseInt(elements.chatColumnWidth.value, 10));
         }
 
         if (elements.ttsProvider) {
@@ -6310,8 +6419,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
         html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
 
-        html = html.replace(/^###\s+(.*?)$/gm, '<div style="color:var(--accent-primary); font-weight:bold; margin-top:8px;">$1</div>');
-        html = html.replace(/^####\s+(.*?)$/gm, '<div style="color:#ffffff; font-weight:bold; margin-top:6px;">$1</div>');
+        html = html.replace(/^###\s+(.*?)$/gm, '<div class="bubble-heading-h3">$1</div>');
+        html = html.replace(/^####\s+(.*?)$/gm, '<div class="bubble-heading-h4">$1</div>');
 
         html = html.replace(/^\s*-\s+(.*?)$/gm, '&bull; $1');
 

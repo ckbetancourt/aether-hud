@@ -126,6 +126,61 @@ Aether auto-starts `hermes dashboard --no-open` in the background when the dashb
 
 Docs: [Hermes Kanban](https://hermes-agent.nousresearch.com/docs/user-guide/features/kanban)
 
+### Task creation defaults
+
+Kanban is **not** part of the chat gateway API. Aether renders a native board UI (`kanban-board.js`) that talks to Hermes `kanban_db` over `/api/hermes/kanban/*` and a Python bridge (`lib/hermes_kanban_bridge.py`). Tasks live in SQLite at `~/.hermes/kanban.db` (default board) or `~/.hermes/kanban/boards/<slug>/kanban.db`.
+
+**HUD inline create flow:** column **+** → form → `POST /api/hermes/kanban/tasks?board=<slug>` → `kanban_db.create_task`.
+
+#### Does the task land in the column you clicked?
+
+Mostly **no** — Hermes computes status at create time; the HUD only sets one column-specific flag:
+
+| Column you click **+** on | Request body | Resulting status |
+|---------------------------|--------------|------------------|
+| **Triage** | `triage: true` | `triage` |
+| **Blocked** | `initial_status: "blocked"` | `blocked` |
+| **Ready, Todo, Scheduled, etc.** | no status field | Hermes decides (below) |
+
+Clicking **+** on Ready usually produces a Ready card because Hermes defaults to `ready` when there are no parents — not because the column was clicked. This matches the native Hermes dashboard behavior.
+
+#### Status rules (`kanban_db.create_task`)
+
+| Condition | Status |
+|-----------|--------|
+| `triage: true` | `triage` |
+| `initial_status: "blocked"` (Blocked column or CLI) | `blocked` |
+| No parents, or all parents are `done` | **`ready`** |
+| Has parent(s) not yet `done` | **`todo`** |
+
+You cannot create directly into `scheduled`, `running`, `review`, or `done` — use drag-drop, drawer status buttons, or dispatch after create.
+
+#### Other defaults (HUD create)
+
+| Field | Default |
+|-------|---------|
+| Board | `default`, or last board in `localStorage` (`aether_kanban_board`) |
+| `workspace_kind` | `scratch` |
+| `priority` | `0` |
+| `created_by` | `"dashboard"` |
+| `assignee` | optional |
+| `tenant` | active filter or bootstrap `default_tenant` |
+| `workspace_path` | board `default_workdir` when set |
+
+If status is `ready` with an assignee, the bridge may warn when the Hermes dispatcher is not running.
+
+#### Agent tool (`kanban_create`) and CLI
+
+Agents call the same `create_task` via the `kanban_create` tool — **`assignee` is required** (undispatched otherwise). `created_by` is the worker profile. Same status rules apply.
+
+CLI: `hermes kanban create "title" [--assignee profile] [--parent id] [--triage] [--initial-status blocked]`
+
+#### Moving tasks after create
+
+- Drag-drop or drawer → `PATCH /api/hermes/kanban/tasks/:id` with `{ status }`
+- Triage → **Specify** or **Decompose** endpoints
+- Dispatcher → `ready` + assignee → `running`
+
 ## `/aether` slash command
 
 Install the skill (separate from API wiring):

@@ -180,6 +180,7 @@ def dispatch_op(api, op: str, params: dict[str, Any]) -> dict[str, Any]:
                 idempotency_key=raw.get("idempotency_key"),
                 max_runtime_seconds=raw.get("max_runtime_seconds"),
                 skills=skills,
+                initial_status=str(raw.get("initial_status") or "running"),
             )
             task = kanban_db.get_task(conn, task_id)
             result: dict[str, Any] = {"ok": True, "task": api._task_dict(task) if task else None}
