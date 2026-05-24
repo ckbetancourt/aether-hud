@@ -247,6 +247,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         chatInFlight: false,
         _displayedSessionCount: SESSIONS_PAGE_SIZE,
     };
+    let pageHiddenAt = 0;
+    let pageReturnRefreshPromise = null;
     state.globalAccentTheme = loadGlobalAccentTheme();
     state.globalColorMode = loadColorMode();
     state.avatarForm = loadAvatarForm();
@@ -583,10 +585,50 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
 
-    // Auto-refresh chats when returning to the tab
+    async function waitForPageReturnRefresh() {
+        if (pageReturnRefreshPromise) {
+            await pageReturnRefreshPromise;
+        }
+    }
+
+    async function handlePageReturn() {
+        const hiddenForMs = pageHiddenAt ? Date.now() - pageHiddenAt : 0;
+        pageHiddenAt = 0;
+
+        if (state.chatInFlight && hiddenForMs >= 1500) {
+            try {
+                await ai.stopActiveChat();
+            } catch {
+                ai.activeAbortController?.abort();
+                ai.activeAbortController = null;
+                ai.activeRunId = null;
+            }
+            setChatInFlight(false);
+            visualizer.setState('idle');
+            visualizer.clearThinkingCaption();
+        }
+
+        pageReturnRefreshPromise = refreshHermesIntegration({ silent: true });
+        try {
+            await pageReturnRefreshPromise;
+        } finally {
+            pageReturnRefreshPromise = null;
+        }
+    }
+
+    // Re-probe Hermes when returning to the tab (backgrounding kills in-flight SSE).
     document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible' && state.hermesStatus?.enabled && state.hermesStatus?.connected) {
-            refreshHermesChats();
+        if (document.visibilityState === 'hidden') {
+            pageHiddenAt = Date.now();
+            return;
+        }
+        handlePageReturn();
+    });
+
+    window.addEventListener('pageshow', (event) => {
+        if (event.persisted) {
+            if (!pageHiddenAt) pageHiddenAt = Date.now();
+            handlePageReturn();
         }
     });
 
@@ -2923,6 +2965,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         const outgoingAttachments = cloneAttachmentsForSend(attachments);
         if (!trimmedText && !outgoingAttachments.length) return;
 
+        await waitForPageReturnRefresh();
+
         // Stop currently playing synthesis
         speech.stopSpeaking();
         setVoiceOutputSpeaking(false);
@@ -3038,6 +3082,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                 errorContent.textContent = err.message || 'Request failed';
             }
             clearAssistantBubbleToolPreview(bubbleNode);
+            showToast('Request failed', err.message || 'Could not reach Aether.', {
+                variant: 'error',
+                durationMs: 5200,
+            });
         } finally {
             setChatInFlight(false);
             visualizer.setState('idle');
@@ -4536,13 +4584,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         refreshHistoryIcons();
     }
 
-    async function refreshHermesIntegration() {
+    async function refreshHermesIntegration({ silent = false } = {}) {
+        const logAgent = (line) => {
+            if (!silent) appendSystemConsoleLine(line);
+        };
         try {
             const status = await ai.getBackendStatus();
             state.hermesStatus = status;
             updateHermesStatusUi(status);
             if (status.enabled && status.connected) {
-                appendSystemConsoleLine(`[AGENT] Hermes bridge connected: ${status.model || 'default model'}`);
+                logAgent(`[AGENT] Hermes bridge connected: ${status.model || 'default model'}`);
                 // Fetch profiles and populate the dropdown
                 populateHermesProfiles();
                 if (elements.hudShell?.classList.contains('boot-loading')) {
@@ -4550,10 +4601,12 @@ document.addEventListener('DOMContentLoaded', async () => {
                 }
                 await syncHermesSessions();
             } else if (status.enabled) {
-                appendSystemConsoleLine(`[AGENT] Hermes bridge unavailable: ${status.error || status.reason || 'status probe failed'}`);
-                (status.setupSteps || []).forEach((step, i) => {
-                    appendSystemConsoleLine(`[AGENT] Setup ${i + 1}/${status.setupSteps.length}: ${step}`);
-                });
+                logAgent(`[AGENT] Hermes bridge unavailable: ${status.error || status.reason || 'status probe failed'}`);
+                if (!silent) {
+                    (status.setupSteps || []).forEach((step, i) => {
+                        appendSystemConsoleLine(`[AGENT] Setup ${i + 1}/${status.setupSteps.length}: ${step}`);
+                    });
+                }
             }
         } catch (err) {
             state.hermesStatus = { enabled: false, connected: false, error: err.message };

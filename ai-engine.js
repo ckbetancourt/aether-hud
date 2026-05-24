@@ -95,6 +95,43 @@ class AIEngine {
         );
     }
 
+    static isTransientNetworkError(err) {
+        if (!err || err.name === 'AbortError') return false;
+        const msg = String(err.message || err || '');
+        return /load failed|failed to fetch|networkerror|network request failed|net::err/i.test(msg);
+    }
+
+    static humanizeFetchError(err, baseUrl) {
+        if (AIEngine.isTransientNetworkError(err)) {
+            const target = baseUrl || 'http://localhost:8787';
+            return new Error(
+                `Could not reach Aether server at ${target}. Ensure npm start is running, then refresh the page.`
+            );
+        }
+        return err instanceof Error ? err : new Error(String(err?.message || err || 'Request failed'));
+    }
+
+    async backendFetch(url, init = {}, { retry = false, baseUrl } = {}) {
+        const root = baseUrl || this.resolveLlmBackendBaseUrl();
+        const attempts = retry ? 2 : 1;
+        let lastErr;
+
+        for (let attempt = 0; attempt < attempts; attempt += 1) {
+            try {
+                return await fetch(url, init);
+            } catch (err) {
+                lastErr = err;
+                if (init?.signal?.aborted || err?.name === 'AbortError') throw err;
+                if (!AIEngine.isTransientNetworkError(err) || attempt >= attempts - 1) {
+                    throw AIEngine.humanizeFetchError(err, root);
+                }
+                await new Promise((resolve) => setTimeout(resolve, 400));
+            }
+        }
+
+        throw AIEngine.humanizeFetchError(lastErr, root);
+    }
+
     /**
      * Entrypoint for generating replies
      * @param {string} userMessage The raw text input
@@ -158,11 +195,11 @@ class AIEngine {
             return await this.consumeProgressChatStream(endpoint, payload, onToolProgress, options.signal);
         }
 
-        const response = await fetch(endpoint, {
+        const response = await this.backendFetch(endpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
-        });
+        }, { retry: true, baseUrl: root });
 
         const data = await response.json().catch(() => ({}));
         if (!response.ok) {
@@ -182,13 +219,19 @@ class AIEngine {
     async consumeProgressChatStream(endpoint, payload, onToolProgress, signal) {
         this.activeAbortController = signal ? null : new AbortController();
         const fetchSignal = signal || this.activeAbortController?.signal;
+        const baseUrl = endpoint.replace(/\/api\/chat$/, '');
 
-        const response = await fetch(endpoint, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-            signal: fetchSignal,
-        });
+        let response;
+        try {
+            response = await this.backendFetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+                signal: fetchSignal,
+            }, { retry: true, baseUrl });
+        } catch (err) {
+            throw AIEngine.humanizeFetchError(err, baseUrl);
+        }
 
         if (!response.ok) {
             const data = await response.json().catch(() => ({}));
@@ -240,17 +283,22 @@ class AIEngine {
             }
         };
 
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            buffer += decoder.decode(value, { stream: true });
+        try {
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
 
-            let splitAt;
-            while ((splitAt = buffer.indexOf('\n\n')) !== -1) {
-                const block = buffer.slice(0, splitAt);
-                buffer = buffer.slice(splitAt + 2);
-                if (block.trim()) dispatchSseBlock(block);
+                let splitAt;
+                while ((splitAt = buffer.indexOf('\n\n')) !== -1) {
+                    const block = buffer.slice(0, splitAt);
+                    buffer = buffer.slice(splitAt + 2);
+                    if (block.trim()) dispatchSseBlock(block);
+                }
             }
+        } catch (err) {
+            if (err?.name === 'AbortError') throw err;
+            throw AIEngine.humanizeFetchError(err, baseUrl);
         }
 
         if (buffer.trim()) dispatchSseBlock(buffer);
@@ -281,12 +329,20 @@ class AIEngine {
             return { enabled: false, connected: false, reason: 'No local backend URL configured.' };
         }
 
-        const response = await fetch(`${baseUrl}/api/hermes/status`);
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok && !data.error) {
-            data.error = `HTTP ${response.status}`;
+        try {
+            const response = await this.backendFetch(`${baseUrl}/api/hermes/status`, {}, { baseUrl });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok && !data.error) {
+                data.error = `HTTP ${response.status}`;
+            }
+            return data;
+        } catch (err) {
+            return {
+                enabled: false,
+                connected: false,
+                error: err.message || 'Could not reach Aether server.',
+            };
         }
-        return data;
     }
 
     async getHermesProfiles() {
@@ -367,7 +423,7 @@ class AIEngine {
             init.headers['Content-Type'] = 'application/json';
             init.body = JSON.stringify(body);
         }
-        const response = await fetch(url, init);
+        const response = await this.backendFetch(url, init, { baseUrl });
         const data = await response.json().catch(() => ({}));
         if (!response.ok && data.ok !== true && !data.columns && !data.task) {
             throw new Error(data.error || data.message || data.detail || `HTTP ${response.status}`);
@@ -581,7 +637,7 @@ class AIEngine {
     async ingestVault() {
         const baseUrl = this.resolveLlmBackendBaseUrl();
         if (!baseUrl) return { available: false };
-        const response = await fetch(`${baseUrl}/api/aether/vault/ingest`, { method: 'POST' });
+        const response = await this.backendFetch(`${baseUrl}/api/aether/vault/ingest`, { method: 'POST' }, { baseUrl });
         const data = await response.json().catch(() => ({}));
         if (!response.ok) {
             throw new Error(data.error || data.message || `HTTP ${response.status}`);
@@ -596,7 +652,7 @@ class AIEngine {
         if (sessionId) params.set('session_id', String(sessionId));
         if (query) params.set('q', String(query));
         const qs = params.toString();
-        const response = await fetch(`${baseUrl}/api/aether/vault/files${qs ? `?${qs}` : ''}`);
+        const response = await this.backendFetch(`${baseUrl}/api/aether/vault/files${qs ? `?${qs}` : ''}`, {}, { baseUrl });
         const data = await response.json().catch(() => ({}));
         if (!response.ok) {
             throw new Error(data.error || data.message || `HTTP ${response.status}`);
@@ -607,7 +663,7 @@ class AIEngine {
     async getVaultSessions() {
         const baseUrl = this.resolveLlmBackendBaseUrl();
         if (!baseUrl) return { available: false, sessions: [] };
-        const response = await fetch(`${baseUrl}/api/aether/vault/sessions`);
+        const response = await this.backendFetch(`${baseUrl}/api/aether/vault/sessions`, {}, { baseUrl });
         const data = await response.json().catch(() => ({}));
         if (!response.ok) {
             throw new Error(data.error || data.message || `HTTP ${response.status}`);
@@ -618,11 +674,11 @@ class AIEngine {
     async revealVaultFile(id) {
         const baseUrl = this.resolveLlmBackendBaseUrl();
         if (!baseUrl || !id) throw new Error('Vault file id is required.');
-        const response = await fetch(`${baseUrl}/api/aether/vault/reveal`, {
+        const response = await this.backendFetch(`${baseUrl}/api/aether/vault/reveal`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ id: String(id) }),
-        });
+        }, { baseUrl });
         const data = await response.json().catch(() => ({}));
         if (!response.ok) {
             throw new Error(data.error || data.message || `HTTP ${response.status}`);
@@ -633,7 +689,7 @@ class AIEngine {
     async purgeMissingVaultFiles() {
         const baseUrl = this.resolveLlmBackendBaseUrl();
         if (!baseUrl) return { available: false, removed: 0 };
-        const response = await fetch(`${baseUrl}/api/aether/vault/purge-missing`, { method: 'POST' });
+        const response = await this.backendFetch(`${baseUrl}/api/aether/vault/purge-missing`, { method: 'POST' }, { baseUrl });
         const data = await response.json().catch(() => ({}));
         if (!response.ok) {
             throw new Error(data.error || data.message || `HTTP ${response.status}`);
@@ -645,7 +701,7 @@ class AIEngine {
         const baseUrl = this.resolveLlmBackendBaseUrl();
         if (!baseUrl || !id) throw new Error('Vault file id is required.');
         const params = new URLSearchParams({ id: String(id) });
-        const response = await fetch(`${baseUrl}/api/aether/vault/file?${params}`);
+        const response = await this.backendFetch(`${baseUrl}/api/aether/vault/file?${params}`, {}, { baseUrl });
         const data = await response.json().catch(() => ({}));
         if (!response.ok) {
             throw new Error(data.error || data.message || `HTTP ${response.status}`);
@@ -656,11 +712,11 @@ class AIEngine {
     async saveVaultFile(id, content) {
         const baseUrl = this.resolveLlmBackendBaseUrl();
         if (!baseUrl || !id) throw new Error('Vault file id is required.');
-        const response = await fetch(`${baseUrl}/api/aether/vault/file`, {
+        const response = await this.backendFetch(`${baseUrl}/api/aether/vault/file`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ id: String(id), content: String(content ?? '') }),
-        });
+        }, { baseUrl });
         const data = await response.json().catch(() => ({}));
         if (!response.ok) {
             throw new Error(data.error || data.message || `HTTP ${response.status}`);

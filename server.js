@@ -1951,6 +1951,15 @@ const server = http.createServer(async (req, res) => {
           Connection: 'keep-alive',
           ...corsHeaders(),
         });
+        let streamCompleted = false;
+        req.on('close', () => {
+          if (!streamCompleted && !res.writableEnded) {
+            console.warn('[api/chat] SSE client disconnected before stream completed');
+          }
+        });
+        res.on('error', (e) => {
+          console.warn('[api/chat] SSE response error:', e.message || e);
+        });
         const emitProgress = (event, data) => writeSseEvent(res, event, data);
         try {
           const result = await handleChat(body, emitProgress);
@@ -1960,6 +1969,7 @@ const server = http.createServer(async (req, res) => {
           console.error('[api/chat]', e.message || e);
           writeSseEvent(res, 'error', { error: e.message || 'Server error', status });
         }
+        streamCompleted = true;
         res.end();
         return;
       }
