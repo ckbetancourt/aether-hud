@@ -583,9 +583,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     setBootStatus('Loading session archive…');
 
     // Restore saved session on reload; only start fresh on first visit.
-    if (state.activeSessionId) {
+    const restoredSession = state.activeSessionId
+        ? (findAetherSession(state.activeSessionId) || findHermesSession(state.activeSessionId))
+        : null;
+
+    if (restoredSession) {
         await loadSession(state.activeSessionId, { silent: true });
     } else {
+        // Phantom stale ID (e.g. ephemeral session that was never persisted) — clear it
+        AetherUserData.removeItem('aether_active_session_id');
+        state.activeSessionId = null;
         startNewSession({ ephemeral: true, silent: true });
     }
     if (aetherSessionsMigrationNeeded) {
@@ -4144,8 +4151,17 @@ document.addEventListener('DOMContentLoaded', async () => {
                 'hermes:',
                 state.hermesSessions.map((s) => s.id).slice(0, 5)
             );
-            startNewSession({ ephemeral: true });
-            return;
+            // Fallback: pick the most recent persisted aether session (not ephemeral)
+            const fallback = state.aetherSessions[0];
+            if (fallback && fallback.id) {
+                state.activeSessionId = fallback.id;
+                AetherUserData.setItem('aether_active_session_id', fallback.id);
+                session = fallback;
+                console.log(`[loadSession] Falling back to most recent aether session: ${fallback.id}`);
+            } else {
+                startNewSession({ ephemeral: true });
+                return;
+            }
         }
 
         const loadId = session.aetherArchiveId || session.id;
