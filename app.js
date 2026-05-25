@@ -582,8 +582,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     await refreshHermesIntegration();
     setBootStatus('Loading session archive…');
 
-    // Fresh session on every load/reload; saved history stays in the sidebar.
-    startNewSession({ ephemeral: true, silent: true });
+    // Restore saved session on reload; only start fresh on first visit.
+    if (state.activeSessionId) {
+        await loadSession(state.activeSessionId, { silent: true });
+    } else {
+        startNewSession({ ephemeral: true, silent: true });
+    }
     if (aetherSessionsMigrationNeeded) {
         schedulePersistSessions();
     }
