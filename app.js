@@ -582,19 +582,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     await refreshHermesIntegration();
     setBootStatus('Loading session archive…');
 
-    // Restore saved session on reload; only start fresh on first visit.
-    const restoredSession = state.activeSessionId
-        ? (findAetherSession(state.activeSessionId) || findHermesSession(state.activeSessionId))
-        : null;
-
-    if (restoredSession) {
-        await loadSession(state.activeSessionId, { silent: true });
-    } else {
-        // Phantom stale ID (e.g. ephemeral session that was never persisted) — clear it
-        AetherUserData.removeItem('aether_active_session_id');
-        state.activeSessionId = null;
-        startNewSession({ ephemeral: true, silent: true });
-    }
+    // Fresh session on every load/reload; saved history stays in the sidebar.
+    startNewSession({ ephemeral: true, silent: true });
     if (aetherSessionsMigrationNeeded) {
         schedulePersistSessions();
     }
@@ -3511,9 +3500,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             contentEl.appendChild(bubbleCursor);
 
             scrollConsoleBottom();
-            if (isChatScrolledNearBottom(elements.deckChatScroller)) {
-                scrollDeckToBottom();
-            }
+            elements.deckChatScroller.scrollTop = elements.deckChatScroller.scrollHeight;
 
             const speakableText = prepareSpeechText(fullText);
             const onReplayId = replayState
@@ -3556,9 +3543,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
                     if (index % 5 === 0) {
                         scrollConsoleBottom();
-                        if (isChatScrolledNearBottom(elements.deckChatScroller)) {
-                            scrollDeckToBottom();
-                        }
+                        elements.deckChatScroller.scrollTop = elements.deckChatScroller.scrollHeight;
                     }
                 } else {
                     clearInterval(interval);
@@ -3568,9 +3553,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     bubbleText.innerHTML = parseConsoleMarkdown(fullText);
                     lucide.createIcons();
                     scrollConsoleBottom();
-                    if (isChatScrolledNearBottom(elements.deckChatScroller)) {
-                        scrollDeckToBottom();
-                    }
+                    elements.deckChatScroller.scrollTop = elements.deckChatScroller.scrollHeight;
                     if (visualizer.state === 'thinking') {
                         visualizer.setState('idle');
                     }
@@ -3586,16 +3569,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             .replace(/\[(AGENT|SYSTEM|TASK TELEMETRY|MEMORY BANK)\][^\n]*/g, '')
             .replace(/(?:\*\*|`)??MEDIA:\s*(?:https?:\/\/\S+|~\/\S+|\/\S+|[A-Za-z]:[/\\]\S+)(?:\*\*|`)??/gi, '')
             .trim();
-    }
-
-    function isChatScrolledNearBottom(scroller, tolerance = 20) {
-        if (!scroller) return true;
-        return scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - tolerance;
-    }
-
-    function scrollDeckToBottom() {
-        if (!elements.deckChatScroller) return;
-        elements.deckChatScroller.scrollTop = elements.deckChatScroller.scrollHeight;
     }
 
     function scrollConsoleBottom() {
@@ -4151,43 +4124,40 @@ document.addEventListener('DOMContentLoaded', async () => {
                 'hermes:',
                 state.hermesSessions.map((s) => s.id).slice(0, 5)
             );
-            // Fallback: pick the most recent persisted aether session (not ephemeral)
-            const fallback = state.aetherSessions[0];
-            if (fallback && fallback.id) {
-                state.activeSessionId = fallback.id;
-                AetherUserData.setItem('aether_active_session_id', fallback.id);
-                session = fallback;
-                console.log(`[loadSession] Falling back to most recent aether session: ${fallback.id}`);
-            } else {
-                startNewSession({ ephemeral: true });
-                return;
-            }
+            startNewSession({ ephemeral: true });
+            return;
         }
 
         const loadId = session.aetherArchiveId || session.id;
+        // Capture BEFORE we mutate state — "was this session already active before we selected it?"
+        const wasAlreadyActive = state.activeSessionId && (session.id === state.activeSessionId || session.aetherArchiveId === state.activeSessionId);
         state.activeSessionId = loadId;
         AetherUserData.setItem('aether_active_session_id', loadId);
         updateHermesProfileBadge();
 
         const inAetherArchive = !!findAetherSession(loadId);
 
-        // For Hermes-linked sessions, fetch latest messages from state.db
+        // For Hermes-linked sessions, fetch latest messages from state.db.
+        // Skip state.db for the active session — in-memory is authoritative during live chat.
+        const shouldFetchDb = !wasAlreadyActive || !session.messages || session.messages.length === 0;
         const hermesFetchId = getHermesBridgeSessionId(session);
-        if (hermesFetchId && ai) {
+        if (hermesFetchId && ai && shouldFetchDb) {
             try {
                 console.log(`[loadSession] Fetching latest messages for Hermes session: ${hermesFetchId}`);
                 const msgs = await ai.getHermesSessionMessages(hermesFetchId);
                 if (msgs.available && Array.isArray(msgs.messages) && msgs.messages.length > 0) {
                     const freshMessages = normalizeHermesMessages(msgs.messages);
                     if (freshMessages.length > 0) {
-                        // Only hydrate if local cache is empty — never overwrite
-                        // an in-memory session that may have newer turns than state.db
+                        // Only hydrate from state.db if the in-memory cache is empty.
+                        // During an active conversation, in-memory messages are authoritative;
+                        // state.db may lag behind (WAL, network) and overwriting would cause
+                        // visible message rollback — replies disappearing after a second.
                         if (!session.messages || session.messages.length === 0) {
                             session.messages = freshMessages;
-                            session.source = 'hermes';
-                            if (inAetherArchive) {
-                                schedulePersistSessions();
-                            }
+                        }
+                        session.source = 'hermes';
+                        if (inAetherArchive) {
+                            schedulePersistSessions();
                         }
                     }
                 }
@@ -4223,17 +4193,23 @@ document.addEventListener('DOMContentLoaded', async () => {
             });
         }
 
-        elements.deckChatScroller.innerHTML = '';
-        if (session.messages.length === 0) {
-            appendAssistantChatBubble('Session loaded. Awaiting inputs…');
-        } else {
-            session.messages.forEach((msg, i) => {
-                if (msg.role === 'user') {
-                    appendUserChatBubble(msg.content, msg.attachments || []);
-                } else {
-                    appendAssistantChatBubble(msg.content, i);
-                }
-            });
+        // Skip deck rebuild if this session is already active — in-memory is authoritative
+        // during live chat, and rebuilding would discard streamed text not yet in session.messages.
+        if (!wasAlreadyActive) {
+            elements.deckChatScroller.innerHTML = '';
+            if (session.messages.length === 0) {
+                appendAssistantChatBubble('Session loaded. Awaiting inputs…');
+            } else {
+                session.messages.forEach((msg, i) => {
+                    if (msg.role === 'user') {
+                        appendUserChatBubble(msg.content, msg.attachments || []);
+                    } else {
+                        appendAssistantChatBubble(msg.content, i);
+                    }
+                });
+                syncReplayButtonsForSession();
+            }
+        } else if (session.messages.length > 0) {
             syncReplayButtonsForSession();
         }
 
@@ -5020,7 +4996,12 @@ document.addEventListener('DOMContentLoaded', async () => {
                     if (item.startedAt) existing.startedAt = item.startedAt;
                     if (item.messageCount != null) existing.messageCount = item.messageCount;
 
-                    if (shouldHydrate) {
+                    // Never overwrite the active session's messages with state.db data.
+                    // During live chat, in-memory is authoritative — state.db can lag.
+                    const isActiveSession = existing.id === state.activeSessionId
+                        || aetherLinked?.id === state.activeSessionId
+                        || aetherLinked?.aetherArchiveId === state.activeSessionId;
+                    if (shouldHydrate && !isActiveSession) {
                         try {
                             const msgs = await ai.getHermesSessionMessages(hermesSessionId);
                             if (msgs.available && Array.isArray(msgs.messages) && msgs.messages.length > 0) {
@@ -5608,9 +5589,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         div.appendChild(createBubbleFooter({ showReadReceipt: true }));
 
         elements.deckChatScroller.appendChild(div);
-        if (isChatScrolledNearBottom(elements.deckChatScroller)) {
-            scrollDeckToBottom();
-        }
+        elements.deckChatScroller.scrollTop = elements.deckChatScroller.scrollHeight;
         refreshBubbleIcons(div);
         return div;
     }
@@ -5638,9 +5617,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         row.appendChild(div);
         elements.deckChatScroller.appendChild(row);
-        if (isChatScrolledNearBottom(elements.deckChatScroller)) {
-            scrollDeckToBottom();
-        }
+        elements.deckChatScroller.scrollTop = elements.deckChatScroller.scrollHeight;
         refreshBubbleIcons(row);
         return div;
     }
@@ -5778,9 +5755,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         content.appendChild(preview);
-        if (isChatScrolledNearBottom(elements.deckChatScroller)) {
-            scrollDeckToBottom();
-        }
+        elements.deckChatScroller.scrollTop = elements.deckChatScroller.scrollHeight;
     }
 
     function clearAssistantBubbleToolPreview(bubbleNode) {
