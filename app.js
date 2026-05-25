@@ -26,6 +26,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     const DEFAULT_CHAT_COLUMN_WIDTH_PX = 825;
     const CHAT_COLUMN_WIDTH_MIN = 400;
     const CHAT_COLUMN_WIDTH_MAX = 1200;
+    const HUD_MAIN_MIN_WIDTH_PX = 400;
+    const HUD_SHELL_CHAT_INSET_PX = 24;
+    const CHAT_MAX_FRACTION = 0.5;
 
     let pendingAttachments = [];
     let chatDropDepth = 0;
@@ -464,9 +467,26 @@ document.addEventListener('DOMContentLoaded', async () => {
         return DEFAULT_CHAT_COLUMN_WIDTH_PX;
     }
 
+    function getMaxChatColumnWidthForViewport() {
+        if (isCompactViewport()) {
+            return CHAT_COLUMN_WIDTH_MAX;
+        }
+        const vw = window.innerWidth;
+        const cap = Math.min(
+            vw - HUD_MAIN_MIN_WIDTH_PX - HUD_SHELL_CHAT_INSET_PX,
+            vw * CHAT_MAX_FRACTION
+        );
+        return Math.max(CHAT_COLUMN_WIDTH_MIN, cap);
+    }
+
     function applyChatColumnWidth(px) {
         if (isCompactViewport()) return;
-        const clamped = Math.min(CHAT_COLUMN_WIDTH_MAX, Math.max(CHAT_COLUMN_WIDTH_MIN, px));
+        const viewportCap = getMaxChatColumnWidthForViewport();
+        const clamped = Math.min(
+            CHAT_COLUMN_WIDTH_MAX,
+            viewportCap,
+            Math.max(CHAT_COLUMN_WIDTH_MIN, px)
+        );
         document.documentElement.style.setProperty('--chat-column-width-px', String(clamped));
     }
 
@@ -665,6 +685,16 @@ document.addEventListener('DOMContentLoaded', async () => {
        ========================================================================== */
     function setupEventListeners() {
         COMPACT_MEDIA.addEventListener('change', syncViewportMode);
+        let chatWidthResizeTimer = null;
+        window.addEventListener('resize', () => {
+            if (chatWidthResizeTimer) clearTimeout(chatWidthResizeTimer);
+            chatWidthResizeTimer = setTimeout(() => {
+                chatWidthResizeTimer = null;
+                if (!isCompactViewport()) {
+                    applyChatColumnWidth(getChatColumnWidthPx());
+                }
+            }, 100);
+        });
         if (elements.drawerScrim) {
             elements.drawerScrim.addEventListener('click', closeAllDrawers);
         }

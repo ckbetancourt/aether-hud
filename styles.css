@@ -25,6 +25,8 @@
 
     /* Chat panel inset (shared across color modes) */
     --hud-shell-chat-inset: 24px;
+    --hud-main-min-width: 400px;
+    --chat-column-max-fraction: 0.5;
     --chat-panel-radius: 22px;
     --chat-column-width-px: 825;
 }
@@ -790,6 +792,10 @@ body {
     padding: 20px 30px;
     justify-content: space-between;
     transition: padding var(--transition-speed) ease;
+}
+
+.hud-container.hud-main {
+    overflow: hidden;
 }
 
 /* --- 1. Top HUD Header Status --- */
@@ -5468,7 +5474,9 @@ body {
 .chat-column {
     --chat-column-width: min(
         calc(var(--chat-column-width-px) * 1px),
-        calc(var(--chat-column-width-px) * 0.085 * 1vw)
+        calc(var(--chat-column-width-px) * 0.085 * 1vw),
+        calc(100vw - var(--hud-main-min-width) - var(--hud-shell-chat-inset)),
+        calc(100vw * var(--chat-column-max-fraction))
     );
     flex: 0 0 var(--chat-column-width);
     width: var(--chat-column-width);
@@ -8171,6 +8179,79 @@ body {
 
 .hud-shell.kanban-mode .console-sink {
     display: none;
+}
+
+/* ==========================================================================
+   Wide viewport (side-by-side; all sizes above mobile)
+   ========================================================================== */
+
+@media (min-width: 901px) {
+    .hud-header {
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .hud-status-area {
+        min-width: 0;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: 8px;
+    }
+
+    .badge-model {
+        max-width: 140px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .hud-bottom-area {
+        width: 100%;
+        max-width: 100%;
+        overflow: hidden;
+    }
+
+    .hud-controls-pill {
+        width: 100%;
+        max-width: 100%;
+        overflow-x: auto;
+        overflow-y: hidden;
+        -webkit-overflow-scrolling: touch;
+        scroll-snap-type: x proximity;
+        scrollbar-width: none;
+        justify-content: flex-start;
+        gap: 8px;
+        padding: 10px 14px;
+        box-sizing: border-box;
+    }
+
+    .hud-controls-pill::-webkit-scrollbar {
+        display: none;
+    }
+
+    .hud-circle-btn,
+    .hud-voice-input-btn,
+    .hud-voice-reply-btn,
+    .hud-model-btn {
+        scroll-snap-align: center;
+        flex-shrink: 0;
+    }
+
+    .hud-orb-label {
+        align-self: center;
+        text-align: center;
+        max-width: 100%;
+    }
+}
+
+@media (min-width: 901px) and (max-width: 1400px) {
+    .badge-telemetry {
+        display: none;
+    }
+
+    .badge-model {
+        max-width: 100px;
+    }
 }
 
 /* ==========================================================================
