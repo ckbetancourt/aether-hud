@@ -8209,11 +8209,13 @@ body {
         width: 100%;
         max-width: 100%;
         overflow: hidden;
+        align-items: center;
     }
 
     .hud-controls-pill {
-        width: 100%;
-        max-width: 100%;
+        width: fit-content;
+        max-width: min(100%, calc(100vw * var(--chat-column-max-fraction)));
+        margin-inline: auto;
         overflow-x: auto;
         overflow-y: hidden;
         -webkit-overflow-scrolling: touch;
