@@ -3500,7 +3500,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             contentEl.appendChild(bubbleCursor);
 
             scrollConsoleBottom();
-            elements.deckChatScroller.scrollTop = elements.deckChatScroller.scrollHeight;
+            if (isChatScrolledNearBottom(elements.deckChatScroller)) {
+                scrollDeckToBottom();
+            }
 
             const speakableText = prepareSpeechText(fullText);
             const onReplayId = replayState
@@ -3543,7 +3545,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
                     if (index % 5 === 0) {
                         scrollConsoleBottom();
-                        elements.deckChatScroller.scrollTop = elements.deckChatScroller.scrollHeight;
+                        if (isChatScrolledNearBottom(elements.deckChatScroller)) {
+                            scrollDeckToBottom();
+                        }
                     }
                 } else {
                     clearInterval(interval);
@@ -3553,7 +3557,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                     bubbleText.innerHTML = parseConsoleMarkdown(fullText);
                     lucide.createIcons();
                     scrollConsoleBottom();
-                    elements.deckChatScroller.scrollTop = elements.deckChatScroller.scrollHeight;
+                    if (isChatScrolledNearBottom(elements.deckChatScroller)) {
+                        scrollDeckToBottom();
+                    }
                     if (visualizer.state === 'thinking') {
                         visualizer.setState('idle');
                     }
@@ -3569,6 +3575,16 @@ document.addEventListener('DOMContentLoaded', async () => {
             .replace(/\[(AGENT|SYSTEM|TASK TELEMETRY|MEMORY BANK)\][^\n]*/g, '')
             .replace(/(?:\*\*|`)??MEDIA:\s*(?:https?:\/\/\S+|~\/\S+|\/\S+|[A-Za-z]:[/\\]\S+)(?:\*\*|`)??/gi, '')
             .trim();
+    }
+
+    function isChatScrolledNearBottom(scroller, tolerance = 20) {
+        if (!scroller) return true;
+        return scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - tolerance;
+    }
+
+    function scrollDeckToBottom() {
+        if (!elements.deckChatScroller) return;
+        elements.deckChatScroller.scrollTop = elements.deckChatScroller.scrollHeight;
     }
 
     function scrollConsoleBottom() {
@@ -5572,7 +5588,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         div.appendChild(createBubbleFooter({ showReadReceipt: true }));
 
         elements.deckChatScroller.appendChild(div);
-        elements.deckChatScroller.scrollTop = elements.deckChatScroller.scrollHeight;
+        if (isChatScrolledNearBottom(elements.deckChatScroller)) {
+            scrollDeckToBottom();
+        }
         refreshBubbleIcons(div);
         return div;
     }
@@ -5600,7 +5618,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         row.appendChild(div);
         elements.deckChatScroller.appendChild(row);
-        elements.deckChatScroller.scrollTop = elements.deckChatScroller.scrollHeight;
+        if (isChatScrolledNearBottom(elements.deckChatScroller)) {
+            scrollDeckToBottom();
+        }
         refreshBubbleIcons(row);
         return div;
     }
@@ -5738,7 +5758,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         content.appendChild(preview);
-        elements.deckChatScroller.scrollTop = elements.deckChatScroller.scrollHeight;
+        if (isChatScrolledNearBottom(elements.deckChatScroller)) {
+            scrollDeckToBottom();
+        }
     }
 
     function clearAssistantBubbleToolPreview(bubbleNode) {
