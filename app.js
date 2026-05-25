@@ -4144,10 +4144,14 @@ document.addEventListener('DOMContentLoaded', async () => {
                 if (msgs.available && Array.isArray(msgs.messages) && msgs.messages.length > 0) {
                     const freshMessages = normalizeHermesMessages(msgs.messages);
                     if (freshMessages.length > 0) {
-                        session.messages = freshMessages;
-                        session.source = 'hermes';
-                        if (inAetherArchive) {
-                            schedulePersistSessions();
+                        // Only hydrate if local cache is empty — never overwrite
+                        // an in-memory session that may have newer turns than state.db
+                        if (!session.messages || session.messages.length === 0) {
+                            session.messages = freshMessages;
+                            session.source = 'hermes';
+                            if (inAetherArchive) {
+                                schedulePersistSessions();
+                            }
                         }
                     }
                 }
